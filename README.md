@@ -326,8 +326,7 @@ once by hand; releases are built and deployed from the repository clone.**
 | File | Purpose |
 | --- | --- |
 | [deploy.sh](deploy/deploy.sh) | Bash entry point: installs missing prerequisites (curl, sqlite3, ICU, PowerShell 7; asks first, `--yes` skips the prompt, `--prerequisites` stops after this), checks the build tools, then runs `deploy.ps1` with the same arguments. |
-| [deploy.ps1](deploy/deploy.ps1) | Run as yourself in `~/meldresearch`: builds the remote backend (always) and the desktop packages (only when the client changed; cross-built for Windows/macOS), signs desktop releases, then runs `apply-release.sh`. |
-| [apply-release.sh](deploy/apply-release.sh) | Copies the build to `~/meldresearch/deployed/releases/…`, points `deployed/current` at it, restarts the service (`sudo systemctl`), health-checks (rollback on failure), then publishes desktop updates to `~/meldresearch-data/downloads`. |
+| [deploy.ps1](deploy/deploy.ps1) | The deploy itself, run as yourself in `~/meldresearch`: builds the desktop packages (only when the client changed; cross-built for Windows/macOS) and signs them, builds the remote backend, copies it to `deployed/releases/…`, points `deployed/current` at it, restarts the service (`sudo systemctl`), health-checks it (rollback on failure), then publishes desktop updates to `~/meldresearch-data/downloads`. `-SkipBuild` redeploys the last build; `-BuildOnly` only builds. |
 | [meldresearch-remote.service](deploy/meldresearch-remote.service) | systemd unit: runs `~/meldresearch/deployed/current` as `markusmobius`; writable only `~/meldresearch-data`. |
 | [nginx/meldresearch.conf](deploy/nginx/meldresearch.conf) | nginx site: TLS, `meldresearch.org` → `www`, 3 MiB body limit, 5-minute analysis timeout, path-only access logs. |
 | [remote.env.example](deploy/remote.env.example) | Template for `~/meldresearch-data/remote.env`, with the (non-secret) Google client ID and Foundry values filled in. |
@@ -438,13 +437,14 @@ key, but only fresh installs trust it. Never commit the private key.
 ```bash
 cd ~/meldresearch && git pull --ff-only
 ./deploy/deploy.sh                         # add -FoundrySmokeTest to verify Foundry afterwards
-./deploy/deploy.sh -BuildOnly              # build and stage in artifacts/remote without applying
+./deploy/deploy.sh -SkipBuild              # redeploy the last build without rebuilding
+./deploy/deploy.sh -BuildOnly              # build into artifacts/ without deploying
 ```
 
-`deploy.sh` and `pwsh deploy/deploy.ps1` are equivalent; the PowerShell script is
-the single implementation (on Windows it can build with `-BuildOnly`; applying a
-release needs the Ubuntu server). If `./deploy/deploy.sh` reports "Permission
-denied", run `bash deploy/deploy.sh`, or record the executable bit once with
+`deploy.sh` only checks prerequisites and then runs `deploy.ps1`, which does the
+whole build and deploy (on Windows it can build with `-BuildOnly`; deploying needs
+the Ubuntu server). If `./deploy/deploy.sh` reports "Permission denied", run
+`bash deploy/deploy.sh`, or record the executable bit once with
 `git update-index --chmod=+x deploy/deploy.sh` and commit.
 
 - The **remote backend** is rebuilt and deployed every time. Releases live in

@@ -196,7 +196,7 @@ node .\tests\research.e2e.mjs --public-pages-only
   Rebuild packages after source changes; old ZIPs are not current builds.
 - [Remote deployment](deploy) ships releases to an Ubuntu server the owner set
   up by hand (nginx, certificates, systemd, user, secrets); `deploy.ps1` (run on
-  the server) and `apply-release.sh` must not perform that setup. Keep the reference nginx
+  the server) must not perform that setup. Keep the reference nginx
   forwarded headers (`Host`, overwritten `X-Forwarded-Proto/For`), path-only
   access logs and body/timeout limits aligned with the backend. Run it only with
   explicit approval.
