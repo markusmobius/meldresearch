@@ -1,0 +1,9 @@
+:root {
+  --brand-start: #1e3c72;
+  --brand-end: #2a5298;
+  --brand-accent: #1e3c72;
+  --brand-soft: #edf2fa;
+  --brand-border: #c8d6ed;
+  --page-background: #f4f7fb;
+}
+.role-local { display: none !important; }

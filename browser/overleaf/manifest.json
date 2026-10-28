@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "Meld Research - Overleaf connection",
+  "version": "0.3.0",
+  "description": "Read selected Overleaf projects into your local Meld Research application. No cookie extraction.",
+  "minimum_chrome_version": "120",
+  "incognito": "not_allowed",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAu27xID5NQM94wMi4N/gAOeWVA4bDai2PEJmoyok4hvmB749oioVPPCZDIjjWwI+SGRb+VjgDhXPVYxcs5fQMhvRY383he0xetuyHIZXjtQJ8SAa8t5sgdQ0nW12mNdsgfYcIvtUTET9q9/9K8uMPFVWfIN1mVWoyEmlHYhJP3tlQrsj4Z7Tdr8EJ0sKXJ/tVilzQJPoE32pxxpiPMsDIK9c4wE1XfZEq7BatrlE+735bJQM/iwbwMKiawvgn2ElUChVLqEwaTqDzL9t1SO0H6IqK65fCFxRQF4VtaW64uVTpUcn27JWounNcHQn3w1ex6aTDvuPYj+z4m+MBj1N+kQIDAQAB",
+  "permissions": ["nativeMessaging", "scripting", "storage", "alarms"],
+  "host_permissions": ["https://www.overleaf.com/*"],
+  "externally_connectable": {
+    "matches": ["http://127.0.0.1/*", "http://localhost/*"]
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'"
+  },
+  "action": {
+    "default_title": "Connect Overleaf to Meld Research",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png"
+    }
+  }
+}

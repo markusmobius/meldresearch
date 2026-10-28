@@ -1,0 +1,38 @@
+:host { display: block; height: 100dvh; width: 100%; overflow: hidden; font-family: 'Outfit', sans-serif; }
+.app-layout { display: flex; flex-direction: column; height: 100%; width: 100%; }
+.sidenav-container { flex: 1; min-height: 0; width: 100%; }
+.content-area { background: #f8fafc; padding: 40px 30px 30px; overflow-y: auto; scrollbar-gutter: stable; min-height: 0; }
+.content-area.feed-content { display: flex; flex-direction: column; padding: 0; overflow: hidden; scrollbar-gutter: auto; }
+.content-area > .alert { margin: 0 0 16px; }
+.feed-content > .alert { margin: 0; flex: 0 0 auto; }
+.operation-status { display: flex; align-items: center; gap: 8px; padding: 8px 16px; margin: 0; font-size: 13px; color: #475569; }
+.connection-settings { margin-top: 24px; }
+.connection-settings > mat-card { max-width: 720px; }
+mat-card { border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 2px 6px #00000008; }
+mat-card-title { font-size: 18px; font-weight: 600; }
+mat-card-content { font-family: 'Outfit', sans-serif; font-size: 14px; line-height: 1.6; padding-top: 12px; }
+mat-card-avatar { color: #084d42; }
+.connection.online { color: #0f766e; }
+.installation { margin: 16px 0; box-shadow: none !important; border: 1px solid #e2e8f0; }
+.installation ol { padding-left: 20px; }
+.installation li { margin: 12px 0; }
+.installation p { margin: 6px 0; }
+mat-form-field { display: block; width: 100%; margin-top: 12px; }
+.source-tools { display: flex; flex-direction: column; gap: 16px; margin-top: 24px; }
+.source-tools mat-expansion-panel { border: 1px solid #e2e8f0; box-shadow: none; }
+mat-panel-title { gap: 10px; }
+.section-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.project-list, .download-list, .file-list { list-style: none; padding: 0; margin: 0; }
+.project-list > li { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 12px 0; border-top: 1px solid #e2e8f0; }
+.project-list > li > div { flex: 1; min-width: 160px; overflow-wrap: anywhere; }
+.download-list > li { border-top: 1px solid #e2e8f0; padding: 12px 0; }
+small { display: block; color: #64748b; margin-top: 4px; font-size: 12px; }
+details { margin-top: 12px; font-size: 13px; }
+summary { cursor: pointer; }
+.file-list li { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; }
+.file-list code { overflow-wrap: anywhere; }
+@media (max-width: 700px) {
+  .content-area { padding: 24px 16px; }
+  .source-tools mat-expansion-panel-header { padding: 0 12px; }
+  mat-panel-description { display: none; }
+}

@@ -1,0 +1,58 @@
+* { box-sizing: border-box; }
+:root { color-scheme: light; }
+body { margin: 0; color: #1e293b; background: #f8fafc; font: 14px/1.6 'Outfit', 'Segoe UI', sans-serif; }
+a { color: var(--brand-accent); text-underline-offset: 3px; }
+.site-header { display: flex; align-items: center; gap: 24px; min-height: 64px; padding: 0 16px; background: linear-gradient(135deg, var(--brand-start), var(--brand-end)); color: white; }
+.site-brand { display: flex; align-items: center; gap: 10px; color: inherit; text-decoration: none; }
+.brand-mark { font-size: 24px; }
+.brand-text { display: flex; flex-direction: column; line-height: 1.1; font-size: 1.15rem; font-weight: 700; letter-spacing: -.5px; }
+.brand-role { font-size: .7rem; font-weight: 400; opacity: .8; letter-spacing: .5px; text-transform: uppercase; }
+.site-nav { display: flex; gap: 12px; flex-wrap: wrap; }
+.site-nav a { color: white; font-size: 14px; padding: 6px 12px; border-radius: 20px; text-decoration: none; }
+.site-nav a:hover { background: #ffffff26; }
+.site-main { flex: 1; width: 100%; max-width: 1250px; margin: 0 auto; padding: 40px 30px 30px; }
+.site-card { padding: 0; }
+.site-card h1 { margin: 0 0 16px; font-size: 24px; line-height: 32px; letter-spacing: 0; color: #1e293b; }
+.site-card h2 { margin: 28px 0 12px; font-size: 20px; color: var(--brand-accent); }
+.site-card h3 { margin: 20px 0 8px; font-size: 16px; }
+.site-card p { margin: 12px 0; }
+.site-card li { margin: 8px 0; }
+.lede { font-size: 15px; color: #64748b; max-width: 850px; }
+.eyebrow { display: none; }
+.notice, .callout { padding: 12px 16px; margin: 20px 0; border-radius: 4px; font-size: 13px; }
+.notice { color: #684a14; background: #fffbeb; border: 1px solid #f0dfb4; }
+.callout { background: var(--brand-soft); border-left: 3px solid var(--brand-accent); }
+.columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.feature { padding: 16px 20px; border: 1px solid #e2e8f0; border-radius: 8px; background: white; }
+.feature h2, .feature h3 { margin-top: 0; }
+.local-color { border-top: 3px solid #084d42; }
+.remote-color { border-top: 3px solid #1e3c72; }
+.actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 20px 0; }
+.site-main button, .site-main .button { display: inline-block; width: auto; border: 0; border-radius: 20px; padding: 8px 20px; color: white; background: var(--brand-accent); cursor: pointer; font: 500 14px/24px 'Outfit', sans-serif; text-decoration: none; }
+.button.secondary { color: var(--brand-accent); background: var(--brand-soft); }
+.doc-nav { display: flex; flex-wrap: wrap; gap: 10px 20px; border-block: 1px solid #e2e8f0; padding: 12px 0; margin: 24px 0; font-size: 13px; }
+.site-card section { scroll-margin-top: 24px; }
+.site-card table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 16px 0; }
+.site-card th, .site-card td { padding: 12px; text-align: left; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+.site-card th { background: var(--brand-soft); }
+code { font-size: .9em; overflow-wrap: anywhere; }
+pre { padding: 16px; border-radius: 4px; background: #f1f5f9; overflow: auto; }
+.team-card { display: flex; align-items: flex-start; gap: 22px; margin: 24px 0; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background: white; box-shadow: 0 4px 6px #00000006; }
+.team-card h2 { margin-top: 0; }
+.avatar { display: grid; place-items: center; flex-shrink: 0; width: 64px; height: 64px; border-radius: 50%; background: var(--brand-soft); color: var(--brand-accent); font-weight: 700; font-size: 24px; }
+.site-footer { display: flex; justify-content: center; gap: 16px; padding: 6px 12px; background: var(--brand-start); color: #ffffff99; font-size: 11px; }
+.meld-footer nav, .site-footer nav { display: flex; gap: 14px; }
+.site-footer a { color: inherit; }
+.stats-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 24px 0; }
+.stat-card { padding: 16px; border: 1px solid #e2e8f0; border-radius: 8px; background: white; box-shadow: 0 4px 15px #0000000d; text-align: center; }
+.site-card .stat-card h2 { margin: 0 0 4px; font-size: .85rem; color: #64748b; text-transform: uppercase; font-weight: 600; letter-spacing: .5px; }
+.site-card .stat-value { font-size: 2rem; font-weight: 800; color: #1e3c72; line-height: 1.2; margin: 4px 0; }
+.site-card .stat-desc { font-size: .75rem; color: #64748b; margin: 0; }
+@media (max-width: 640px) {
+  .site-header { gap: 12px; flex-wrap: wrap; padding: 12px 16px; }
+  .site-main { padding: 24px 16px; }
+  .columns, .stats-grid { grid-template-columns: 1fr; }
+  .site-card table { font-size: 12px; }
+  .site-card th, .site-card td { padding: 8px 4px; }
+  .team-card { gap: 14px; padding: 16px; }
+}

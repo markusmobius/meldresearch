@@ -1,0 +1,9 @@
+:root {
+  --brand-start: #084d42;
+  --brand-end: #0a6655;
+  --brand-accent: #084d42;
+  --brand-soft: #e7f2ee;
+  --brand-border: #bfd8ce;
+  --page-background: #f4f7f8;
+}
+.role-remote { display: none !important; }

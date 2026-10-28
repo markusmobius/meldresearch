@@ -1,0 +1,148 @@
+<div class="app-layout">
+  <app-meld-toolbar [page]="page()" [accountName]="research()?.account?.name ?? null"
+    [dummy]="!!status()?.dummy" [updateCount]="research()?.totalUpdates ?? 0"></app-meld-toolbar>
+
+  <mat-sidenav-container class="sidenav-container">
+    <mat-sidenav-content class="content-area" [class.feed-content]="page() === 'home'">
+      @if (connectionError()) { <p class="alert" role="alert">{{ connectionError() }}</p> }
+      @if (error()) { <p class="alert" role="alert">{{ error() }}</p> }
+      @if (busy()) { <p class="operation-status" role="status"><mat-icon>sync</mat-icon>{{ busy() }}</p> }
+      @if (page() === 'about-me') {
+        <header class="page-header page-container">
+          <div><h1 class="page-title"><mat-icon>badge</mat-icon>About me</h1>
+            <p class="page-subtitle">Your projects and private research knowledge.</p></div>
+          <a mat-button href="/#account"><mat-icon>settings</mat-icon>Account &amp; Overleaf</a>
+        </header>
+      }
+      @if (page() === 'account') {
+        <header class="page-header page-container"><h1 class="page-title"><mat-icon>account_circle</mat-icon>Account</h1></header>
+      }
+
+      <app-research-panel [page]="page()" [projects]="projects()" [sourceReady]="verified()"
+        (statusChange)="research.set($event)"></app-research-panel>
+
+      @if (page() === 'about-me') {
+        <div class="page-container source-tools">
+          <mat-expansion-panel class="source-browser">
+            <mat-expansion-panel-header>
+              <mat-panel-title><mat-icon>folder_open</mat-icon>Overleaf projects &amp; ZIP copies</mat-panel-title>
+            </mat-expansion-panel-header>
+            <div class="section-heading">
+              <p class="muted">{{ status()?.dummy ? 'Synthetic projects supplied by the local backend.' : 'Active projects accessible to your signed-in browser.' }}</p>
+              <button mat-stroked-button class="refresh-button" (click)="refresh()" [disabled]="!connected() || !!busy() || status()?.busy">
+                <mat-icon>refresh</mat-icon>Refresh projects
+              </button>
+            </div>
+            <ul class="project-list">
+              @for (project of projects(); track project.id) {
+                <li><div><strong>{{ project.name }}</strong>
+                  @if (project.updatedAt) { <small>Updated {{ project.updatedAt | date:'mediumDate' }}</small> }
+                </div>
+                  <button mat-button (click)="download(project)" [disabled]="!verified() || !!busy() || status()?.busy">
+                    <mat-icon>download</mat-icon>Download ZIP
+                  </button>
+                </li>
+              } @empty {
+                <li class="muted">{{ refreshed() ? 'No active projects found. Archived and deleted projects are not included.' : 'Connect Overleaf in Account; your project list loads automatically.' }}</li>
+              }
+            </ul>
+          </mat-expansion-panel>
+          <mat-expansion-panel class="local-downloads">
+            <mat-expansion-panel-header>
+              <mat-panel-title><mat-icon>download_done</mat-icon>Local downloads</mat-panel-title>
+              <mat-panel-description>{{ downloads().length }} snapshots</mat-panel-description>
+            </mat-expansion-panel-header>
+            <p class="muted">Validated ZIP snapshots remain available when the browser is closed. Your Overleaf originals are never changed.</p>
+            <ul class="download-list">
+              @for (download of downloads(); track download.id) {
+                <li>
+                  <div class="section-heading"><div><strong>{{ download.projectName }}</strong>
+                    <small>{{ download.downloadedAt | date:'medium' }} &middot; {{ download.bytes / 1024 | number:'1.0-1' }} KB</small></div>
+                    <a mat-button [href]="'/api/overleaf/downloads/' + download.id + '/archive'"><mat-icon>save_alt</mat-icon>Save ZIP copy</a>
+                  </div>
+                  <details><summary>{{ download.files.length }} validated files</summary>
+                    <ul class="file-list">
+                      @for (file of download.files; track file.path) { <li><code>{{ file.path }}</code><span>{{ file.bytes | number }} B</span></li> }
+                    </ul>
+                  </details>
+                </li>
+              } @empty { <li class="muted">No projects downloaded yet.</li> }
+            </ul>
+          </mat-expansion-panel>
+        </div>
+      }
+
+      @if (page() === 'account') {
+        <section class="page-container connection-settings" aria-label="Overleaf connection">
+          <mat-card>
+            <mat-card-header><mat-icon mat-card-avatar>link</mat-icon>
+              <mat-card-title>Overleaf connection</mat-card-title>
+              <mat-card-subtitle class="connection" [class.online]="verified()">{{ connectionLabel() }}</mat-card-subtitle>
+            </mat-card-header>
+            <mat-card-content>
+              <p>{{ status()?.dummy ? 'The local backend supplies synthetic Overleaf evidence. No real browser profile, account, or private project is used.' :
+                'The Chrome / Edge connector uses your normal Overleaf sign-in. No separate browser, passwords, or cookie exports.' }}</p>
+              @if (connectorMessage()) { <p class="notice" role="status">{{ connectorMessage() }}</p> }
+              @if (!status()?.dummy) {
+                <div class="controls">
+                  @if (!verified()) {
+                    <button mat-flat-button class="connect-button" (click)="connect()"
+                      [disabled]="connectorBusy() || !setup() || connector()?.kind === 'unsupported'">
+                      <mat-icon>link</mat-icon>{{ connectorBusy() ? 'Connecting...' : connected() && signInRequired() ? 'Sign in to Overleaf' :
+                        browserState()?.enabled === false ? 'Resume auto-connect' : 'Connect Overleaf' }}
+                    </button>
+                  }
+                  @if (browserState() && !signInRequired()) {
+                    <button mat-button (click)="connectorAction('signIn')" [disabled]="connectorBusy()">Sign in to Overleaf</button>
+                  }
+                  @if (browserState()?.enabled) {
+                    <button mat-button (click)="connectorAction('disconnect')" [disabled]="connectorBusy()">Pause auto-connect</button>
+                  }
+                </div>
+                @if (browserState()?.signInPending) {
+                  <p class="muted">Finish signing in or browser verification in the Overleaf tab. Return here when done; your projects will load automatically.</p>
+                } @else if (verified()) {
+                  <p class="muted">Connected. Keep your normal browser running for background project reads.</p>
+                } @else if (connected() && !signInRequired()) {
+                  <p class="muted">The browser bridge is available. A successful project read confirms Overleaf sign-in.</p>
+                }
+                <mat-expansion-panel class="installation" [expanded]="setupNeeded()">
+                  <mat-expansion-panel-header><mat-panel-title>One-time setup / troubleshooting</mat-panel-title></mat-expansion-panel-header>
+                  @if (setup()?.storePublished) {
+                    <p><a mat-flat-button [href]="setup()?.storeUrl" target="_blank" rel="noopener noreferrer">Install the Chrome connector</a></p>
+                    <p>Approve the browser installation prompt, then reload Meld. Private pilots require membership in the tester group.</p>
+                  } @else {
+                    <p>The Chrome store listing is not yet marked published. Use the development setup below.</p>
+                  }
+                  <ol>
+                    <li><strong>Open your extensions page</strong><p>Copy this address into your normal browser.</p>
+                      <mat-form-field appearance="outline"><mat-label>Browser extensions address</mat-label>
+                        <input matInput aria-label="Browser extensions address" readonly [value]="extensionsPage"></mat-form-field>
+                      <button mat-button (click)="copy(extensionsPage)">Copy address</button>
+                    </li>
+                    <li><strong>Load the connector</strong><p>Enable Developer mode, choose Load unpacked, and select this folder.</p>
+                      @if (setup()?.developmentDirectory; as directory) {
+                        <mat-form-field appearance="outline"><mat-label>Connector folder</mat-label>
+                          <input matInput aria-label="Connector folder" readonly [value]="directory"></mat-form-field>
+                        <button mat-button (click)="copy(directory)">Copy folder path</button>
+                      } @else { <p>Run the source launcher to make the connector folder available.</p> }
+                    </li>
+                    <li><strong>Return to Meld</strong><p>Reload this page in the same browser profile. Connection and project loading are automatic.</p></li>
+                  </ol>
+                  <p>Already installed? Reload the connector, then Meld. Allow Overleaf access if asked. For native-bridge errors, restart the Meld launcher.</p>
+                  @if (setup(); as info) { <p class="muted">Connector {{ info.extensionVersion }} &middot; {{ info.extensionId }}</p> }
+                  @if (copyMessage()) { <p role="status">{{ copyMessage() }}</p> }
+                </mat-expansion-panel>
+              }
+              <p class="muted">ZIP downloads remain local. Monitoring sends selected text through Meld to Azure AI Foundry only after account linking and your explicit consent.</p>
+            </mat-card-content>
+          </mat-card>
+        </section>
+      }
+    </mat-sidenav-content>
+  </mat-sidenav-container>
+  <footer class="meld-footer"><span>Meld Research &middot; Independent research software</span>
+    <a href="/docs.html">Docs</a><a href="/privacy.html">Privacy</a><a href="/team.html">Project Team</a>
+    <a href="mailto:markusmobius@gmail.com">Contact</a>
+  </footer>
+</div>

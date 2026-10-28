@@ -1,0 +1,36 @@
+@baseUrl = http://127.0.0.1:6010
+@xsrfToken = copy-the-XSRF-TOKEN-cookie-from-the-status-response
+@projectId = 000000000000000000000001
+@downloadId = 00000000-0000-0000-0000-000000000001
+
+### Initialize cookies; retain both cookies and copy XSRF-TOKEN into xsrfToken.
+GET {{baseUrl}}/api/status
+
+### Public connector identity and one-time development setup directory (200).
+GET {{baseUrl}}/api/extension
+
+### Refresh through the connected browser (503 when disconnected, 409 when Overleaf sign-in is needed).
+POST {{baseUrl}}/api/overleaf/projects/refresh
+X-XSRF-TOKEN: {{xsrfToken}}
+
+### Download a project from that list (201 with Location).
+POST {{baseUrl}}/api/overleaf/projects/{{projectId}}/downloads
+X-XSRF-TOKEN: {{xsrfToken}}
+
+### List locally persisted snapshots.
+GET {{baseUrl}}/api/overleaf/downloads
+
+### Read a snapshot (404 for a nonexistent ID).
+GET {{baseUrl}}/api/overleaf/downloads/{{downloadId}}
+
+### Retrieve its ZIP.
+GET {{baseUrl}}/api/overleaf/downloads/{{downloadId}}/archive
+
+### Native transport requires a mutually authenticated registered bridge (401).
+GET {{baseUrl}}/native
+
+### Missing request protection is rejected (403).
+POST {{baseUrl}}/api/overleaf/projects/refresh
+
+### Development OpenAPI.
+GET {{baseUrl}}/openapi/v1.json

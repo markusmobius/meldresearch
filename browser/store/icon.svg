@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <title>Meld Research</title>
+  <rect x="16" y="16" width="96" height="96" rx="24" fill="#21664f"/>
+  <path d="M39 86V57C39 42 64 42 64 57V86M64 57C64 42 89 42 89 57V86"
+    fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

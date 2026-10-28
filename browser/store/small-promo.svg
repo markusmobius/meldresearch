@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="440" height="280" viewBox="0 0 440 280">
+  <title>Meld Research connects your research to your computer</title>
+  <rect width="440" height="280" fill="#17543f"/>
+  <circle cx="12" cy="268" r="150" fill="#1e614a"/>
+  <circle cx="428" cy="8" r="190" fill="#1b5b45"/>
+  <rect x="40" y="82" width="116" height="116" rx="29" fill="#2c7b5a"/>
+  <path d="M68 166V132C68 114 98 114 98 132V166M98 132C98 114 128 114 128 132V166"
+    fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M183 140H229M219 130L229 140L219 150" fill="none" stroke="#b3d8be" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="272" y="75" width="112" height="154" rx="12" fill="#77a98a" opacity=".3"/>
+  <rect x="257" y="58" width="112" height="154" rx="12" fill="#f4faf3"/>
+  <path d="M279 88H325M279 105H344M279 122H332M279 139H344" fill="none" stroke="#73a183" stroke-width="6" stroke-linecap="round"/>
+  <path d="M287 174L301 188L336 155" fill="none" stroke="#21664f" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

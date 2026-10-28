@@ -1,0 +1,41 @@
+<mat-toolbar class="main-toolbar feed-toolbar">
+  <a class="brand" href="/" aria-label="Meld Research home">
+    <mat-icon>share</mat-icon>
+    <span class="brand-text">
+      <span class="brand-main">Meld Research</span>
+      <span class="brand-sub role-local">Local Assistant</span>
+      <span class="brand-sub role-remote">Remote Backend</span>
+      @if (dummy()) { <span class="brand-version">Dummy mode</span> }
+    </span>
+  </a>
+  <nav class="nav-links" aria-label="Main navigation">
+    <a mat-button class="nav-link-btn role-local" [class.active-link]="page() === 'home'"
+      href="/#feed" aria-label="Feed" title="Feed" [attr.aria-current]="page() === 'home' ? 'page' : null">
+      <mat-icon>dynamic_feed</mat-icon><span class="nav-label">Feed</span>
+      @if (updateCount()) { <span class="turn-badge">{{ updateCount() }}</span> }
+    </a>
+    <a mat-button class="nav-link-btn role-local" [class.active-link]="page() === 'about-me'"
+      href="/#about-me" aria-label="About me" title="About me" [attr.aria-current]="page() === 'about-me' ? 'page' : null">
+      <mat-icon>badge</mat-icon><span class="nav-label">About me</span>
+    </a>
+    <a mat-button class="nav-link-btn role-remote" [class.active-link]="page() === '/'"
+      href="/" aria-label="Home" title="Home"><mat-icon>home</mat-icon><span class="nav-label">Home</span></a>
+    <button mat-button class="nav-link-btn nav-more-btn" [matMenuTriggerFor]="moreMenu"
+      [class.active-link]="page().endsWith('.html')" aria-label="More" title="More">
+      <mat-icon>more_horiz</mat-icon><span class="nav-label">More</span>
+    </button>
+    <mat-menu #moreMenu="matMenu">
+      <a mat-menu-item href="/docs.html"><mat-icon>description</mat-icon><span>Docs</span></a>
+      <a mat-menu-item href="/privacy.html"><mat-icon>shield</mat-icon><span>Privacy</span></a>
+      <a mat-menu-item href="/team.html"><mat-icon>people</mat-icon><span>Project Team</span></a>
+    </mat-menu>
+  </nav>
+  <span class="spacer"></span>
+  <a mat-button class="nav-link-btn nav-account-btn role-local" [class.active-link]="page() === 'account'"
+    href="/#account" aria-label="Account" title="Account">
+    <mat-icon class="account-compact-icon">account_circle</mat-icon>
+    <span class="account-label"><strong>{{ accountName() || 'Account' }}</strong>
+      @if (accountName()) { <small>{{ dummy() ? 'Synthetic test account' : 'Meld Research' }}</small> }
+    </span>
+  </a>
+</mat-toolbar>

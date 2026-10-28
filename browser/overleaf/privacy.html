@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Privacy &amp; controls - Meld Research</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body class="policy">
+  <header class="site-header">
+    <span class="site-brand"><img class="brand-icon" src="icons/icon-48.png" width="36" height="36" alt="">
+      <span class="brand-text">Meld Research<span class="brand-role connector-only">Overleaf connector</span>
+        <span class="brand-role role-local site-only">Local Assistant</span><span class="brand-role role-remote site-only">Remote Backend</span></span></span>
+    <nav class="site-nav site-only" aria-label="Main navigation">
+      <a href="/">Home</a><a href="docs.html">Docs</a><a href="privacy.html" aria-current="page">Privacy</a><a href="team.html">Project Team</a>
+    </nav>
+  </header>
+  <main>
+    <h1>Privacy &amp; controls</h1>
+    <p class="lede">Privacy notice for Meld Research and its Overleaf connector, version 0.3.0.
+      Publisher and responsible contact: Markus Mobius, Meld Research.</p>
+    <p>Meld Research is an independent project, not an internal Microsoft service or a Microsoft Research study.
+      This notice covers the website and account service, the local desktop companion, the Overleaf connector,
+      and the research processing described below. Contact
+      <a href="mailto:markusmobius@gmail.com">markusmobius@gmail.com</a> for privacy requests.</p>
+
+    <div class="summary">
+      <section><h2>Use your existing sign-in</h2><p>Read Overleaf through your normal browser.
+        Meld does not ask for your Overleaf password or export your login cookies.</p></section>
+      <section><h2>Choose what to monitor</h2><p>Meld lists accessible projects locally.
+        Account linking and explicit consent are required before monitoring selected projects.</p></section>
+      <section><h2>Local storage, Foundry processing</h2><p>Selected research text is sent through
+        Meld's remote service to Azure AI Foundry. Indexed research and updates are stored on your computer.</p></section>
+    </div>
+
+    <h2>Data Meld Research handles</h2>
+    <ul>
+      <li><strong>Overleaf website content:</strong> project IDs, titles, last-updated values,
+        archived/deleted flags, and ZIP contents of projects you select. Project contents may
+        include personal or confidential information you or your collaborators put in them.</li>
+      <li><strong>Overleaf tab information:</strong> the connector checks matching Overleaf tab URLs
+        and loading state to reuse a tab or detect completion of sign-in. It does not record your
+        general browsing history or inspect unrelated websites.</li>
+      <li><strong>A local preference:</strong> whether auto-connect is enabled or paused is saved
+        in this browser profile. Connection state is held in memory.</li>
+      <li><strong>Research processing:</strong> selected UTF-8 source text, file paths and hashes,
+        before/after snapshots, extracted facts, citations, and embeddings. PDF and image contents
+        are not analyzed by this version.</li>
+      <li><strong>Meld account and device information:</strong> a verified Google account identifier,
+        name and email, approved installation names, and credential/expiry records. The website uses
+        cookies needed for account sign-in and request protection. The local app also uses request-protection
+        cookies. Google sign-in occurs in the normal browser; Meld does not ask for your Google password.</li>
+    </ul>
+    <p>Project-list reads occur when the local Meld page connects or reconnects, after sign-in
+      recovery, or when you choose Refresh projects. If you enable monitoring, the desktop
+      companion periodically checks selected projects, normally every five minutes, and requests
+      snapshots when needed. It also verifies unchanged timestamps periodically and supports an
+      explicit content check. It does not automatically ingest the whole Overleaf account.</p>
+    <p>The browser sends its normal authentication cookies to Overleaf for these requests.
+      The connector does not use a cookies permission, read or decrypt browser cookie databases,
+      export session tokens, or send authentication cookies to the desktop companion. The complete
+      project-list HTML page and unused account metadata are not exported from the tab.</p>
+
+    <h2>How data is used and shared</h2>
+    <p>Allowlisted project metadata and selected ZIP bytes are transferred to the Meld Research
+      companion on the same computer through Chrome native messaging. The companion uses them to
+      display projects, validate ZIP contents, and read supported source text without extracting
+      or executing archive files. It does not edit your Overleaf originals or automatically
+      share snapshots with collaborators.</p>
+    <p>After you link an existing Meld account and explicitly enable a project, the companion sends
+      bounded research text, prior knowledge, and relevant changes through the configured Meld service
+      to the configured Azure AI Foundry chat and embedding deployments. This is not on-device-only
+      processing. The resulting grounded updates and vectors are returned to your computer.
+      The remote Meld application does not persist a project archive or log research payloads.</p>
+    <p>The Meld Research application does not sell research data or use it for advertising, unrelated analytics, model
+      training, creditworthiness, or lending. Provider-side handling is governed by the configured
+      Azure AI Foundry service and applicable Microsoft terms; this notice does not promise
+      provider-side zero retention. Only the research Updates workflow is enabled: there is no
+      WorkIQ integration, other news source, or alternative inference provider.</p>
+    <p><strong>Provider roles:</strong> Google supplies account authentication; Overleaf supplies the projects
+      you are authorized to access; Azure AI Foundry supplies model inference. Using these providers does not
+      make Meld Research an internal Microsoft project or imply their endorsement. Their own terms and privacy
+      practices apply to their services.</p>
+    <p><strong>Research accuracy:</strong> the model selects evidence from supplied source lines and the service copies
+      those lines into citations. Model interpretations can still be wrong. Check the cited evidence before relying
+      on an update; a citation is not a guarantee of a correct scientific conclusion.</p>
+    <p>Overleaf and any identity provider you choose during its normal sign-in handle requests
+      under their own privacy policies. Chrome and the Chrome Web Store separately handle browser
+      services, extension delivery, and updates. Contacting support voluntarily sends your message
+      to the email provider used for the support address; do not include passwords, cookies, or
+      confidential project files.</p>
+
+    <h2>Storage, retention, and protection</h2>
+    <p>The extension does not persist project contents in browser storage. The desktop companion
+      stores indexed source text, project knowledge, embeddings, update history, and installation
+      credentials in an encrypted research store until you remove them. The remote service stores
+      account and device records protected by ASP.NET Data Protection. Account data remains until
+      removed by the service operator; contact Markus Mobius to request account deletion.
+      There is not yet a self-service remote account-deletion screen. Installation credentials expire
+      after 30 days unless revoked earlier.</p>
+    <p>Manual ZIP downloads and their metadata remain separate from the research index. Temporary
+      transfer files are normally removed after completion or failure; a crash can leave temporary
+      data on disk until it is removed. ZIP exports and existing manually downloaded archives
+      are ordinary files and are not encrypted by Meld.</p>
+    <p>Requests to hosted Overleaf use HTTPS. Native messaging uses operating-system pipes; the
+      native host and local backend authenticate each other with per-run cryptographic proofs.
+      Production requests to the remote service and requests to Foundry use HTTPS. Isolated local development
+      can use a loopback HTTP account/inference service. The research store uses
+      AES-GCM with a key protected by Windows DPAPI or the macOS Keychain. The macOS implementation
+      still needs live distribution testing. The local UI and native-host loopback WebSocket use
+      HTTP/WS, not TLS; temporary incoming archives are not encrypted by Meld.
+      Device encryption and backups are controlled by your device configuration.</p>
+    <p>Application diagnostic logs omit project titles, contents, cookies, and credentials.
+      They may record connection events and safe error codes.</p>
+    <p><strong>Dummy development mode</strong> uses a clearly labelled synthetic account and synthetic Overleaf evidence,
+      but real configured Foundry inference. It does not use a real Overleaf browser profile or perform real Google
+      sign-in. Both app services may run on the developer's computer; real model calls still leave that computer
+      and consume quota. A Dummy demonstration is not evidence that the public site, real Google login, or a
+      browser-store release has been deployed or approved.</p>
+
+    <h2>Your controls and deletion</h2>
+    <div class="notice">
+      <p><strong>Pause monitoring</strong> stops a selected project's research processing.
+        <strong>Disconnect account</strong> stops local processing and requests remote credential
+        revocation, retrying if the service is unavailable. <strong>Forget local research</strong>
+        removes that project's indexed sources, knowledge, and update history for the linked account.</p>
+      <p><strong>Pause auto-connect</strong> in Meld or the connector popup stops the browser connection
+        and remains paused after browser restarts. You can also disable or remove the extension
+        in Chrome. These actions do not delete ZIPs already stored by the desktop companion.</p>
+      <p>To delete local research data, stop Meld and remove the relevant files in the
+        <code>downloads</code> and <code>incoming</code> subdirectories of its data folder.
+        To remove all accounts' local research indexes and credentials, stop Meld and remove
+        the <code>research</code> subdirectory as well. Request remote credential revocation
+        with Disconnect account before doing this when possible. A macOS Keychain key entry
+        may remain; it contains a key, not project contents. Also delete ZIP copies or backups
+        you saved elsewhere if you no longer need them.</p>
+    </div>
+    <ul>
+      <li>Windows default: <code>%LOCALAPPDATA%\MeldResearch\OverleafPrototype</code>.</li>
+      <li>macOS development path: <code>~/Library/Application Support/MeldResearch/OverleafPrototype</code>.
+        macOS distribution has not yet been live-verified for this prototype.</li>
+      <li>An explicit test data-directory override changes these locations.</li>
+    </ul>
+    <p>Removing the extension removes its local settings according to Chrome's normal extension
+      storage behavior; it does not remove the companion's research store or revoke a Meld account.
+      Your original Overleaf projects are unaffected by local deletion. A request already dispatched
+      to Foundry cannot be recalled, although pausing cancels local in-progress work where possible.</p>
+  </main>
+  <footer class="site-footer"><span>Meld Research &middot; Independent research software<br>
+    Privacy and support: <a href="mailto:markusmobius@gmail.com">Markus Mobius</a>.</span>
+    <nav class="site-only" aria-label="Footer"><a href="docs.html">Docs</a> &middot; <a href="team.html">Project Team</a></nav>
+  </footer>
+</body>
+</html>

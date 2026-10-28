@@ -1,0 +1,30 @@
+:root { --brand-accent: #084d42; --brand-soft: #e7f2ee; --brand-border: #bfd8ce; }
+body { width: 310px; margin: 0; padding: 22px; font: 14px/1.5 system-ui, sans-serif; color: #26333b; background: #f6faf9; }
+h1 { font-size: 22px; margin: 0; }
+.brand-icon { vertical-align: middle; margin-right: 8px; }
+p { margin: 12px 0; }
+#status { padding: 10px; background: #e6efec; border-radius: 7px; overflow-wrap: anywhere; }
+button { display: block; width: 100%; margin: 8px 0; padding: 10px; cursor: pointer; border: 1px solid #97b6a9; border-radius: 7px; background: white; color: #183142; font: inherit; }
+#connect { color: white; background: var(--brand-accent); border-color: var(--brand-accent); }
+button:disabled { opacity: .5; cursor: default; }
+small { display: block; margin-top: 16px; }
+a { color: var(--brand-accent); }
+.privacy-link { font-size: 12px; margin-bottom: 0; }
+.policy { box-sizing: border-box; width: auto; max-width: 960px; margin: 0 auto; padding: 32px; background: #f6faf9; }
+.site-only { display: none; }
+.policy .site-brand { display: flex; align-items: center; gap: 8px; }
+.policy .brand-text { display: flex; flex-direction: column; line-height: 1.4; }
+.policy .brand-role { font-size: 11px; font-weight: 400; }
+.policy header { border-bottom: 1px solid var(--brand-border); padding-bottom: 20px; color: var(--brand-accent); font-weight: 650; }
+.policy h1 { font-size: 32px; line-height: 1.2; margin: 28px 0 12px; color: var(--brand-accent); }
+.policy h2 { font-size: 19px; margin: 28px 0 10px; color: var(--brand-accent); }
+.policy .lede { font-size: 17px; color: #526b61; }
+.policy .summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 24px 0; }
+.policy .summary section { padding: 18px; border: 1px solid var(--brand-border); border-radius: 10px; background: white; }
+.policy .summary h2 { margin: 0 0 8px; font-size: 16px; }
+.policy .summary p { margin: 0; }
+.policy .notice { background: var(--brand-soft); border-radius: 10px; padding: 16px 20px; }
+.policy li { margin: 8px 0; }
+.policy code { overflow-wrap: anywhere; }
+.policy footer { margin-top: 32px; border-top: 1px solid #d6e3dd; padding-top: 18px; font-size: 13px; }
+@media (max-width: 640px) { .policy { padding: 20px; } .policy .summary { grid-template-columns: 1fr; } }

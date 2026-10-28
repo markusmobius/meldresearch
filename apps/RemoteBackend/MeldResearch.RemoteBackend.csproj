@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>meldresearch-remote</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.Google" Version="10.0.8" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.8" />
+    <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
+    <PackageReference Include="Azure.Identity" Version="1.21.0" />
+    <ProjectReference Include="..\..\libraries\Research\MeldResearch.Research.csproj" />
+    <ProjectReference Include="..\..\libraries\BrowserProtocol\MeldResearch.BrowserProtocol.csproj" />
+    <InternalsVisibleTo Include="MeldResearch.Tests" />
+    <Content Update="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\frontend\dist\frontend\browser\**\*"
+             Exclude="..\frontend\dist\frontend\browser\index.html;..\frontend\dist\frontend\browser\theme.css;..\frontend\dist\frontend\browser\favicon.png"
+             Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

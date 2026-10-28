@@ -1,0 +1,60 @@
+@baseUrl = http://127.0.0.1:6050
+@deviceToken = locally-obtained-installation-token-do-not-commit
+@deviceCode = private-device-code-from-the-local-backend
+@verifier = private-proof-verifier-retained-by-the-local-backend
+
+### Anonymous liveness (also usable behind a TLS reverse proxy).
+GET {{baseUrl}}/healthz
+
+### Non-secret capabilities.
+GET {{baseUrl}}/api/status
+
+### Public policy, no account required.
+GET {{baseUrl}}/privacy.html
+
+### Remote signup through Google; 503 until configured, not a synthetic production identity.
+GET {{baseUrl}}/signup
+
+### Existing-account sign-in.
+GET {{baseUrl}}/login
+
+### Begin a device link. The local backend normally creates and stores the real verifier/challenge.
+POST {{baseUrl}}/api/device-links
+Content-Type: application/json
+
+{"deviceName":"HTTP example installation","challenge":"0000000000000000000000000000000000000000000000000000000000000000"}
+
+### Poll with the matching private proof, not the public browser user code.
+POST {{baseUrl}}/api/device-links/poll
+Content-Type: application/json
+
+{"deviceCode":"{{deviceCode}}","verifier":"{{verifier}}"}
+
+### Validate a linked installation; missing/revoked/expired credentials yield 401.
+GET {{baseUrl}}/api/account
+Authorization: Bearer {{deviceToken}}
+
+### Foundry-only embeddings; these consume model quota.
+POST {{baseUrl}}/api/research/embeddings
+Authorization: Bearer {{deviceToken}}
+Content-Type: application/json
+
+{"input":["Synthetic research on collaboration."]}
+
+### Analysis is normally built from locally verified file hashes.
+### This deliberately invalid example demonstrates 400 validation without a model call.
+POST {{baseUrl}}/api/research/analyze
+Authorization: Bearer {{deviceToken}}
+Content-Type: application/json
+
+{"previous":null,"current":{"projectId":"invalid","projectName":"Synthetic","revision":"invalid","observedAt":"2026-01-01T00:00:00Z","sourceUpdatedAt":null,"files":[]},"previousSummary":null,"knownFacts":[]}
+
+### Revoke the calling installation.
+DELETE {{baseUrl}}/api/account/device
+Authorization: Bearer {{deviceToken}}
+
+### Requires the Google browser cookie/account; 503 until an actual package is provided.
+GET {{baseUrl}}/downloads/win-x64
+
+### Development OpenAPI.
+GET {{baseUrl}}/openapi/v1.json

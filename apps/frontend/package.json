@@ -1,0 +1,40 @@
+{
+  "name": "meldresearch-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "ng build",
+    "test": "ng test --watch=false",
+    "prebuild": "node sync-site-assets.mjs",
+    "pretest": "node sync-site-assets.mjs",
+    "postbuild": "node finalize-site-assets.mjs"
+  },
+  "dependencies": {
+    "@angular/animations": "^21.2.14",
+    "@angular/cdk": "^21.2.14",
+    "@angular/common": "^21.2.14",
+    "@angular/compiler": "^21.2.14",
+    "@angular/core": "^21.2.14",
+    "@angular/forms": "^21.2.14",
+    "@angular/material": "^21.2.14",
+    "@angular/platform-browser": "^21.2.14",
+    "@fontsource/material-icons": "^5.3.0",
+    "@fontsource/outfit": "^5.3.0",
+    "rxjs": "~7.8.0",
+    "tslib": "^2.3.0"
+  },
+  "overrides": {
+    "@angular/cli": {
+      "@modelcontextprotocol/sdk": "1.32.1"
+    }
+  },
+  "devDependencies": {
+    "@angular/build": "^21.2.12",
+    "@angular/cli": "^21.2.17",
+    "@angular/compiler-cli": "^21.2.14",
+    "@types/node": "^24.19.0",
+    "jsdom": "^27.1.0",
+    "typescript": "~5.9.2",
+    "vitest": "^4.0.8"
+  }
+}

@@ -1,0 +1,176 @@
+@if (error()) { <p class="alert" role="alert">{{ error() }}</p> }
+@if (action()) { <p class="action-status" role="status">{{ action() }}</p> }
+@if (state(); as current) {
+  @if (current.accountError) { <p class="alert" role="alert">{{ current.accountError }}</p> }
+  @if (current.pendingRevocations) { <p class="notice">Remote revocation is pending; local access has stopped. Meld will retry.</p> }
+
+  @if (page() === 'home') {
+    <div class="page-container feed-page">
+      <div class="feed-layout" aria-label="Research feed">
+        <section class="feed-column" aria-labelledby="updates-title">
+          <header class="feed-column-head">
+            <mat-icon>newspaper</mat-icon><h2 id="updates-title">Updates</h2>
+            <span class="feed-count" [attr.aria-label]="current.totalUpdates + ' research updates'">{{ current.totalUpdates }}</span>
+            <a mat-icon-button class="feed-icon-button feed-settings" href="/#about-me" aria-label="Manage projects" title="Manage projects"><mat-icon>tune</mat-icon></a>
+            <button mat-icon-button class="feed-icon-button" (click)="sync()" [disabled]="!current.account || !!action() || current.busy"
+              aria-label="Check for changes" title="Check for changes"><mat-icon>refresh</mat-icon></button>
+          </header>
+          @if (current.busy) { <mat-progress-bar mode="indeterminate" aria-label="Checking selected projects"></mat-progress-bar> }
+          <div class="feed-column-body" tabindex="0" aria-label="Research updates">
+            @if (current.dummy) { <p class="feed-notice">Synthetic Overleaf evidence. Foundry processing is real and consumes quota.</p> }
+            @if (!current.account) {
+              <mat-card class="onboarding-card"><mat-card-content>
+                <h3>Connect your research</h3>
+                <p>Link your Meld account, connect Overleaf, then choose the projects you want to monitor.</p>
+                <a mat-flat-button href="/#account"><mat-icon>account_circle</mat-icon>Set up your account</a>
+              </mat-card-content></mat-card>
+            } @else if (!current.projects.length) {
+              <p class="feed-state">Choose an Overleaf project and approve processing to build your Updates feed.</p>
+              <a mat-stroked-button class="feed-setup" href="/#about-me"><mat-icon>folder_open</mat-icon>Select projects</a>
+            }
+            @if (needsProjectAttention()) {
+              <p class="alert" role="alert">A monitored project needs attention. <a href="/#about-me">View project status</a>.</p>
+            }
+            @for (update of current.updates; track update.id) {
+              <article class="feed-card share-source-own">
+                <header class="feed-card-head">
+                  <span class="feed-kind">{{ update.kind === 'initialImport' ? 'Initial import' : update.kind === 'removal' ? 'Knowledge removed' : 'Update' }}</span>
+                  <time class="feed-date" [attr.datetime]="update.observedAt" [title]="update.observedAt | date:'medium'">{{ update.observedAt | date:'MMM d' }}</time>
+                </header>
+                <h3 class="feed-card-title"><button class="feed-card-open" (click)="showUpdate(update, evidence)">{{ update.title }}</button></h3>
+                <p class="feed-card-body feed-clamp">{{ update.summary }}</p>
+                <div class="feed-card-actions">
+                  <button mat-button class="feed-action" (click)="showUpdate(update, evidence)"><mat-icon>rate_review</mat-icon>Review</button>
+                  <span class="feed-project" [title]="update.projectName">{{ update.projectName }}</span>
+                </div>
+              </article>
+            } @empty {
+              @if (current.projects.length) {
+                <p class="feed-state">{{ current.busy ? 'The first import is running. Updates will appear when analysis finishes.' : 'No research updates yet. Monitoring will check for meaningful project changes.' }}</p>
+              }
+            }
+            @if (current.totalUpdates > current.updates.length) {
+              <p class="feed-state">Showing the latest {{ current.updates.length }} updates. Earlier updates remain in the encrypted local store.</p>
+            } @else if (current.updates.length) {
+              <p class="feed-state feed-end">Caught up. Initial imports describe existing knowledge, not work that happened today.</p>
+            }
+          </div>
+        </section>
+      </div>
+    </div>
+  }
+
+  @if (page() === 'account') {
+    <section class="page-container account-page" aria-label="Meld account">
+      <mat-card>
+        <mat-card-header><mat-icon mat-card-avatar>account_circle</mat-icon>
+          <mat-card-title>{{ current.account ? 'Your Meld account' : 'Link your account' }}</mat-card-title>
+        </mat-card-header>
+        <mat-card-content>
+          @if (current.dummy) { <p class="notice">Dummy mode: the account and Overleaf project are synthetic. Foundry processing is real and consumes model quota.</p> }
+          @if (current.account; as account) {
+            <p class="account-name">{{ account.name }}</p><p class="muted">{{ account.email }}</p>
+            <p>Your installation is linked. Manage your Overleaf projects in About me.</p>
+            <div class="controls"><a mat-flat-button href="/#about-me"><mat-icon>badge</mat-icon>About me</a>
+              <button mat-button (click)="unlink()" [disabled]="!!action()">Disconnect account</button></div>
+          } @else {
+            <p>Link this installation to an existing Meld Research account before enabling research processing.</p>
+            <button mat-flat-button (click)="link()" [disabled]="!!action() || !!current.pendingLink">
+              <mat-icon>login</mat-icon>{{ current.dummy ? 'Link the test account' : 'Link Google account' }}
+            </button>
+          }
+          @if (current.pendingLink; as link) {
+            <div class="notice" role="status"><strong>Approve this installation in your normal browser</strong>
+              <p>Verification code: <code>{{ link.userCode }}</code>. Expires {{ link.expiresAt | date:'shortTime' }}.</p>
+              <a mat-flat-button [href]="link.verificationUri" target="_blank" rel="noopener noreferrer">
+                {{ current.dummy ? 'Open test-account approval' : 'Continue with Google' }}</a>
+              <p>Return here after approval. Your account will connect automatically.</p>
+            </div>
+          }
+        </mat-card-content>
+      </mat-card>
+    </section>
+  }
+
+  @if (page() === 'about-me') {
+    <section class="page-container projects-page" aria-label="Private research projects">
+      <div class="about-head"><h2>My projects</h2>
+        <span class="about-note"><mat-icon>lock</mat-icon>Stored on your computer. Selected source text is processed through Azure AI Foundry with your permission.</span>
+      </div>
+      @if (!current.account) {
+        <p class="notice">Link your account before enabling project monitoring. <a href="/#account">Open Account</a>.</p>
+      } @else {
+        <mat-expansion-panel class="monitoring" [expanded]="!current.projects.length">
+          <mat-expansion-panel-header><mat-panel-title><mat-icon>playlist_add</mat-icon>Select Overleaf projects</mat-panel-title></mat-expansion-panel-header>
+          <mat-checkbox class="consent" [checked]="consent()" (change)="consent.set($event.checked)">
+            I allow selected project text to be sent through Meld's remote service to Azure AI Foundry for research-update extraction and embeddings.
+            Monitoring continues while Meld and my browser are running.
+          </mat-checkbox>
+          <p class="muted">UTF-8 .tex, .bib, .md, and .txt sources only. PDFs and images are not analyzed.
+            <a href="/privacy.html" target="_blank" rel="noopener noreferrer">Privacy and data use</a></p>
+          <ul class="selection">
+            @for (project of projects(); track project.id) {
+              <li><span>{{ project.name }}</span><button mat-stroked-button (click)="monitor(project.id, !watched(project.id)?.enabled)"
+                [disabled]="!!action() || (!watched(project.id)?.enabled && (!consent() || !sourceReady()))">
+                <mat-icon>{{ watched(project.id)?.enabled ? 'pause' : 'add' }}</mat-icon>
+                {{ watched(project.id)?.enabled ? 'Pause' : 'Monitor project' }}
+              </button></li>
+            } @empty { <li class="muted">Connect Overleaf in Account to load your projects.</li> }
+          </ul>
+        </mat-expansion-panel>
+        @if (current.busy) { <p class="muted" role="status">Checking selected projects and processing meaningful changes...</p> }
+        <div class="project-statuses">
+          @for (project of current.projects; track project.projectId) {
+            <mat-expansion-panel class="project-card" [expanded]="!!project.error || project.consentRequired">
+              <mat-expansion-panel-header>
+                <mat-panel-title>{{ project.name }}</mat-panel-title>
+                <mat-panel-description>{{ project.enabled ? 'Monitoring' : 'Paused' }} &middot; {{ project.factCount }} facts</mat-panel-description>
+              </mat-expansion-panel-header>
+              @if (project.summary) { <p class="project-summary">{{ project.summary }}</p> }
+              @if (project.lastSuccessAt) { <p class="muted">Last content check {{ project.lastSuccessAt | date:'medium' }}</p> }
+              @if (project.error) { <p class="alert" role="alert">{{ project.error }}</p> }
+              @if (project.consentRequired) { <p class="alert">Updated consent is required. Pause and re-enable this project after reviewing the notice.</p> }
+              @if (project.explanation) { <p class="muted">{{ project.explanation }}</p> }
+              @if (project.unprocessedFiles) { <p class="muted">{{ project.unprocessedFiles }} non-text files were tracked by hash but not sent to the model.</p> }
+              <div class="controls">
+                @if (project.enabled) { <button mat-button (click)="monitor(project.projectId, false)" [disabled]="!!action()"><mat-icon>pause</mat-icon>Pause</button> }
+                @if (confirmForget() === project.projectId) {
+                  <p>Delete this project's local index and updates? Manual ZIPs and Overleaf originals remain.</p>
+                  <button mat-button color="warn" (click)="forget(project.projectId)" [disabled]="!!action()">Confirm deletion</button>
+                  <button mat-button (click)="confirmForget.set(null)">Cancel</button>
+                } @else {
+                  <button mat-button (click)="confirmForget.set(project.projectId)"><mat-icon>delete_outline</mat-icon>Forget local research</button>
+                }
+              </div>
+            </mat-expansion-panel>
+          }
+        </div>
+        @if (current.dummy) {
+          <div class="demo-tools"><span class="muted">Dummy development tools</span>
+            <button mat-button (click)="demoChange()" [disabled]="!!action() || current.busy"><mat-icon>science</mat-icon>Apply synthetic project change</button></div>
+        }
+      }
+    </section>
+  }
+} @else { <p class="action-status" role="status">Loading research status...</p> }
+
+<ng-template #evidence>
+  @if (selectedUpdate(); as update) {
+    <h2 mat-dialog-title>{{ update.title }}</h2>
+    <mat-dialog-content class="update-detail">
+      <p class="muted">{{ update.kind === 'initialImport' ? 'Initial import' : update.kind === 'removal' ? 'Knowledge removed' : 'Project update' }}
+        &middot; {{ update.observedAt | date:'medium' }}</p>
+      <p>{{ update.summary }}</p>
+      @if (state()?.dummy) { <p>{{ update.projectName }}</p> }
+      @else { <p><a [href]="'https://www.overleaf.com/project/' + update.projectId" target="_blank" rel="noopener noreferrer">{{ update.projectName }}</a></p> }
+      <h3>Source evidence</h3>
+      <p class="muted">Revision {{ update.revision.slice(0, 12) }}</p>
+      @for (citation of update.evidence; track $index) {
+        <p><code>{{ citation.path }}</code> &middot; {{ citation.version }} snapshot</p>
+        <blockquote>{{ citation.quote }}</blockquote>
+      }
+      @if (update.previousSummary) { <p><strong>Previous knowledge:</strong> {{ update.previousSummary }}</p> }
+    </mat-dialog-content>
+    <mat-dialog-actions align="end"><button mat-button mat-dialog-close>Close</button></mat-dialog-actions>
+  }
+</ng-template>

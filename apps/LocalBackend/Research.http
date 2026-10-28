@@ -1,0 +1,52 @@
+@baseUrl = http://127.0.0.1:6010
+@xsrfToken = copy-the-XSRF-TOKEN-cookie-after-GET-api-status
+@projectId = 0123456789abcdef01234567
+
+### Initialize request-protection cookies.
+GET {{baseUrl}}/api/status
+
+### Local account, monitoring status and latest Updates; never returns device secrets.
+GET {{baseUrl}}/api/research/status
+
+### Start linking an existing remote account; open verificationUri in the normal browser.
+POST {{baseUrl}}/api/research/account/link
+X-XSRF-TOKEN: {{xsrfToken}}
+Content-Type: application/json
+
+{}
+
+### Explicitly consent to a selected project (204). The ID is the Dummy fixture.
+PUT {{baseUrl}}/api/research/projects/{{projectId}}
+X-XSRF-TOKEN: {{xsrfToken}}
+Content-Type: application/json
+
+{"enabled":true,"consentVersion":"overleaf-foundry-2026-10"}
+
+### Queue an immediate content check (202); no account yields 401.
+POST {{baseUrl}}/api/research/sync
+X-XSRF-TOKEN: {{xsrfToken}}
+Content-Type: application/json
+
+{}
+
+### Development Dummy evidence only; route does not exist in Live/Production.
+POST {{baseUrl}}/api/development/overleaf/change
+X-XSRF-TOKEN: {{xsrfToken}}
+Content-Type: application/json
+
+{}
+
+### Pause monitoring without deleting knowledge.
+PUT {{baseUrl}}/api/research/projects/{{projectId}}
+X-XSRF-TOKEN: {{xsrfToken}}
+Content-Type: application/json
+
+{"enabled":false,"consentVersion":null}
+
+### Explicitly remove this account's local research index/history, not Overleaf or manual ZIPs.
+DELETE {{baseUrl}}/api/research/projects/{{projectId}}
+X-XSRF-TOKEN: {{xsrfToken}}
+
+### Disconnect locally and request remote credential revocation.
+DELETE {{baseUrl}}/api/research/account
+X-XSRF-TOKEN: {{xsrfToken}}

@@ -1,0 +1,22 @@
+<Solution>
+  <Folder Name="/apps/" />
+  <Folder Name="/apps/BrowserHost/">
+    <Project Path="apps/BrowserHost/MeldResearch.BrowserHost.csproj" />
+  </Folder>
+  <Folder Name="/apps/LocalBackend/">
+    <Project Path="apps/LocalBackend/MeldResearch.LocalBackend.csproj" />
+  </Folder>
+  <Folder Name="/apps/RemoteBackend/">
+    <Project Path="apps/RemoteBackend/MeldResearch.RemoteBackend.csproj" />
+  </Folder>
+  <Folder Name="/libraries/" />
+  <Folder Name="/libraries/BrowserProtocol/">
+    <Project Path="libraries/BrowserProtocol/MeldResearch.BrowserProtocol.csproj" />
+  </Folder>
+  <Folder Name="/libraries/Research/">
+    <Project Path="libraries/Research/MeldResearch.Research.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MeldResearch.Tests/MeldResearch.Tests.csproj" />
+  </Folder>
+</Solution>

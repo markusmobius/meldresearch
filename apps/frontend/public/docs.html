@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Docs - Meld Research</title>
+  <link rel="stylesheet" href="theme.css">
+  <link rel="stylesheet" href="info.css">
+</head>
+<body class="information">
+  <header class="site-header">
+    <a class="site-brand" href="/"><span class="brand-mark" aria-hidden="true">m</span><span class="brand-text">Meld Research<span class="brand-role role-local">Local Assistant</span><span class="brand-role role-remote">Remote Backend</span></span></a>
+    <nav class="site-nav" aria-label="Main navigation">
+      <a href="/">Home</a><a href="docs.html" aria-current="page">Docs</a><a href="privacy.html">Privacy</a><a href="team.html">Project Team</a>
+    </nav>
+  </header>
+  <main class="site-main">
+    <article class="site-card">
+      <p class="eyebrow">OVERLEAF &middot; UPDATES &middot; FOUNDRY</p>
+      <h1>Docs</h1>
+      <p class="lede">Follow selected Overleaf projects and turn meaningful changes into a research Updates feed.
+        Meld Research is an independent project maintained by Markus Mobius.</p>
+      <nav class="doc-nav" aria-label="Documentation topics">
+        <a href="#two-parts">Local and remote</a><a href="#get-started">Get started</a><a href="#updates">How updates work</a>
+        <a href="#controls">Your controls</a><a href="#development">Development</a><a href="#limitations">Current limitations</a>
+      </nav>
+
+      <section id="two-parts">
+        <h2>Two parts, clearly identified</h2>
+        <div class="columns">
+          <div class="feature local-color"><h3>Green: your Local Assistant</h3><p>Runs on your computer. Connects to your normal browser,
+            reads selected Overleaf projects, and stores the research index, citations, embeddings, and Updates feed locally.</p></div>
+          <div class="feature remote-color"><h3>Blue: the Remote Backend</h3><p>Handles Meld accounts, installation approval,
+            and authenticated Foundry requests. It is intended to run as an HTTPS service; it does not keep a project-archive repository.</p></div>
+        </div>
+        <p class="callout"><strong>In local development, both backends run on your computer.</strong>
+          The colors identify their roles, not their physical location. Foundry inference still uses the configured model service.</p>
+        <table>
+          <thead><tr><th>Service</th><th>Development address</th><th>Installed or hosted use</th></tr></thead>
+          <tbody>
+            <tr><td>Local app and API</td><td><code>http://127.0.0.1:6010</code></td><td>Loopback port <code>6001</code> on your computer</td></tr>
+            <tr><td>Remote service</td><td><code>http://127.0.0.1:6050</code></td><td>Your configured HTTPS server</td></tr>
+          </tbody>
+        </table>
+        <p>The intended public site is <code>https://www.meldresearch.org</code>. Running the development launcher
+          does not deploy that site or configure its DNS, HTTPS, or Google credentials.</p>
+      </section>
+
+      <section id="get-started">
+        <h2>Get started</h2>
+        <ol>
+          <li><strong>Create a Meld account on the remote website using Google.</strong> Google sign-in must be configured by the
+            service operator. Signing in while linking an installation does not silently create a new Meld account.</li>
+          <li><strong>Install and start the local companion.</strong> Use a package actually supplied by the operator.
+            The current packages are self-contained test distributions, not signed consumer installers.</li>
+          <li><strong>Add the Overleaf connector to your normal Chrome profile.</strong> The companion registers the native host;
+            you still approve the extension installation in the browser. A private store release also requires tester access.
+            While the store release is pending, use the source launcher's documented unpacked-extension setup.</li>
+          <li><strong>Link the installation.</strong> Open <strong>Account</strong> in the green local app and choose <strong>Link Google account</strong>.
+            Open the approval page, check the device and verification code, and approve only the request you just initiated.</li>
+          <li><strong>Sign in to Overleaf in the normal browser.</strong> Use the Overleaf sign-in control in <strong>Account</strong> if necessary.
+            Meld does not request your Overleaf password or extract your browser's cookie database.</li>
+          <li><strong>Select projects and explicitly consent to processing.</strong> Open <strong>About me</strong> and expand <strong>Select Overleaf projects</strong>.
+            Review <a href="privacy.html">Privacy &amp; controls</a>, then enable monitoring for the projects you want in <strong>Feed</strong>.
+            Choose <strong>Review</strong> on an Update to inspect its complete source evidence. Only process research you are authorized to send to these services.</li>
+        </ol>
+        <p>Google authentication for Meld and the browser's Overleaf session are separate. Keep the local app and normal browser
+          running for fresh Overleaf reads. You do not need to open the extension popup every day.</p>
+        <p class="role-remote"><a class="button" href="/signup">Create a Google-based Meld account</a>
+          <a href="/account">Existing account and available packages</a></p>
+        <p class="role-local"><a class="button" href="/">Return to the Local Assistant</a></p>
+      </section>
+
+      <section id="updates">
+        <h2>How research becomes an update</h2>
+        <p>The first import establishes existing project knowledge. Later checks compare file content, not ZIP timestamps.
+          Foundry decides whether changes add, revise, or remove knowledge, or do not warrant a new update.
+          Embeddings help match changes to existing facts; local scoring does not replace the model's decision.</p>
+        <p>The model selects source line ranges and the server copies their exact text into citations.
+          Invalid references or model failures do not overwrite the last successfully processed research.
+          Citations make claims inspectable; they are not a guarantee that every model interpretation is correct.</p>
+        <p>Checks normally run every five minutes, with periodic content verification and a manual <strong>Check for changes</strong>
+          action. Identical supported text makes no additional model calls, including after a restart.
+          Formatting-only changes can require analysis without producing a new update.</p>
+        <p>Initial imports are labelled as imports, not research that happened today. Update timestamps indicate when Meld observed
+          the evidence. Overleaf is the only private-data source; this release has no WorkIQ integration, other news feed,
+          automatic colleague sharing, or alternative inference provider.</p>
+      </section>
+
+      <section id="controls">
+        <h2>Your controls</h2>
+        <ul>
+          <li><strong>Pause monitoring:</strong> stop processing one selected project without deleting its existing knowledge.</li>
+          <li><strong>Pause auto-connect:</strong> stop the browser connector; the pause persists across browser restarts.</li>
+          <li><strong>Disconnect account:</strong> stop local processing and request credential revocation. If the remote service
+            is unavailable, revocation is queued and shown as pending.</li>
+          <li><strong>Forget local research:</strong> remove the selected account's local index and update history for that project.
+            Overleaf originals and manual ZIP copies are unchanged.</li>
+          <li><strong>Account deletion:</strong> contact <a href="mailto:markusmobius@gmail.com">Markus Mobius</a>.
+            There is not yet a self-service remote account-deletion screen.</li>
+        </ul>
+        <p>Removing the extension does not delete the companion's stored research. A model request already dispatched cannot
+          be recalled. See the privacy notice for storage locations, manual deletion, backups, and protection limitations.</p>
+      </section>
+
+      <section id="development">
+        <h2>Development and Dummy mode</h2>
+        <p>From the repository root, use the full-stack launcher with .NET 10, Node 24/npm, and PowerShell 7:</p>
+        <pre><code>.\run-dev.ps1 -Mode Dummy
+.\run-dev.ps1 -Mode Dummy -SkipBuild
+.\run-dev.ps1 -Mode Live
+.\run-dev.ps1 -Check</code></pre>
+        <p><strong>Dummy:</strong> an explicitly synthetic account and Overleaf source, but real configured Foundry chat and embeddings.
+          It consumes model quota and does not use a real Overleaf profile. Use the test-account approval flow and explicit project consent.</p>
+        <p><strong>Live:</strong> real Overleaf through the normal browser and real Google-based Meld account linking.
+          Missing credentials are errors, not simulated production success.</p>
+        <p>Keep the launcher terminal open. Ctrl+C stops its owned processes. An occupied port is a conflict,
+          not permission to terminate another application. Dummy data and logs persist under <code>.local-test\Dummy</code>.</p>
+        <p>The repository's <code>README.md</code> documents independent Foundry/Google configuration and release procedures;
+          <code>AGENTS.md</code> records the project direction and instructions for future development.
+          Never put tokens, Google secrets, or private Overleaf evidence into source control.</p>
+      </section>
+
+      <section id="limitations">
+        <h2>Current limitations and release status</h2>
+        <ul>
+          <li>Supported research text: UTF-8 <code>.tex</code>, <code>.bib</code>, <code>.md</code>, and <code>.txt</code>.
+            PDFs and images are not analyzed. Current text limits are 128 KiB per file and 256 KiB per project.</li>
+          <li>Hosted <code>www.overleaf.com</code>, normal Chrome/Edge profiles, and one connected profile at a time.
+            Safari, Firefox, self-hosted Overleaf, editing, and live collaboration are not supported.</li>
+          <li>The Windows package has been execution-tested. macOS packaging and registration code still need live Mac validation;
+            signing/notarization and store approval remain separate release gates.</li>
+          <li>Real Google configuration, public HTTPS deployment, and live connector verification must be completed for a production rollout.
+            A local demo or passing synthetic test does not establish those outcomes.</li>
+          <li>Indexed research is encrypted, but manual exports and temporary transfers are not all encrypted by Meld.
+            Loopback transport is HTTP/WS. See <a href="privacy.html">the complete disclosure</a>.</li>
+        </ul>
+      </section>
+    </article>
+  </main>
+  <footer class="site-footer"><span>Meld Research &middot; Independent research software</span>
+    <nav aria-label="Footer"><a href="team.html">Project Team</a><a href="privacy.html">Privacy</a><a href="mailto:markusmobius@gmail.com">Contact</a></nav>
+  </footer>
+</body>
+</html>
