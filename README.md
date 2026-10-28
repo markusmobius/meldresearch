@@ -278,7 +278,7 @@ versions, its own tokens-per-minute limit) if rate limits ever collide.
 Offline Foundry checks (pinned deployments, `store: false`, managed-identity bearer
 scope, no fallback, content-free smoke-test output) run with the normal C# tests.
 
-The remote backend defaults to loopback port 8080 in Production, for a same-host
+The remote backend defaults to loopback port 8096 in Production, for a same-host
 HTTPS reverse proxy. Configure `ListenAddress` and explicit `TrustedProxies`
 when deploying elsewhere; never trust arbitrary forwarded headers. `/healthz`
 is available for liveness checks. Non-development application routes require
@@ -317,19 +317,18 @@ before store review.
 
 ## Deploy the remote backend to Ubuntu
 
-[deploy/](deploy) hosts the blue remote service on an Ubuntu server as
-`https://www.meldresearch.org`: nginx terminates TLS and proxies to Kestrel on
-`127.0.0.1:8080`, which systemd runs as **`markusmobius`**. Everything lives in
-that user's home folder. **You set nginx, the certificate and the systemd unit up
-once by hand; releases are built and deployed from the repository clone.**
+[deploy/](deploy) runs the blue remote service on an Ubuntu server as
+`https://www.meldresearch.org`. systemd runs it as **`markusmobius`** on
+`127.0.0.1:8096`, behind your own reverse proxy and TLS certificate (not set up
+here). Everything lives in that user's home folder, and one command builds and
+deploys from the repository clone.
 
 | File | Purpose |
 | --- | --- |
-| [deploy.sh](deploy/deploy.sh) | Bash entry point: installs missing prerequisites (curl, sqlite3, ICU, PowerShell 7; asks first, `--yes` skips the prompt, `--prerequisites` stops after this), checks the build tools, then runs `deploy.ps1` with the same arguments. |
-| [deploy.ps1](deploy/deploy.ps1) | The deploy itself, run as yourself in `~/meldresearch`: builds the desktop packages (only when the client changed; cross-built for Windows/macOS) and signs them, builds the remote backend, copies it to `deployed/releases/…`, points `deployed/current` at it, restarts the service (`sudo systemctl`), health-checks it (rollback on failure), then publishes desktop updates to `~/meldresearch-data/downloads`. `-SkipBuild` redeploys the last build; `-BuildOnly` only builds. |
+| [deploy.sh](deploy/deploy.sh) | The command you run. Installs missing prerequisites (curl, sqlite3, ICU, PowerShell 7; asks first, `--yes` skips the prompt, `--prerequisites` stops after this), then runs `deploy.ps1` with the same arguments. |
+| [deploy.ps1](deploy/deploy.ps1) | The deploy itself: builds and signs the desktop packages (only when the client changed; cross-built for Windows/macOS), builds the remote backend, creates `~/meldresearch-data` on the first run, copies the build to `deployed/releases/…`, points `deployed/current` at it, restarts the service (`sudo systemctl`), health-checks it (rollback on failure), then publishes desktop updates. `-SkipBuild` redeploys the last build; `-BuildOnly` only builds. |
 | [meldresearch-remote.service](deploy/meldresearch-remote.service) | systemd unit: runs `~/meldresearch/deployed/current` as `markusmobius`; writable only `~/meldresearch-data`. |
-| [nginx/meldresearch.conf](deploy/nginx/meldresearch.conf) | nginx site: TLS, `meldresearch.org` → `www`, 3 MiB body limit, 5-minute analysis timeout, path-only access logs. |
-| [remote.env.example](deploy/remote.env.example) | Template for `~/meldresearch-data/remote.env`, with the (non-secret) Google client ID and Foundry values filled in. |
+| [remote.env.example](deploy/remote.env.example) | Becomes `~/meldresearch-data/remote.env` on the first deploy: the (non-secret) Google client ID and Foundry values. |
 
 ### Where things live on the server
 
@@ -351,61 +350,36 @@ Each deploy copies the build into a new `deployed/releases` folder and switches
 repointing `current` (automatic if the health check fails). `deployed/` and
 `artifacts/` are in `.gitignore`; avoid `git clean -x`, which would delete them.
 
-### Server setup (once, by hand)
+### Server setup (once)
 
-Prerequisites: DNS A/AAAA records for `www.meldresearch.org` and `meldresearch.org`
-point to the server; inbound TCP 80 and 443 are open (on Azure, in the VM's network
-security group); you are logged in as `markusmobius` with `sudo`; the VM's
-user-assigned managed identity holds **Cognitive Services OpenAI User** on the
-Foundry resource and can reach it over the network.
+You need: `markusmobius` with `sudo`; the repository cloned at `~/meldresearch`
+(the unit assumes both; edit it otherwise); git, Node 24 with npm, and the .NET 10
+SDK (from one apt source only); and the VM's managed identity holding **Cognitive
+Services OpenAI User** on the Foundry resource.
 
-1. **Build tools, repository and prerequisites.** Install git and Node 24 with npm
-   (e.g. NodeSource), and the .NET 10 SDK from one apt source only
-   (`apt-cache policy dotnet-sdk-10.0`). Then clone the repository and let
-   `deploy.sh` install the remaining prerequisites: curl, sqlite3, the ICU library
-   .NET needs, and PowerShell 7 (from Microsoft's apt repository, or the snap when
-   that repository does not cover your Ubuntu release yet):
+```bash
+cd ~/meldresearch
+bash deploy/deploy.sh --prerequisites        # curl, sqlite3, ICU, PowerShell 7 (asks first)
+sudo install -m 0644 deploy/meldresearch-remote.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable meldresearch-remote
+pwsh tools/update-signing-key.ps1 -Install ~/update-signing-key.pem && rm ~/update-signing-key.pem   # see below
+bash deploy/deploy.sh -FoundrySmokeTest      # first release; also creates ~/meldresearch-data
+```
 
-   ```bash
-   git clone <repository URL> ~/meldresearch && cd ~/meldresearch
-   bash deploy/deploy.sh --prerequisites      # asks before installing anything with sudo
-   cd deploy
-   ```
+The first deploy creates `~/meldresearch-data/remote.env` from
+[remote.env.example](deploy/remote.env.example) and a data-protection certificate
+(`dataprotection.pfx` + `.env`, which protect the key ring in the database). It
+never replaces them later.
 
-2. **Configuration, service and web server** (from `~/meldresearch/deploy`):
-
-   ```bash
-   sudo apt-get install -y nginx certbot
-   mkdir -p ~/meldresearch-data && chmod 700 ~/meldresearch-data
-   install -m 600 remote.env.example ~/meldresearch-data/remote.env   # review; no secrets needed
-   # Data-protection certificate (protects the key ring in remote.db); back it up with the database.
-   export pw=$(openssl rand -hex 32); d=$(mktemp -d)
-   openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 36500 -subj "/CN=Meld Research Remote Data Protection" -keyout $d/k.pem -out $d/c.pem
-   openssl pkcs12 -export -inkey $d/k.pem -in $d/c.pem -keypbe AES-256-CBC -certpbe AES-256-CBC -macalg sha256 -passout env:pw -out $d/dp.pfx
-   install -m 600 $d/dp.pfx ~/meldresearch-data/dataprotection.pfx
-   (umask 077; printf 'MELDRESEARCH_DataProtection__CertificatePassword=%s\n' "$pw" > ~/meldresearch-data/dataprotection.env)
-   rm -rf $d; unset pw
-   sudo install -m 0644 meldresearch-remote.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable meldresearch-remote
-   # TLS certificate (any method; the site expects /etc/letsencrypt/live/www.meldresearch.org/), e.g.:
-   sudo install -d /var/www/letsencrypt
-   sudo certbot certonly --standalone -d www.meldresearch.org -d meldresearch.org \
-     --pre-hook 'systemctl stop nginx' --post-hook 'systemctl start nginx'
-   sudo install -m 0644 nginx/meldresearch.conf /etc/nginx/sites-available/
-   sudo ln -s ../sites-available/meldresearch.conf /etc/nginx/sites-enabled/
-   sudo nginx -t && sudo systemctl reload nginx
-   ```
-
-   The unit and paths assume the user `markusmobius` and the clone at
-   `~/meldresearch`; edit `meldresearch-remote.service` before installing it otherwise.
-
-3. **Update signing key**: install it as described in the next section.
-4. **First release**: `cd ~/meldresearch && bash deploy/deploy.sh -FoundrySmokeTest`
-   (it builds everything, asks for the signing passphrase, starts the service and
-   checks Foundry with the managed identity).
-5. **Verify**: `curl https://www.meldresearch.org/healthz`, then open the site and
-   sign up with Google. If the Google button reports that the origin is not
-   allowed, add `https://www.meldresearch.org` to the OAuth client's Authorized
-   JavaScript origins; in OAuth "Testing" mode, add your account as a test user.
+**Your reverse proxy** serves `https://www.meldresearch.org` and forwards to
+`http://127.0.0.1:8096`. It must pass the original `Host` header, set
+`X-Forwarded-Proto: https` and `X-Forwarded-For` to the client address (overwrite,
+don't append), allow request bodies up to 3 MiB and responses up to 5 minutes
+(research analysis), and should not log query strings (sign-in and device codes).
+[deploy/nginx/meldresearch.conf](deploy/nginx/meldresearch.conf) is a working
+nginx example. Then check `curl https://www.meldresearch.org/healthz` and sign up
+with Google. If the Google button reports that the origin is not allowed, add
+`https://www.meldresearch.org` to the OAuth client's Authorized JavaScript origins.
 
 ### Update signing key
 
@@ -449,7 +423,7 @@ the Ubuntu server). If `./deploy/deploy.sh` reports "Permission denied", run
 
 - The **remote backend** is rebuilt and deployed every time. Releases live in
   `~/meldresearch/deployed/releases` (latest five kept); a release failing
-  `http://127.0.0.1:8080/healthz` is rolled back and publishes no desktop update.
+  `http://127.0.0.1:8096/healthz` is rolled back and publishes no desktop update.
 - The **desktop client** has a content-based release identity: the SHA-256 of
   the committed client inputs' git tree (`apps/LocalBackend`, `apps/BrowserHost`,
   `apps/frontend`, `libraries`, `browser/overleaf`, the packaging/install/launch

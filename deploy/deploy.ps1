@@ -9,10 +9,12 @@ deploy/deploy.sh. One run:
 1. Rebuilds each desktop package (win-x64, osx-arm64, osx-x64; cross-built here) only when the committed desktop
    client inputs changed, and signs it with your passphrase-protected update key (prompted only then).
 2. Rebuilds the remote backend.
-3. Copies it to <repo>/deployed/releases/<stamp>.<id>, points <repo>/deployed/current at it, restarts the service
-   (sudo systemctl) and health-checks it, rolling back to the previous release if it is unhealthy.
-4. Publishes new desktop releases to ~/meldresearch-data/downloads, from which installed clients update themselves.
-Nothing here installs nginx, certificates or the systemd unit (README: "Server setup").
+3. On the first deploy, creates ~/meldresearch-data with remote.env (from deploy/remote.env.example) and the
+   data-protection certificate. Existing files are never replaced.
+4. Copies the backend to <repo>/deployed/releases/<stamp>.<id>, points <repo>/deployed/current at it, restarts the
+   service (sudo systemctl) and health-checks it, rolling back to the previous release if it is unhealthy.
+5. Publishes new desktop releases to ~/meldresearch-data/downloads, from which installed clients update themselves.
+Nothing here configures your reverse proxy, TLS certificates or the systemd unit (README: "Server setup").
 
 .EXAMPLE
 pwsh deploy/deploy.ps1
@@ -56,9 +58,10 @@ $frontend = [IO.Path]::Combine($root, 'apps', 'frontend')
 $desktop = [IO.Path]::Combine($root, 'artifacts', 'desktop')
 $publish = [IO.Path]::Combine($root, 'artifacts', 'remote', "publish-$Runtime")
 $deployed = [IO.Path]::Combine($root, 'deployed')
-$home_ = [Environment]::GetFolderPath('UserProfile')
-$downloads = if ($env:MELDRESEARCH_DOWNLOADS) { $env:MELDRESEARCH_DOWNLOADS } else { [IO.Path]::Combine($home_, 'meldresearch-data', 'downloads') }
-$healthUrl = if ($env:MELDRESEARCH_HEALTH_URL) { $env:MELDRESEARCH_HEALTH_URL } else { 'http://127.0.0.1:8080/healthz' }
+# ~/meldresearch-data holds configuration, the certificate, the database and published downloads.
+$data = if ($env:MELDRESEARCH_DATA_ROOT) { $env:MELDRESEARCH_DATA_ROOT } else { [IO.Path]::Combine([Environment]::GetFolderPath('UserProfile'), 'meldresearch-data') }
+$downloads = [IO.Path]::Combine($data, 'downloads')
+$healthUrl = if ($env:MELDRESEARCH_HEALTH_URL) { $env:MELDRESEARCH_HEALTH_URL } else { 'http://127.0.0.1:8096/healthz' }
 $service = 'meldresearch-remote'
 $keepReleases = 5
 
@@ -130,7 +133,43 @@ foreach ($desktopRuntime in $DesktopRuntimes) {
 }
 if ($BuildOnly) { Write-Host "Built in $([IO.Path]::Combine($root, 'artifacts')); nothing was deployed."; return }
 
-# 3. Remote backend: copy into a new release folder, switch `current` in one step, restart, health-check.
+# 3. First deploy only: create ~/meldresearch-data with its configuration and data-protection certificate.
+#    Existing files are never replaced; the certificate is never regenerated once a database exists.
+$private = [IO.UnixFileMode]'UserRead, UserWrite'
+$null = [IO.Directory]::CreateDirectory($data)
+[IO.File]::SetUnixFileMode($data, [IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
+$environmentFile = [IO.Path]::Combine($data, 'remote.env')
+if (-not (Test-Path -LiteralPath $environmentFile)) {
+    Copy-Item -LiteralPath ([IO.Path]::Combine($PSScriptRoot, 'remote.env.example')) -Destination $environmentFile
+    [IO.File]::SetUnixFileMode($environmentFile, $private)
+    Write-Host "==> Created $environmentFile from deploy/remote.env.example (review it)"
+}
+$certificate = [IO.Path]::Combine($data, 'dataprotection.pfx')
+$certificateEnvironment = [IO.Path]::Combine($data, 'dataprotection.env')
+if (-not (Test-Path -LiteralPath $certificate) -or -not (Test-Path -LiteralPath $certificateEnvironment)) {
+    if (Test-Path -LiteralPath ([IO.Path]::Combine($data, 'remote', 'remote.db'))) {
+        throw "$certificate or $certificateEnvironment is missing but the database exists. Restore both from your backup; a new certificate could not read the existing data."
+    }
+    # Protects the ASP.NET key ring (sessions, encrypted account columns) stored in remote.db. Back it up with the data.
+    $password = [Convert]::ToHexStringLower([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+    $rsa = [Security.Cryptography.RSA]::Create(3072)
+    try {
+        $request = [Security.Cryptography.X509Certificates.CertificateRequest]::new('CN=Meld Research Remote Data Protection', $rsa,
+            [Security.Cryptography.HashAlgorithmName]::SHA256, [Security.Cryptography.RSASignaturePadding]::Pkcs1)
+        $cert = $request.CreateSelfSigned([DateTimeOffset]::UtcNow.AddDays(-1), [DateTimeOffset]::UtcNow.AddYears(100))
+        $pbe = [Security.Cryptography.PbeParameters]::new([Security.Cryptography.PbeEncryptionAlgorithm]::Aes256Cbc,
+            [Security.Cryptography.HashAlgorithmName]::SHA256, 100000)
+        [IO.File]::WriteAllBytes($certificate, $cert.ExportPkcs12($pbe, $password))
+        [IO.File]::SetUnixFileMode($certificate, $private)
+        [IO.File]::WriteAllText($certificateEnvironment, "MELDRESEARCH_DataProtection__CertificatePassword=$password`n")
+        [IO.File]::SetUnixFileMode($certificateEnvironment, $private)
+        $cert.Dispose()
+    }
+    finally { $rsa.Dispose() }
+    Write-Host "==> Created the data-protection certificate in $data (back up this folder)"
+}
+
+# 4. Remote backend: copy into a new release folder, switch `current` in one step, restart, health-check.
 if (-not (Invoke-Systemctl @('cat', $service) -Quiet)) { throw "The systemd unit $service is not installed. Complete the one-time server setup first." }
 $releases = [IO.Directory]::CreateDirectory([IO.Path]::Combine($deployed, 'releases')).FullName
 $target = [IO.Path]::Combine($releases, "$([DateTime]::UtcNow.ToString('yyyyMMddHHmmss')).$([Guid]::NewGuid().ToString('N').Substring(0, 4))")
@@ -167,7 +206,7 @@ if (-not (Test-Healthy)) {
     throw "The new release did not become healthy at $healthUrl. No desktop update was published."
 }
 
-# 4. Desktop releases: publish only after the backend that serves them is healthy, and only when changed.
+# 5. Desktop releases: publish only after the backend that serves them is healthy, and only when changed.
 #    Each package is replaced before its signed manifest, so clients never see a manifest naming a missing package.
 $null = [IO.Directory]::CreateDirectory($downloads)
 [IO.File]::SetUnixFileMode($downloads, [IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
@@ -198,7 +237,7 @@ if ($FoundrySmokeTest) {
     # Same user, configuration and managed identity as the service.
     Write-Host '==> Foundry smoke test (service configuration, managed identity)'
     & sudo systemd-run --wait --pipe --quiet --collect -p "User=$(& id -un)" `
-        -p "EnvironmentFile=$([IO.Path]::Combine($home_, 'meldresearch-data', 'remote.env'))" -p Environment=ASPNETCORE_ENVIRONMENT=Production `
+        -p "EnvironmentFile=$([IO.Path]::Combine($data, 'remote.env'))" -p Environment=ASPNETCORE_ENVIRONMENT=Production `
         ([IO.Path]::Combine($current, 'MeldResearch.RemoteBackend')) --foundry-smoke-test --expect-endpoint $ExpectFoundryEndpoint
     if ($LASTEXITCODE -ne 0) { throw 'The Foundry smoke test failed.' }
 }

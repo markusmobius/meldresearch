@@ -21,7 +21,7 @@ Environment=DOTNET_NOLOGO=1
 Environment=DOTNET_CLI_TELEMETRY_OPTOUT=1
 Environment=MELDRESEARCH_PublicOrigin=https://www.meldresearch.org
 Environment=MELDRESEARCH_ListenAddress=127.0.0.1
-Environment=MELDRESEARCH_Port=8080
+Environment=MELDRESEARCH_Port=8096
 Environment=MELDRESEARCH_DataDirectory=/home/markusmobius/meldresearch-data/remote
 Environment=MELDRESEARCH_DownloadDirectory=/home/markusmobius/meldresearch-data/downloads
 Environment=MELDRESEARCH_DataProtection__CertificatePath=/home/markusmobius/meldresearch-data/dataprotection.pfx

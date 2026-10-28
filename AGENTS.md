@@ -194,11 +194,12 @@ node .\tests\research.e2e.mjs --public-pages-only
 - Use [desktop packaging](tools/package-local.ps1) for `win-x64`, `osx-arm64` or
   `osx-x64`, and [Windows package smoke tests](tests/desktop-package.e2e.ps1).
   Rebuild packages after source changes; old ZIPs are not current builds.
-- [Remote deployment](deploy) ships releases to an Ubuntu server the owner set
-  up by hand (nginx, certificates, systemd, user, secrets); `deploy.ps1` (run on
-  the server) must not perform that setup. Keep the reference nginx
-  forwarded headers (`Host`, overwritten `X-Forwarded-Proto/For`), path-only
-  access logs and body/timeout limits aligned with the backend. Run it only with
+- [Remote deployment](deploy): `deploy.sh`/`deploy.ps1` run on the Ubuntu server as
+  the owner (`markusmobius`), keep code in `~/meldresearch/deployed` and data in
+  `~/meldresearch-data`. The owner manages the reverse proxy, TLS certificates
+  and the systemd unit; the deploy must never configure them. Keep the documented
+  proxy requirements (`Host`, overwritten `X-Forwarded-Proto/For`, path-only
+  access logs, body/timeout limits) aligned with the backend. Run it only with
   explicit approval.
 - Desktop release identity is the SHA-256 of the committed client inputs listed
   in [release-common.ps1](tools/release-common.ps1); keep that list complete when

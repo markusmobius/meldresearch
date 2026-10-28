@@ -27,7 +27,7 @@ if (smokeTest)
     return;
 }
 var options = RemoteOptions.Load(builder.Configuration, builder.Environment);
-int port = builder.Configuration.GetValue("Port", builder.Environment.IsDevelopment() ? 6050 : 8080);
+int port = builder.Configuration.GetValue("Port", builder.Environment.IsDevelopment() ? 6050 : 8096);
 if (port is < 1024 or > 65535) throw new InvalidOperationException("Select an unprivileged remote backend port.");
 var listenAddress = IPAddress.Parse(builder.Configuration["ListenAddress"] ?? "127.0.0.1");
 if (options.Dummy && !IPAddress.IsLoopback(listenAddress))
