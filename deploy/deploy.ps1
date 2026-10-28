@@ -4,12 +4,13 @@
 Builds and deploys a release on the Ubuntu server, from a clone of this repository (README: "Releases").
 
 .DESCRIPTION
-Run as your normal deploy user (not root and not the meldresearch service account) after `git pull`:
-- The remote backend is always rebuilt and deployed (apply-release.sh, via sudo).
+Run as yourself (the user the service runs as, not root) from the repository clone after `git pull`:
+- The remote backend is always rebuilt and deployed to <repo>/deployed (git-ignored) by apply-release.sh,
+  which uses sudo only to restart the service.
 - Each desktop package (win-x64, osx-arm64, osx-x64; cross-built here) is rebuilt only when the committed
-  desktop client inputs change, then signed with your passphrase-protected update key (prompted only then).
-  Installed desktop clients update themselves from the published release.
-- Nothing here installs nginx, certificates, systemd units, users or secrets.
+  desktop client inputs change, then signed with your passphrase-protected update key (prompted only then)
+  and published to ~/meldresearch-data/downloads. Installed desktop clients update themselves from it.
+- Nothing here installs nginx, certificates or the systemd unit.
 
 .EXAMPLE
 git pull --ff-only; pwsh deploy/deploy.ps1
@@ -39,8 +40,7 @@ foreach ($desktopRuntime in $DesktopRuntimes) {
 }
 if (-not $BuildOnly) {
     if (-not $IsLinux) { throw 'Deploy on the Ubuntu server. Elsewhere, use -BuildOnly.' }
-    if ((& id -u) -eq '0') { throw 'Run as your deploy user, not root; the script uses sudo only to apply the release.' }
-    if ((& id -un) -eq 'meldresearch') { throw 'Do not deploy as the meldresearch service account; it must never read the signing key.' }
+    if ((& id -u) -eq '0') { throw 'Run as yourself, not root; the deploy uses sudo only to restart the service.' }
 }
 $Runtime = switch ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
     'Arm64' { 'linux-arm64' }
@@ -118,12 +118,15 @@ foreach ($desktopRuntime in $DesktopRuntimes) {
 if ($BuildOnly) { Write-Host "Staged release (not applied): $stage"; return }
 
 try {
-    & sudo bash ([IO.Path]::Combine($stage, 'deploy', 'apply-release.sh')) --release $stage
+    $deployed = [IO.Path]::Combine($root, 'deployed')
+    & bash ([IO.Path]::Combine($stage, 'deploy', 'apply-release.sh')) --release $stage --deploy-root $deployed
     if ($LASTEXITCODE -ne 0) { throw 'Applying the release failed. See the output above.' }
     if ($FoundrySmokeTest) {
+        # Same user, configuration and managed identity as the service.
         Write-Host '==> Foundry smoke test (service user, managed identity)'
-        & sudo systemd-run --wait --pipe --quiet --collect -p User=meldresearch -p EnvironmentFile=/etc/meldresearch/remote.env `
-            -p Environment=ASPNETCORE_ENVIRONMENT=Production /opt/meldresearch/current/MeldResearch.RemoteBackend `
+        $data = [IO.Path]::Combine([Environment]::GetFolderPath('UserProfile'), 'meldresearch-data')
+        & sudo systemd-run --wait --pipe --quiet --collect -p "User=$(& id -un)" -p "EnvironmentFile=$data/remote.env" `
+            -p Environment=ASPNETCORE_ENVIRONMENT=Production ([IO.Path]::Combine($deployed, 'current', 'MeldResearch.RemoteBackend')) `
             --foundry-smoke-test --expect-endpoint $ExpectFoundryEndpoint
         if ($LASTEXITCODE -ne 0) { throw 'The Foundry smoke test failed.' }
     }

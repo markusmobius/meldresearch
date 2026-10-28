@@ -14,3 +14,4 @@ apps/frontend/public/privacy.html
 apps/frontend/public/connector/
 apps/frontend/public/icons/icon-48.png
 apps/frontend/public/**/*.tmp
+/deployed/

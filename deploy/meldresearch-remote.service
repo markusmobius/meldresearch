@@ -1,6 +1,7 @@
 # Meld Research remote backend (blue site) behind nginx on www.meldresearch.org.
-# Reference unit: install it once by hand to /etc/systemd/system/ (README "Server setup").
-# Secrets live in /etc/meldresearch/*.env (root:meldresearch 0640), never here.
+# Install once: sudo install -m 0644 meldresearch-remote.service /etc/systemd/system/ (README "Server setup").
+# Runs as markusmobius from the deployed release in the repository clone; data and configuration live in
+# ~/meldresearch-data. It may write only there; the rest of the home folder is read-only to it.
 
 [Unit]
 Description=Meld Research remote backend
@@ -9,27 +10,24 @@ After=network-online.target
 
 [Service]
 Type=exec
-User=meldresearch
-Group=meldresearch
-WorkingDirectory=/opt/meldresearch/current
-ExecStart=/opt/meldresearch/current/MeldResearch.RemoteBackend
+User=markusmobius
+Group=markusmobius
+WorkingDirectory=/home/markusmobius/meldresearch/deployed/current
+ExecStart=/home/markusmobius/meldresearch/deployed/current/MeldResearch.RemoteBackend
 
 Environment=ASPNETCORE_ENVIRONMENT=Production
 Environment=DOTNET_ENVIRONMENT=Production
 Environment=DOTNET_NOLOGO=1
 Environment=DOTNET_CLI_TELEMETRY_OPTOUT=1
-Environment=HOME=/var/lib/meldresearch
 Environment=MELDRESEARCH_PublicOrigin=https://www.meldresearch.org
 Environment=MELDRESEARCH_ListenAddress=127.0.0.1
 Environment=MELDRESEARCH_Port=8080
-Environment=MELDRESEARCH_DataDirectory=/var/lib/meldresearch/remote
-Environment=MELDRESEARCH_DownloadDirectory=/var/lib/meldresearch/downloads
-Environment=MELDRESEARCH_DataProtection__CertificatePath=/etc/meldresearch/dataprotection.pfx
-EnvironmentFile=/etc/meldresearch/remote.env
-EnvironmentFile=/etc/meldresearch/dataprotection.env
+Environment=MELDRESEARCH_DataDirectory=/home/markusmobius/meldresearch-data/remote
+Environment=MELDRESEARCH_DownloadDirectory=/home/markusmobius/meldresearch-data/downloads
+Environment=MELDRESEARCH_DataProtection__CertificatePath=/home/markusmobius/meldresearch-data/dataprotection.pfx
+EnvironmentFile=/home/markusmobius/meldresearch-data/remote.env
+EnvironmentFile=/home/markusmobius/meldresearch-data/dataprotection.env
 
-StateDirectory=meldresearch
-StateDirectoryMode=0700
 UMask=0077
 Restart=on-failure
 RestartSec=5
@@ -42,7 +40,8 @@ AmbientCapabilities=
 PrivateTmp=true
 PrivateDevices=true
 ProtectSystem=strict
-ProtectHome=true
+ProtectHome=read-only
+ReadWritePaths=/home/markusmobius/meldresearch-data
 ProtectHostname=true
 ProtectClock=true
 ProtectKernelTunables=true

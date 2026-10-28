@@ -262,11 +262,10 @@ dotnet build .\apps\RemoteBackend --nologo
 ```
 
 ```bash
-# On the server, as the service user with the service's configuration and managed identity:
-sudo systemd-run --wait --pipe --quiet --collect -p User=meldresearch \
-  -p EnvironmentFile=/etc/meldresearch/remote.env -p Environment=ASPNETCORE_ENVIRONMENT=Production \
-  /opt/meldresearch/current/MeldResearch.RemoteBackend --foundry-smoke-test \
-  --expect-endpoint https://meldllm.openai.azure.com/openai/v1/
+# On the server, with the service's configuration and the VM's managed identity:
+(set -a; . ~/meldresearch-data/remote.env; set +a; ASPNETCORE_ENVIRONMENT=Production \
+  ~/meldresearch/deployed/current/MeldResearch.RemoteBackend --foundry-smoke-test \
+  --expect-endpoint https://meldllm.openai.azure.com/openai/v1/)
 ```
 
 Or deploy and run that server check in one step: `./deploy/deploy.sh -FoundrySmokeTest`.
@@ -320,33 +319,53 @@ before store review.
 
 [deploy/](deploy) hosts the blue remote service on an Ubuntu server as
 `https://www.meldresearch.org`: nginx terminates TLS and proxies to Kestrel on
-`127.0.0.1:8080`, run by systemd as the unprivileged `meldresearch` user. **You
-set the server up once by hand; releases are built and deployed on the server
-from a clone of this repository.**
+`127.0.0.1:8080`, which systemd runs as **`markusmobius`**. Everything lives in
+that user's home folder. **You set nginx, the certificate and the systemd unit up
+once by hand; releases are built and deployed from the repository clone.**
 
 | File | Purpose |
 | --- | --- |
 | [deploy.sh](deploy/deploy.sh) | Bash entry point: installs missing prerequisites (curl, sqlite3, ICU, PowerShell 7; asks first, `--yes` skips the prompt, `--prerequisites` stops after this), checks the build tools, then runs `deploy.ps1` with the same arguments. |
-| [deploy.ps1](deploy/deploy.ps1) | Run on the server as your deploy user: builds the remote backend (always) and the desktop packages (only when the client changed; cross-built for Windows/macOS), signs desktop releases, then runs `apply-release.sh` with sudo. |
-| [apply-release.sh](deploy/apply-release.sh) | Verifies your setup, installs the release under `/opt/meldresearch/releases`, restarts, health-checks (rollback on failure), then publishes desktop updates. Never installs packages, nginx, certificates, units, users or secrets. |
-| [meldresearch-remote.service](deploy/meldresearch-remote.service) | Reference systemd unit (hardened, non-secret production settings). |
-| [nginx/meldresearch.conf](deploy/nginx/meldresearch.conf) | Reference nginx site: TLS, `meldresearch.org` → `www`, 3 MiB body limit, 5-minute analysis timeout, path-only access logs. |
-| [remote.env.example](deploy/remote.env.example) | Template for `/etc/meldresearch/remote.env`, with the (non-secret) Google client ID and Foundry values filled in. |
+| [deploy.ps1](deploy/deploy.ps1) | Run as yourself in `~/meldresearch`: builds the remote backend (always) and the desktop packages (only when the client changed; cross-built for Windows/macOS), signs desktop releases, then runs `apply-release.sh`. |
+| [apply-release.sh](deploy/apply-release.sh) | Copies the build to `~/meldresearch/deployed/releases/…`, points `deployed/current` at it, restarts the service (`sudo systemctl`), health-checks (rollback on failure), then publishes desktop updates to `~/meldresearch-data/downloads`. |
+| [meldresearch-remote.service](deploy/meldresearch-remote.service) | systemd unit: runs `~/meldresearch/deployed/current` as `markusmobius`; writable only `~/meldresearch-data`. |
+| [nginx/meldresearch.conf](deploy/nginx/meldresearch.conf) | nginx site: TLS, `meldresearch.org` → `www`, 3 MiB body limit, 5-minute analysis timeout, path-only access logs. |
+| [remote.env.example](deploy/remote.env.example) | Template for `~/meldresearch-data/remote.env`, with the (non-secret) Google client ID and Foundry values filled in. |
+
+### Where things live on the server
+
+```text
+~/meldresearch/                       the git clone: source code
+├── artifacts/                        build output (git-ignored)
+│   ├── remote/publish-linux-x64/     the compiled remote backend
+│   └── desktop/                      desktop ZIPs + signed update manifests
+└── deployed/                         the running code (git-ignored)
+    ├── releases/<timestamp>.<id>/    one copy per deploy (latest five kept)
+    └── current -> releases/...       systemd runs current/MeldResearch.RemoteBackend
+~/meldresearch-data/                  remote.env, dataprotection.pfx/.env,
+                                      remote/remote.db, downloads/
+~/.config/meldresearch/               the encrypted update signing key
+```
+
+Each deploy copies the build into a new `deployed/releases` folder and switches
+`current` in one step, so a build in progress never runs and rollback is just
+repointing `current` (automatic if the health check fails). `deployed/` and
+`artifacts/` are in `.gitignore`; avoid `git clean -x`, which would delete them.
 
 ### Server setup (once, by hand)
 
 Prerequisites: DNS A/AAAA records for `www.meldresearch.org` and `meldresearch.org`
 point to the server; inbound TCP 80 and 443 are open (on Azure, in the VM's network
-security group); you have a normal **deploy user** with `sudo` (not root, not
-`meldresearch`); the VM's user-assigned managed identity holds **Cognitive Services
-OpenAI User** on the Foundry resource and can reach it over the network.
+security group); you are logged in as `markusmobius` with `sudo`; the VM's
+user-assigned managed identity holds **Cognitive Services OpenAI User** on the
+Foundry resource and can reach it over the network.
 
-1. **Build tools, repository and prerequisites** (as the deploy user). Install
-   git and Node 24 with npm (e.g. NodeSource), and the .NET 10 SDK from one apt
-   source only (`apt-cache policy dotnet-sdk-10.0`). Then clone the repository and
-   let `deploy.sh` install the remaining prerequisites: curl, sqlite3, the ICU
-   library .NET needs, and PowerShell 7 (from Microsoft's apt repository, or the
-   snap when that repository does not cover your Ubuntu release yet):
+1. **Build tools, repository and prerequisites.** Install git and Node 24 with npm
+   (e.g. NodeSource), and the .NET 10 SDK from one apt source only
+   (`apt-cache policy dotnet-sdk-10.0`). Then clone the repository and let
+   `deploy.sh` install the remaining prerequisites: curl, sqlite3, the ICU library
+   .NET needs, and PowerShell 7 (from Microsoft's apt repository, or the snap when
+   that repository does not cover your Ubuntu release yet):
 
    ```bash
    git clone <repository URL> ~/meldresearch && cd ~/meldresearch
@@ -354,21 +373,18 @@ OpenAI User** on the Foundry resource and can reach it over the network.
    cd deploy
    ```
 
-2. **System configuration** (from `~/meldresearch/deploy`):
+2. **Configuration, service and web server** (from `~/meldresearch/deploy`):
 
    ```bash
    sudo apt-get install -y nginx certbot
-   sudo useradd --system --user-group --home-dir /var/lib/meldresearch --no-create-home --shell /usr/sbin/nologin meldresearch
-   sudo install -d -m 0750 -o root -g meldresearch /etc/meldresearch
-   sudo install -m 0640 -o root -g meldresearch remote.env.example /etc/meldresearch/remote.env
-   sudoedit /etc/meldresearch/remote.env      # review; it needs no secrets with a managed identity
+   mkdir -p ~/meldresearch-data && chmod 700 ~/meldresearch-data
+   install -m 600 remote.env.example ~/meldresearch-data/remote.env   # review; no secrets needed
    # Data-protection certificate (protects the key ring in remote.db); back it up with the database.
    export pw=$(openssl rand -hex 32); d=$(mktemp -d)
    openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 36500 -subj "/CN=Meld Research Remote Data Protection" -keyout $d/k.pem -out $d/c.pem
    openssl pkcs12 -export -inkey $d/k.pem -in $d/c.pem -keypbe AES-256-CBC -certpbe AES-256-CBC -macalg sha256 -passout env:pw -out $d/dp.pfx
-   sudo install -m 0640 -o root -g meldresearch $d/dp.pfx /etc/meldresearch/dataprotection.pfx
-   printf 'MELDRESEARCH_DataProtection__CertificatePassword=%s\n' "$pw" | sudo sh -c 'umask 027; cat > /etc/meldresearch/dataprotection.env'
-   sudo chown root:meldresearch /etc/meldresearch/dataprotection.env
+   install -m 600 $d/dp.pfx ~/meldresearch-data/dataprotection.pfx
+   (umask 077; printf 'MELDRESEARCH_DataProtection__CertificatePassword=%s\n' "$pw" > ~/meldresearch-data/dataprotection.env)
    rm -rf $d; unset pw
    sudo install -m 0644 meldresearch-remote.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable meldresearch-remote
    # TLS certificate (any method; the site expects /etc/letsencrypt/live/www.meldresearch.org/), e.g.:
@@ -379,6 +395,9 @@ OpenAI User** on the Foundry resource and can reach it over the network.
    sudo ln -s ../sites-available/meldresearch.conf /etc/nginx/sites-enabled/
    sudo nginx -t && sudo systemctl reload nginx
    ```
+
+   The unit and paths assume the user `markusmobius` and the clone at
+   `~/meldresearch`; edit `meldresearch-remote.service` before installing it otherwise.
 
 3. **Update signing key**: install it as described in the next section.
 4. **First release**: `cd ~/meldresearch && bash deploy/deploy.sh -FoundrySmokeTest`
@@ -393,12 +412,12 @@ OpenAI User** on the Foundry resource and can reach it over the network.
 
 Desktop update manifests are signed with an ECDSA P-256 key whose public half is
 [committed](apps/LocalBackend/update-signing-public-key.txt) and stamped into every
-package. The private key is a **passphrase-encrypted PEM** in the deploy user's
-`~/.config/meldresearch/update-signing-key.pem` (mode 0600). The `meldresearch`
-service account cannot read it, so a compromise of the web service cannot sign
-updates; the passphrase is typed only when a desktop release is signed, so the
-file alone is useless. Someone with root who captures the passphrase during a
-deploy could still sign releases.
+package. The private key is a **passphrase-encrypted PEM** at
+`~/.config/meldresearch/update-signing-key.pem` (mode 0600), outside the clone.
+The passphrase is typed only when a desktop release is signed and is never stored,
+so the key file alone cannot sign anything. Because the service runs as the same
+user, a compromise of the web service could read the encrypted file, but not use
+it without the passphrase.
 
 ```bash
 # One-time move of the existing key (created on Windows) to the server:
@@ -429,7 +448,7 @@ denied", run `bash deploy/deploy.sh`, or record the executable bit once with
 `git update-index --chmod=+x deploy/deploy.sh` and commit.
 
 - The **remote backend** is rebuilt and deployed every time. Releases live in
-  `/opt/meldresearch/releases` (latest five kept); a release failing
+  `~/meldresearch/deployed/releases` (latest five kept); a release failing
   `http://127.0.0.1:8080/healthz` is rolled back and publishes no desktop update.
 - The **desktop client** has a content-based release identity: the SHA-256 of
   the committed client inputs' git tree (`apps/LocalBackend`, `apps/BrowserHost`,
@@ -441,12 +460,13 @@ denied", run `bash deploy/deploy.sh`, or record the executable bit once with
   because a changed build with an old version would be skipped by every updater.
   `-ForceDesktopBuild` rebuilds anyway; `-DesktopRuntimes` limits platforms.
 - Packages are served publicly at `/api/updates/{runtime}` and
-  `/api/updates/{runtime}/package/{version}` from `/var/lib/meldresearch/downloads`.
+  `/api/updates/{runtime}/package/{version}` from `~/meldresearch-data/downloads`.
   The same ZIPs remain account-gated website downloads at `/downloads/{runtime}`.
 
-**Back up together:** the database and `/etc/meldresearch/dataprotection.pfx` +
-`dataprotection.env`, and separately the encrypted update signing key with its passphrase. Take a consistent online copy with
-`sudo -u meldresearch sqlite3 /var/lib/meldresearch/remote/remote.db ".backup '/var/lib/meldresearch/remote-backup.db'"`
+**Back up:** `~/meldresearch-data` (database, `dataprotection.pfx` and
+`dataprotection.env` together), and separately the encrypted update signing key
+with its passphrase. Take a consistent online copy of the database with
+`sqlite3 ~/meldresearch-data/remote/remote.db ".backup '$HOME/remote-backup.db'"`
 (copying `remote.db` alone while the service runs can miss WAL data). Never
 regenerate the certificate while `remote.db` exists: the key ring, sessions and
 encrypted account columns would become unreadable. Logs: `journalctl -u meldresearch-remote`.

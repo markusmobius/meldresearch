@@ -34,7 +34,7 @@ function Get-UpdatePublicKeyPath([string]$Root) { [IO.Path]::Combine($Root, 'app
 
 function Get-UpdateSigningKeyPath {
     <# The private key is a passphrase-encrypted PKCS#8 PEM, readable only by the deploying user (mode 0600).
-       On the server it lives in the deploy user's home, never where the web service account can read it. #>
+       On the server it lives in ~/.config/meldresearch, outside the repository clone. #>
     if ($env:MELDRESEARCH_UPDATE_SIGNING_KEY) { return [IO.Path]::GetFullPath($env:MELDRESEARCH_UPDATE_SIGNING_KEY) }
     $base = if ($IsWindows) { [Environment]::GetFolderPath('ApplicationData') }
         else { [IO.Path]::Combine([Environment]::GetFolderPath('UserProfile'), '.config') }

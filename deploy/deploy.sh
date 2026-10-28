@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Bash entry point for server deploys. Ensures the runtime prerequisites (curl, sqlite3, the ICU library .NET
 # needs, and PowerShell 7) on Ubuntu/Debian, checks the build tools, then runs deploy/deploy.ps1 with the same
-# arguments. Run as your deploy user (it uses sudo only to install packages and to apply the release):
+# arguments. Run as yourself, the user the service runs as (sudo is used only to install packages and restart it):
 #   bash deploy/deploy.sh [--yes] [-FoundrySmokeTest] [-BuildOnly] [-DesktopRuntimes win-x64,osx-arm64] ...
 #   bash deploy/deploy.sh --prerequisites [--yes]    # install/verify prerequisites only, then stop
 # --yes installs missing prerequisites without asking (sudo; PowerShell adds Microsoft's apt repository).

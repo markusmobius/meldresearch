@@ -204,8 +204,8 @@ node .\tests\research.e2e.mjs --public-pages-only
   in [release-common.ps1](tools/release-common.ps1); keep that list complete when
   adding anything the package contains. Packages rebuild only when it changes.
   Update manifests are signed with the owner's ECDSA key, a passphrase-encrypted
-  PEM in the deploy user's home on the server (never in the repo, never readable
-  by the `meldresearch` service account); clients verify signature, runtime, newer date, length and SHA-256,
+  PEM in `~/.config/meldresearch` on the server (never in the repo; the passphrase
+  is typed at signing time and never stored); clients verify signature, runtime, newer date, length and SHA-256,
   install side by side, and restart through the stable launcher (exit code 75).
   Never weaken those checks or make clients accept unsigned or older releases.
   Validate with `tests\desktop-update.e2e.ps1` (isolated; no registry changes).
