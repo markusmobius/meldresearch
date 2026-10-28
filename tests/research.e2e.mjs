@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { createHash, generateKeyPairSync, sign } from 'node:crypto';
+import { mkdtemp, mkdir, rm, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -207,11 +208,80 @@ async function verifyModelFlow(local, remote, localProcess, localArgs, localBase
   console.log('Research E2E passed: public policy; account/proof/consent gates; real Foundry initial import and delta; exactly zero inference for unchanged content or restart; encrypted persistence; revocation and account isolation.');
 }
 
+async function verifyGoogleSignIn() {
+  const port = await freePort(), base = `http://127.0.0.1:${port}`;
+  const clientId = 'synthetic-client.apps.googleusercontent.com';
+  const server = start('RemoteBackend', ['--Port', String(port), '--PublicOrigin', base, '--Dummy', 'false',
+    '--DataDirectory', path.join(temporary, 'remote-google'), '--Google:ClientId', clientId]);
+  await ready(server, base);
+  const browser = client(base);
+  const home = await browser('/');
+  assert.doesNotMatch(home.headers.get('content-security-policy'), /accounts\.google\.com/, 'Only sign-in pages allow Google scripts.');
+  const signup = await browser('/signup');
+  assert.equal(signup.status, 200);
+  const csp = signup.headers.get('content-security-policy');
+  assert.match(csp, /script-src 'self' https:\/\/accounts\.google\.com\/gsi\/client/);
+  assert.match(csp, /frame-src https:\/\/accounts\.google\.com\/gsi\//);
+  assert.equal(signup.headers.get('referrer-policy'), 'strict-origin-when-cross-origin');
+  const nonceCookie = signup.headers.getSetCookie().find(cookie => cookie.startsWith('MeldResearch.Remote.GoogleNonce='));
+  assert.ok(nonceCookie && /path=\/auth\/google/i.test(nonceCookie) && /httponly/i.test(nonceCookie) && /samesite=strict/i.test(nonceCookie),
+    'Each sign-in page binds a one-time nonce to the browser.');
+  const html = await signup.text();
+  const nonce = nonceCookie.split(';', 1)[0].split('=')[1];
+  assert.ok(html.includes(`data-client_id="${clientId}"`) && html.includes(`data-nonce="${nonce}"`));
+  assert.ok(html.includes('src="https://accounts.google.com/gsi/client"') && html.includes('src="/google-sign-in.js"'));
+  assert.doesNotMatch(html, /client_secret|ClientSecret/i);
+  const script = await browser('/google-sign-in.js');
+  assert.equal(script.status, 200);
+  assert.match(script.headers.get('content-type'), /javascript/);
+  const forged = await browser('/auth/google', { method: 'POST', form: {
+    __RequestVerificationToken: formToken(html), mode: 'signup', credential: 'not-a-google-token' } });
+  assert.equal(forged.status, 302);
+  assert.equal(forged.headers.get('location'), '/?signInFailed=1', 'An unverifiable token never creates a session.');
+  assert.equal((await browser('/account')).status, 401, 'No session exists after a rejected token.');
+  const noToken = await client(base)('/auth/google', { method: 'POST', form: { mode: 'signup', credential: 'x' } });
+  assert.equal(noToken.status, 403, 'The sign-in form keeps antiforgery protection.');
+  server.kill();
+  await new Promise(resolve => server.once('exit', resolve));
+}
+
+async function publishSyntheticUpdate(directory) {
+  await mkdir(directory, { recursive: true });
+  const pkg = Buffer.from('synthetic desktop package bytes');
+  const version = 'b'.repeat(64);
+  const manifest = Buffer.from(JSON.stringify({
+    product: 'MeldResearch.Desktop', runtime: 'win-x64', version, versionDate: '2026-10-28T00:00:00+00:00',
+    length: pkg.length, sha256: createHash('sha256').update(pkg).digest('hex'),
+  }));
+  const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+  const signature = sign('sha256', manifest, { key: privateKey, dsaEncoding: 'ieee-p1363' });
+  const envelope = JSON.stringify({ manifest: manifest.toString('base64'), signature: signature.toString('base64') });
+  await writeFile(path.join(directory, 'meldresearch-win-x64.zip'), pkg);
+  await writeFile(path.join(directory, 'meldresearch-win-x64.update.json'), envelope);
+  return { version, pkg, envelope };
+}
+async function verifyUpdateEndpoints(base, published) {
+  const anonymous = client(base);
+  const manifest = await anonymous('/api/updates/win-x64');
+  assert.equal(manifest.status, 200, 'Installed clients read update manifests without an account session.');
+  assert.match(manifest.headers.get('content-type'), /application\/json/);
+  assert.equal(await manifest.text(), published.envelope, 'The signed envelope is served byte for byte.');
+  assert.equal((await anonymous('/api/updates/osx-x64')).status, 404, 'Unpublished runtimes have no update.');
+  assert.equal((await anonymous('/api/updates/linux-x64')).status, 404, 'Unknown runtimes are rejected.');
+  const pkg = await anonymous(`/api/updates/win-x64/package/${published.version}`);
+  assert.equal(pkg.status, 200);
+  assert.deepEqual(Buffer.from(await pkg.arrayBuffer()), published.pkg);
+  assert.equal((await anonymous(`/api/updates/win-x64/package/${'c'.repeat(64)}`)).status, 404,
+    'Only the release named by the current manifest is served.');
+  assert.equal((await anonymous('/downloads/win-x64')).status, 401, 'Website downloads still require an account.');
+}
+
 try {
   const remotePort = await freePort(), localPort = await freePort();
   const remoteBase = `http://127.0.0.1:${remotePort}`, localBase = `http://127.0.0.1:${localPort}`;
+  const published = await publishSyntheticUpdate(path.join(temporary, 'downloads'));
   const remoteArgs = ['--Port', String(remotePort), '--PublicOrigin', remoteBase,
-    '--Dummy', 'true', '--DataDirectory', path.join(temporary, 'remote')];
+    '--Dummy', 'true', '--DataDirectory', path.join(temporary, 'remote'), '--DownloadDirectory', path.join(temporary, 'downloads')];
   if (settings) remoteArgs.push('--SettingsFile', settings);
   const remoteProcess = start('RemoteBackend', remoteArgs);
   await ready(remoteProcess, remoteBase);
@@ -229,7 +299,9 @@ try {
   assert.equal(configuration.extensionId, 'pejcljoimoeklelcfbfddnkimlkjgfhe');
   if (publicPagesOnly) {
     assert.deepEqual(await (await remote('/api/development/inference-counts')).json(), { chatRequests: 0, embeddingRequests: 0 });
-    console.log('Public pages passed: local green / remote blue themes; anonymous Docs/Privacy/Project Team; Markus Mobius only; accurate provider disclosures; zero model calls.');
+    await verifyUpdateEndpoints(remoteBase, published);
+    await verifyGoogleSignIn();
+    console.log('Public pages passed: local green / remote blue themes; anonymous Docs/Privacy/Project Team; Markus Mobius only; accurate provider disclosures; public signed desktop updates; secretless Google sign-in page and token endpoint; zero model calls.');
   } else {
     assert.equal(configuration.foundryConfigured, true);
     await verifyModelFlow(local, remote, localProcess, localArgs, localBase);

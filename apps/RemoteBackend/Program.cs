@@ -3,20 +3,29 @@ using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.IdentityModel.Protocols;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using MeldResearch.BrowserProtocol;
+using MeldResearch.RemoteBackend.Data;
 using MeldResearch.RemoteBackend.Endpoints;
 using MeldResearch.RemoteBackend.Middleware;
 using MeldResearch.RemoteBackend.Services;
 using MeldResearch.Research;
 
+bool smokeTest = FoundrySmokeTest.TryParse(args, out var smokeOptions, out args);
 var builder = WebApplication.CreateBuilder(args);
 if (builder.Configuration["SettingsFile"] is { Length: > 0 } settings)
     builder.Configuration.AddJsonFile(Path.GetFullPath(settings), optional: false);
 builder.Configuration.AddEnvironmentVariables("MELDRESEARCH_").AddCommandLine(args);
+if (smokeTest)
+{
+    Environment.ExitCode = await FoundrySmokeTest.RunAsync(builder.Configuration, builder.Environment, smokeOptions!);
+    return;
+}
 var options = RemoteOptions.Load(builder.Configuration, builder.Environment);
 int port = builder.Configuration.GetValue("Port", builder.Environment.IsDevelopment() ? 6050 : 8080);
 if (port is < 1024 or > 65535) throw new InvalidOperationException("Select an unprivileged remote backend port.");
@@ -34,7 +43,8 @@ builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
 builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
 builder.Services.Configure<ForwardedHeadersOptions>(forwarded =>
 {
-    forwarded.ForwardedHeaders = ForwardedHeaders.XForwardedProto;
+    // X-Forwarded-For lets the per-client rate limiter see real clients behind the trusted proxy.
+    forwarded.ForwardedHeaders = ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedFor;
     forwarded.KnownIPNetworks.Clear();
     forwarded.KnownProxies.Clear();
     forwarded.KnownProxies.Add(IPAddress.Loopback);
@@ -42,10 +52,9 @@ builder.Services.Configure<ForwardedHeadersOptions>(forwarded =>
     foreach (var proxy in builder.Configuration.GetSection("TrustedProxies").GetChildren())
         forwarded.KnownProxies.Add(IPAddress.Parse(proxy.Value ?? throw new InvalidOperationException("A trusted proxy address is missing.")));
 });
-string keyDirectory = Path.Combine(options.DataDirectory, "keys");
-RuntimeFiles.CreatePrivateDirectory(keyDirectory);
+builder.Services.AddDbContextFactory<RemoteDbContext>(database => database.UseSqlite(RemoteDatabase.ConnectionString(options.DataDirectory)));
 var protection = builder.Services.AddDataProtection().SetApplicationName(options.Dummy ? "MeldResearch.Remote.Dummy" : "MeldResearch.Remote")
-    .PersistKeysToFileSystem(new DirectoryInfo(keyDirectory));
+    .PersistKeysToDbContext<RemoteDbContext>();
 if (OperatingSystem.IsWindows()) protection.ProtectKeysWithDpapi();
 else if (builder.Configuration["DataProtection:CertificatePath"] is { Length: > 0 } certificate)
     protection.ProtectKeysWithCertificate(X509CertificateLoader.LoadPkcs12FromFile(certificate, builder.Configuration["DataProtection:CertificatePassword"]));
@@ -58,7 +67,7 @@ builder.Services.AddSingleton<IAccountService, AccountService>();
 builder.Services.AddSingleton<IFoundryService, FoundryService>();
 builder.Services.AddHttpClient("foundry", client => client.Timeout = Timeout.InfiniteTimeSpan)
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
-var authentication = builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(cookie =>
     {
         cookie.Cookie.Name = "MeldResearch.Remote.Session";
@@ -68,31 +77,12 @@ var authentication = builder.Services.AddAuthentication(CookieAuthenticationDefa
         cookie.ExpireTimeSpan = TimeSpan.FromHours(8);
         cookie.LoginPath = "/login";
     });
-if (options.GoogleConfigured)
-{
-    authentication.AddGoogle(GoogleDefaults.AuthenticationScheme, google =>
-    {
-        google.ClientId = builder.Configuration["Google:ClientId"]!;
-        google.ClientSecret = builder.Configuration["Google:ClientSecret"]!;
-        google.CallbackPath = "/auth/google/callback";
-        google.UsePkce = true;
-        google.SaveTokens = false;
-        google.Events.OnCreatingTicket = context =>
-        {
-            bool verified = context.User.TryGetProperty("verified_email", out var email) && email.ValueKind == System.Text.Json.JsonValueKind.True;
-            if (!verified || context.Identity is null) throw new InvalidOperationException("A verified Google email is required.");
-            context.Identity.AddClaim(new Claim("meld_provider", "google"));
-            context.Identity.AddClaim(new Claim("meld_email_verified", "true"));
-            return Task.CompletedTask;
-        };
-        google.Events.OnRemoteFailure = context =>
-        {
-            context.HandleResponse();
-            context.Response.Redirect("/?signInFailed=1");
-            return Task.CompletedTask;
-        };
-    });
-}
+// Sign in with Google: the browser receives a Google-signed ID token, which the server verifies against Google's
+// published keys. Only the public client ID is configured; no client secret or server-side code exchange.
+builder.Services.AddSingleton<IConfigurationManager<OpenIdConnectConfiguration>>(
+    new ConfigurationManager<OpenIdConnectConfiguration>(GoogleIdTokenVerifier.MetadataAddress,
+        new OpenIdConnectConfigurationRetriever(), new HttpDocumentRetriever { RequireHttps = true }));
+builder.Services.AddSingleton<IGoogleIdTokenVerifier, GoogleIdTokenVerifier>();
 builder.Services.AddAntiforgery(antiforgery =>
 {
     antiforgery.Cookie.Name = "MeldResearch.Remote.Antiforgery";
@@ -123,6 +113,7 @@ builder.Services.AddRateLimiter(limits =>
 });
 
 var app = builder.Build();
+await RemoteDatabase.InitializeAsync(app.Services.GetRequiredService<IDbContextFactory<RemoteDbContext>>(), options.DataDirectory, CancellationToken.None);
 app.UseForwardedHeaders();
 app.UseExceptionHandler();
 app.UseStatusCodePages();

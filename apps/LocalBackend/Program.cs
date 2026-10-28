@@ -8,6 +8,7 @@ using MeldResearch.LocalBackend.Endpoints;
 using MeldResearch.LocalBackend.Middleware;
 using MeldResearch.LocalBackend.Services;
 using MeldResearch.LocalBackend.Services.Research;
+using MeldResearch.LocalBackend.Services.Updates;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddEnvironmentVariables("MELDRESEARCH_").AddCommandLine(args);
@@ -24,6 +25,7 @@ string localUrl = $"http://127.0.0.1:{port}";
 
 builder.WebHost.ConfigureKestrel(options => options.Listen(IPAddress.Loopback, port));
 builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
+builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
 builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ApiExceptionHandler>();
@@ -58,6 +60,12 @@ builder.Services.AddHttpClient("research-remote", client => client.Timeout = Tim
 builder.Services.AddSingleton<ResearchCoordinator>();
 builder.Services.AddSingleton<IResearchCoordinator>(services => services.GetRequiredService<ResearchCoordinator>());
 builder.Services.AddHostedService(services => services.GetRequiredService<ResearchCoordinator>());
+builder.Services.AddSingleton(UpdateOptions.Load(builder.Configuration, researchOptions));
+builder.Services.AddSingleton<INativeHostRegistrar, NativeHostRegistrar>();
+builder.Services.AddHttpClient(DesktopUpdater.HttpClientName, client => client.Timeout = Timeout.InfiniteTimeSpan)
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
+builder.Services.AddSingleton<DesktopUpdater>();
+builder.Services.AddHostedService(services => services.GetRequiredService<DesktopUpdater>());
 
 var app = builder.Build();
 app.UseExceptionHandler();
@@ -137,6 +145,8 @@ try
             new BridgeConnection(WireProtocol.Version, port, token), app.Lifetime.ApplicationStopping);
     app.Logger.LogInformation("Meld Research listening at {LocalUrl}. Dummy evidence: {Dummy}. Model processing requires account linking and explicit project consent.", localUrl, researchOptions.Dummy);
     await app.WaitForShutdownAsync();
+    // The stable launcher restarts into the new version when it sees this exit code.
+    if (app.Services.GetRequiredService<DesktopUpdater>().RestartRequested) Environment.ExitCode = DesktopUpdates.UpdateExitCode;
 }
 finally
 {

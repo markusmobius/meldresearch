@@ -1,31 +1,80 @@
 #!/bin/sh
+# Stable Meld Research launcher. It lives in the application root next to current.json and starts the version
+# that file names. Exit code 75 means the application installed a verified update and repointed current.json,
+# so the launcher starts the new version. A version that fails to start is rolled back to the previous one.
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-if /usr/sbin/lsof -n -iTCP:6001 -sTCP:LISTEN >/dev/null 2>&1; then
-  echo "Port 6001 is occupied. No process was stopped." >&2
+pointer="$root/current.json"
+port=6001
+opened=false
+pid=
+if [ ! -f "$pointer" ]; then
+  echo "Meld Research is not installed here. Run Install-Meld.command from the downloaded package." >&2
   exit 1
 fi
-cd "$root/local"
-./MeldResearch.LocalBackend --Port 6001 --FrontendPath "$root/frontend" --ConnectorDirectory "$root/browser/overleaf" &
-pid=$!
-trap 'kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true' EXIT
+trap 'if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; fi' EXIT
 trap 'exit 130' INT TERM
-attempt=0
-while ! /usr/bin/curl --silent --fail --max-time 2 http://127.0.0.1:6001/api/status >/dev/null; do
-  if ! kill -0 "$pid" 2>/dev/null || [ "$attempt" -ge 60 ]; then
+
+field() { /usr/bin/plutil -extract "$1" raw -o - "$2" 2>/dev/null || true; }
+is_folder() { [ "${#1}" -eq 12 ] && case "$1" in *[!0-9a-f]*) false;; *) true;; esac; }
+
+while :; do
+  if /usr/sbin/lsof -n -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "Port $port is occupied. No process was stopped." >&2
+    exit 1
+  fi
+  current=$(field current "$pointer")
+  previous=$(field previous "$pointer")
+  if ! is_folder "$current"; then echo "The installation pointer is invalid." >&2; exit 1; fi
+  directory="$root/$current"
+  (cd "$directory/local" && exec ./MeldResearch.LocalBackend --Port "$port" --FrontendPath "$directory/frontend" \
+    --ConnectorDirectory "$directory/browser/overleaf" --InstallRoot "$root") &
+  pid=$!
+  attempt=0
+  ready=false
+  while kill -0 "$pid" 2>/dev/null && [ "$attempt" -lt 120 ]; do
+    if /usr/bin/curl --silent --fail --max-time 2 "http://127.0.0.1:$port/api/status" >/dev/null; then ready=true; break; fi
+    attempt=$((attempt + 1))
+    sleep 0.25
+  done
+  if [ "$ready" != true ]; then
+    kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; pid=
+    if [ -n "$previous" ] && is_folder "$previous" && [ -d "$root/$previous" ]; then
+      echo "Meld Research $current did not start. Returning to the previous version $previous." >&2
+      failed=$(field Version "$directory/installation.json")
+      if [ "${MELDRESEARCH_Updates__RegisterNativeHost:-true}" != false ]; then
+        "$root/$previous/browser-host/MeldResearch.BrowserHost" --register
+      fi
+      printf '{"current":"%s","previous":"","rejected":["%s"]}\n' "$previous" "$failed" > "$pointer.partial"
+      mv -f "$pointer.partial" "$pointer"
+      cp "$root/$previous/Start-Meld.command" "$root/Start-Meld.command.partial"
+      chmod 700 "$root/Start-Meld.command.partial"
+      mv -f "$root/Start-Meld.command.partial" "$root/Start-Meld.command"
+      continue
+    fi
     echo "Meld did not become ready." >&2
     exit 1
   fi
-  attempt=$((attempt + 1))
-  sleep 0.25
+  if [ "$opened" = false ]; then
+    opened=true
+    if [ "${MELDRESEARCH_NO_BROWSER:-false}" != true ]; then
+      published=$(field StorePublished "$directory/installation.json")
+      if [ "$published" = true ]; then
+        id=$(field ExtensionId "$directory/installation.json")
+        case "$id" in *[!a-p]*|"") echo "Invalid connector identity." >&2; exit 1;; esac
+        /usr/bin/open "https://chromewebstore.google.com/detail/$id"
+      fi
+      /usr/bin/open "http://127.0.0.1:$port"
+    fi
+    echo "Link your existing Meld account and approve selected-project processing."
+    echo "Keep this terminal open. Ctrl+C stops this owned instance. Updates install automatically."
+  fi
+  status=0
+  wait "$pid" || status=$?
+  pid=
+  if [ "$status" -eq 75 ]; then
+    echo "Restarting Meld Research into the installed update..."
+    continue
+  fi
+  exit "$status"
 done
-published=$(/usr/bin/plutil -extract StorePublished raw -o - "$root/installation.json")
-if [ "$published" = true ]; then
-  id=$(/usr/bin/plutil -extract ExtensionId raw -o - "$root/installation.json")
-  case "$id" in *[!a-p]*|"") echo "Invalid connector identity." >&2; exit 1;; esac
-  /usr/bin/open "https://chromewebstore.google.com/detail/$id"
-fi
-/usr/bin/open http://127.0.0.1:6001
-echo "Link your existing Meld account and approve selected-project processing."
-echo "Keep this terminal open. Ctrl+C stops this owned instance."
-wait "$pid"

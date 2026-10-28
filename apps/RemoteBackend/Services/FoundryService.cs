@@ -80,7 +80,7 @@ internal sealed class FoundryService : IFoundryService, IDisposable
         RequireConfiguration();
         var payload = new
         {
-            model = _chat, stream = false, max_completion_tokens = 10000,
+            model = _chat, stream = false, store = false, max_completion_tokens = 10000,
             messages = new object[]
             {
                 new { role = "system", content = SystemPrompt },

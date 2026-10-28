@@ -1,7 +1,8 @@
 #requires -Version 7.0
 [CmdletBinding()]
 param(
-    [uri]$TokenSource = 'https://projectmeld.microsoft.com/api/inference/token',
+    # HTTPS development token service that returns short-lived Foundry credentials and its routes/deployments.
+    [Parameter(Mandatory)][uri]$TokenSource,
     [string]$OutputPath = [IO.Path]::Combine($PSScriptRoot, '..', '.local-test', 'Foundry.Local.json')
 )
 $ErrorActionPreference = 'Stop'

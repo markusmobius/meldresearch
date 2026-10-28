@@ -5,7 +5,9 @@ internal sealed class RemoteOptions
     public required string DataDirectory { get; init; }
     public required Uri PublicOrigin { get; init; }
     public required bool Dummy { get; init; }
-    public required bool GoogleConfigured { get; init; }
+    /// <summary>The public OAuth client ID for Sign in with Google; no client secret is used.</summary>
+    public string? GoogleClientId { get; init; }
+    public bool GoogleConfigured => !string.IsNullOrWhiteSpace(GoogleClientId);
     public string? DownloadDirectory { get; init; }
 
     public static RemoteOptions Load(IConfiguration configuration, IHostEnvironment environment)
@@ -23,8 +25,7 @@ internal sealed class RemoteOptions
         return new()
         {
             DataDirectory = data, PublicOrigin = uri, Dummy = dummy,
-            GoogleConfigured = !string.IsNullOrWhiteSpace(configuration["Google:ClientId"]) &&
-                !string.IsNullOrWhiteSpace(configuration["Google:ClientSecret"]),
+            GoogleClientId = configuration["Google:ClientId"] is { Length: > 0 } clientId ? clientId.Trim() : null,
             DownloadDirectory = configuration["DownloadDirectory"] is { Length: > 0 } downloads ? Path.GetFullPath(downloads) : null
         };
     }

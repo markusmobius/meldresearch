@@ -1,0 +1,5 @@
+*.sh text eol=lf
+deploy/meldresearch-remote.service text eol=lf
+deploy/remote.env.example text eol=lf
+deploy/nginx/*.conf text eol=lf
+*.command text eol=lf

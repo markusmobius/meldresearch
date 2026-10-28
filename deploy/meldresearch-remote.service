@@ -1,0 +1,60 @@
+# Meld Research remote backend (blue site) behind nginx on www.meldresearch.org.
+# Reference unit: install it once by hand to /etc/systemd/system/ (README "Server setup").
+# Secrets live in /etc/meldresearch/*.env (root:meldresearch 0640), never here.
+
+[Unit]
+Description=Meld Research remote backend
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=exec
+User=meldresearch
+Group=meldresearch
+WorkingDirectory=/opt/meldresearch/current
+ExecStart=/opt/meldresearch/current/MeldResearch.RemoteBackend
+
+Environment=ASPNETCORE_ENVIRONMENT=Production
+Environment=DOTNET_ENVIRONMENT=Production
+Environment=DOTNET_NOLOGO=1
+Environment=DOTNET_CLI_TELEMETRY_OPTOUT=1
+Environment=HOME=/var/lib/meldresearch
+Environment=MELDRESEARCH_PublicOrigin=https://www.meldresearch.org
+Environment=MELDRESEARCH_ListenAddress=127.0.0.1
+Environment=MELDRESEARCH_Port=8080
+Environment=MELDRESEARCH_DataDirectory=/var/lib/meldresearch/remote
+Environment=MELDRESEARCH_DownloadDirectory=/var/lib/meldresearch/downloads
+Environment=MELDRESEARCH_DataProtection__CertificatePath=/etc/meldresearch/dataprotection.pfx
+EnvironmentFile=/etc/meldresearch/remote.env
+EnvironmentFile=/etc/meldresearch/dataprotection.env
+
+StateDirectory=meldresearch
+StateDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+SyslogIdentifier=meldresearch-remote
+
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectHostname=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

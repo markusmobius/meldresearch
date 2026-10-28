@@ -46,7 +46,7 @@ if ($Check) {
     if ($LASTEXITCODE -ne 0) { throw 'The Angular tests failed.' }
     & node ([IO.Path]::Combine($PSScriptRoot, 'tests', 'overleaf.e2e.mjs'))
     if ($LASTEXITCODE -ne 0) { throw 'The synthetic end-to-end check failed.' }
-    if (-not (Test-Path -LiteralPath $FoundrySettings)) { throw 'Configure Foundry with tools\configure-foundry.ps1 before the real-inference check.' }
+    if (-not (Test-Path -LiteralPath $FoundrySettings)) { throw 'Create .local-test\Foundry.Local.json (README: "Run the full development stack") before the real-inference check.' }
     & node ([IO.Path]::Combine($PSScriptRoot, 'tests', 'research.e2e.mjs')) --foundry-settings $FoundrySettings
     if ($LASTEXITCODE -ne 0) { throw 'The real-Foundry research end-to-end check failed.' }
     return

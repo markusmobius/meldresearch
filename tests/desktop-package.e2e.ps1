@@ -24,8 +24,9 @@ function Read-NativeBytes([IO.Stream]$Stream, [int]$Count) {
 try {
     [IO.Compression.ZipFile]::ExtractToDirectory([IO.Path]::GetFullPath($ArchivePath), $temporary)
     $metadata = Get-Content -LiteralPath ([IO.Path]::Combine($temporary, 'installation.json')) -Raw | ConvertFrom-Json
-    if ($metadata.ExtensionId -ne 'pejcljoimoeklelcfbfddnkimlkjgfhe' -or $metadata.Version -ne '0.3.0') {
-        throw 'The packaged public identity or version is wrong.'
+    if ($metadata.ExtensionId -ne 'pejcljoimoeklelcfbfddnkimlkjgfhe' -or $metadata.ConnectorVersion -ne '0.3.0' -or
+        $metadata.Version -notmatch '^[0-9a-f]{64}$' -or $metadata.Runtime -ne 'win-x64') {
+        throw 'The packaged public identity, connector version or release identity is wrong.'
     }
     foreach ($name in @('local', 'browser-host')) {
         $assembly = if ($name -eq 'local') { 'LocalBackend' } else { 'BrowserHost' }

@@ -19,6 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\..\apps\LocalBackend\MeldResearch.LocalBackend.csproj" />
     <ProjectReference Include="..\..\apps\RemoteBackend\MeldResearch.RemoteBackend.csproj" />
     <ProjectReference Include="..\..\libraries\BrowserProtocol\MeldResearch.BrowserProtocol.csproj" />

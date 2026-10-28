@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Http.HttpResults;
 using MeldResearch.LocalBackend.Contracts;
 using MeldResearch.LocalBackend.Services;
+using MeldResearch.LocalBackend.Services.Updates;
 
 namespace MeldResearch.LocalBackend.Endpoints;
 
@@ -23,6 +24,12 @@ internal static class OverleafEndpoints
             cancellationToken.ThrowIfCancellationRequested();
             return TypedResults.Ok(service.GetSetup());
         }).WithName("GetExtensionSetup").WithSummary("Read the browser connector identity and development setup instructions.");
+
+        app.MapGet("/api/version", (DesktopUpdater updater, CancellationToken cancellationToken) =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return TypedResults.Ok(updater.Status);
+        }).WithName("GetDesktopVersion").WithSummary("Read the installed desktop release and automatic-update state.");
 
         var overleaf = app.MapGroup("/api/overleaf").WithTags("Overleaf");
         overleaf.MapPost("/projects/refresh", async Task<Ok<ProjectListResponse>> (

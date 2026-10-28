@@ -1,30 +1,34 @@
 # Meld Research
 
-An Angular/C# research application rebuilt separately from Project Meld.
-**Overleaf is the only private-data source, Updates are the only feed content,
-and chat/embedding inference uses Foundry only.** There is no WorkIQ runtime,
-other news ingestion, or alternative-provider fallback.
+Meld Research turns changes in your Overleaf projects into a private feed of
+grounded research **Updates**. A desktop app (Angular UI on a local C# backend)
+reads the projects you select through your normal browser session, keeps the
+research index on your computer, and sends only the changed text you consented
+to process to Azure AI Foundry through a small remote service. Every Update cites
+the exact source lines it came from.
 
-This is a test release, not a deployed service or signed consumer distribution.
+**Overleaf is the only private-data source, Updates are the only feed content,
+and chat/embedding inference uses Azure AI Foundry only**, with no fallback to
+another provider.
+
+This is a test release, not a signed consumer distribution.
 
 ## Product identity and navigation
 
 Meld Research is an independent project maintained by **Markus Mobius**, not an
-internal Microsoft service. Keep the familiar Meld color distinction:
+internal Microsoft service. Two colors identify the two service roles:
 **green Local Assistant** (`#084d42` to `#0a6655`) and **blue Remote Backend**
 (`#1e3c72` to `#2a5298`). The colors identify service roles, not deployment location.
 Both services run on the same computer in routine development.
 
-The interface uses **Angular Material and the actual Project Meld UI patterns**:
-the 64px toolbar, share icon, Outfit typography, pill navigation, full-height
-workspace, and compact source-grounded Update cards. It is not a separate
-landing-page/dashboard design. The local working tabs are **Feed**, **About me**
+The interface uses **Angular Material**: a 64px toolbar with a share icon, Outfit
+typography, pill navigation, a full-height workspace, and compact source-grounded
+Update cards. The local working tabs are **Feed**, **About me**
 (projects, monitoring and downloads), and **Account** (account/connector setup).
-**More** contains Docs, Privacy and Project Team. Only the Updates feed is
-implemented; other Meld feed types are not shown as nonfunctional placeholders.
-The team currently contains only Markus Mobius. Do not restore Microsoft corporate
-footers, internal research-study language, WorkIQ workflows, or unrelated feed types.
-Keep accurate Azure/Microsoft provider disclosures and required third-party notices.
+**More** contains Docs, Privacy and Project Team. Only the Updates feed exists;
+there are no placeholder feed types. The team currently contains only Markus Mobius.
+The app keeps accurate Azure/Microsoft provider disclosures and the required
+third-party notices.
 
 Shared Docs/Team markup and site layout live in
 [frontend/public](apps/frontend/public); the local and remote `theme.css` files
@@ -49,7 +53,7 @@ See [AGENTS.md](AGENTS.md) for the persistent development instructions.
 ## Architecture
 
 - [Remote backend](apps/RemoteBackend): Google signup, existing-account device
-  approval, Foundry chat/embeddings, protected account/device records, gated
+  approval, Foundry chat/embeddings, a SQLite account database, gated
   desktop downloads, and a public `/privacy.html`.
 - [Local backend](apps/LocalBackend): browser bridge, explicit project selection,
   background synchronization, encrypted research state, and an Updates feed.
@@ -76,11 +80,29 @@ service does not persist project archives or log research payloads.
 
 Requires .NET 10, Node 24/npm, PowerShell 7, and Windows or macOS.
 
-```powershell
-# Explicitly reuse the existing Project Meld Foundry credential service for development.
-# Saves route/deployment settings, NOT the returned token.
-.\tools\configure-foundry.ps1
+Development needs a Foundry configuration (see
+[Foundry setup](#foundry-setup-and-llm-smoke-test)) in the ignored
+`.local-test\Foundry.Local.json`:
 
+```json
+{ "Foundry": {
+    "Endpoint": "https://meldllm.openai.azure.com/openai/v1/",
+    "ChatDeployment": "gpt-6-luna",
+    "EmbeddingDeployment": "text-embedding-3-large" } }
+```
+
+Your workstation has no managed identity, so authenticate in one of two
+development-only ways (both are rejected in Production):
+
+- **API key** (if the resource allows key authentication), kept in .NET user
+  secrets rather than in the file:
+  `dotnet user-secrets set Foundry:ApiKey <key> --project apps\RemoteBackend`.
+- **Development token service**: an HTTPS endpoint you operate that returns
+  short-lived Foundry tokens for the same endpoint and deployments.
+  `.\tools\configure-foundry.ps1 -TokenSource <url>` checks it and writes the
+  settings file with `Foundry:DevelopmentTokenSource`; no token is saved.
+
+```powershell
 .\run-dev.ps1 -Mode Dummy
 ```
 
@@ -118,10 +140,6 @@ It verifies account and consent gates, initial import, deltas, exactly zero mode
 calls for unchanged content, encrypted persistence, and revocation. All owned
 test processes and temporary directories are cleaned up. No browser-injected
 fixtures or separate frontend-only server are used.
-
-The development credential-source option is rejected in Production. For
-independent development, configure your own Foundry settings instead of importing
-Project Meld's routes.
 
 ## Real Overleaf and the Chrome identity
 
@@ -186,26 +204,80 @@ account's index/history, not Overleaf originals or manually downloaded ZIPs.
 
 ## Google signup and production configuration
 
-Google credentials have **not** been provisioned or live-tested. The implementation
-uses ASP.NET Core Google authentication with PKCE and verified email claims.
-Signing into Google during device linking does not silently register an account:
-signup takes place explicitly on the remote website. Installation credentials
-last 30 days and can be revoked.
+Google sign-in has **not** been live-tested with the real client yet. It uses
+**Sign in with Google** (Google Identity Services): the browser receives a
+Google-signed ID token, and the remote backend verifies its signature against
+Google's published keys, the issuer, this site's client ID as audience, its
+expiry, a verified email address, and a one-time nonce bound to the browser
+session. **No client secret is used.** Google's script loads only on the sign-in
+pages (`/signup`, `/login`, and `/connect` before sign-in), whose content-security
+policy allows `accounts.google.com/gsi`; the button's callback submits the token
+through the site's own antiforgery-protected form. Signing in does not silently
+register an account: signup takes place explicitly on the remote website.
+Installation credentials last 30 days and can be revoked.
 
-1. Create a Google OAuth **Web application** client.
-2. Register `https://www.meldresearch.org/auth/google/callback` as its redirect URI.
-3. Configure the Google consent screen and test users. Chrome Web Store tester
+1. Create a Google OAuth **Web application** client and add
+   `https://www.meldresearch.org` under **Authorized JavaScript origins**. No
+   redirect URI or client secret is needed. For local Live testing, also add
+   `http://127.0.0.1:6050`, `http://localhost:6050` and `http://localhost`.
+2. Configure the Google consent screen and test users. Chrome Web Store tester
    groups and Google OAuth test-user access are separate settings.
-4. Supply `Google:ClientId` and `Google:ClientSecret` on the remote server through
-   a secret store or `MELDRESEARCH_Google__ClientId` /
-   `MELDRESEARCH_Google__ClientSecret`. Never put secrets in this repository.
-   Development can use `dotnet user-secrets --project apps\RemoteBackend`.
-5. Configure `Foundry:Endpoint` as an HTTPS `/openai/v1/` base URL,
+3. Supply the public client ID as `Google:ClientId`
+   (`MELDRESEARCH_Google__ClientId`; already in [remote.env.example](deploy/remote.env.example)).
+4. Configure `Foundry:Endpoint` as an HTTPS `/openai/v1/` base URL,
    `Foundry:ChatDeployment`, and `Foundry:EmbeddingDeployment`. Production uses
    managed identity (optional `Foundry:ManagedIdentityClientId`) or a secret-stored
    `Foundry:ApiKey`. Grant the identity inference access to the Foundry resource.
-6. Set `PublicOrigin=https://www.meldresearch.org`, a durable private
+   See [Foundry setup](#foundry-setup-and-llm-smoke-test).
+5. Set `PublicOrigin=https://www.meldresearch.org`, a durable private
    `DataDirectory`, and optionally `DownloadDirectory` for available packages.
+
+### Foundry setup and LLM smoke test
+
+Production uses the Azure AI Foundry resource `meldllm` (Central US) with a
+**`gpt-6-luna`** (model version `2026-09-22`) chat deployment named `gpt-6-luna`
+and a **`text-embedding-3-large`** deployment of the same name (3,072 dimensions).
+Do not change the embedding model later: users' locally stored vectors depend on it.
+Settings are deployment names; the endpoint is the resource's OpenAI endpoint,
+`https://<resource>.openai.azure.com/openai/v1/`, not the Foundry project endpoint.
+Authenticate with a dedicated managed identity holding only **Cognitive Services
+OpenAI User** on that resource (token scope `https://ai.azure.com/.default`).
+Chat calls are stateless, strict-schema Chat Completions with `store: false`.
+That does not disable Azure abuse monitoring; choose a regional or Data Zone
+deployment when processing location matters.
+
+The smoke test exercises the production path. It sends synthetic Overleaf evidence
+through the real prompt, strict schema and grounded-citation validation, then
+embeds two texts. It **consumes model quota**, prints no model content or
+credentials (unless `--show-response`), never falls back to another provider, and
+does not open the data directory, so it can run beside the live service.
+`--expect-endpoint` refuses to send anything if the configuration targets a
+different resource.
+
+```powershell
+# Development, with the configured development Foundry settings:
+dotnet build .\apps\RemoteBackend --nologo
+.\apps\RemoteBackend\bin\Debug\net10.0\MeldResearch.RemoteBackend.exe --foundry-smoke-test `
+  --environment Development --SettingsFile .\.local-test\Foundry.Local.json
+```
+
+```bash
+# On the server, as the service user with the service's configuration and managed identity:
+sudo systemd-run --wait --pipe --quiet --collect -p User=meldresearch \
+  -p EnvironmentFile=/etc/meldresearch/remote.env -p Environment=ASPNETCORE_ENVIRONMENT=Production \
+  /opt/meldresearch/current/MeldResearch.RemoteBackend --foundry-smoke-test \
+  --expect-endpoint https://meldllm.openai.azure.com/openai/v1/
+```
+
+Or deploy and run that server check in one step: `./deploy/deploy.sh -FoundrySmokeTest`.
+The production template authenticates to `meldllm` with the VM's user-assigned
+managed identity; that identity needs the role above on `meldllm` and network
+access to it. `meldllm` is shared with another application, so both draw on the
+same deployment capacity; give Meld Research its own deployments (same model
+versions, its own tokens-per-minute limit) if rate limits ever collide.
+
+Offline Foundry checks (pinned deployments, `store: false`, managed-identity bearer
+scope, no fallback, content-free smoke-test output) run with the normal C# tests.
 
 The remote backend defaults to loopback port 8080 in Production, for a same-host
 HTTPS reverse proxy. Configure `ListenAddress` and explicit `TrustedProxies`
@@ -213,22 +285,176 @@ when deploying elsewhere; never trust arbitrary forwarded headers. `/healthz`
 is available for liveness checks. Non-development application routes require
 HTTPS. Production on non-Windows platforms also requires
 `DataProtection:CertificatePath` and its secret-stored password to protect the
-persisted ASP.NET key ring. Back up that key ring with the protected account store.
-This version supports one remote process per data directory, not multi-instance
-database deployment. Do not log authorization headers, OAuth codes, or bodies
-at the reverse proxy.
+persisted ASP.NET key ring. Do not log authorization headers, OAuth codes, or
+bodies at the reverse proxy.
+
+### Remote database
+
+The remote backend stores accounts, linked-device credentials, pending device-link
+approvals, and the ASP.NET Data Protection key ring in a SQLite database,
+`<DataDirectory>/remote.db` (WAL mode, owner-only file permissions), through
+EF Core ([RemoteDbContext](apps/RemoteBackend/Data/RemoteDbContext.cs)). Pending
+links and sign-in sessions therefore survive restarts. Migrations in
+[Data/Migrations](apps/RemoteBackend/Data/Migrations) are applied automatically
+at startup. Names, email addresses, device names, and not-yet-collected access
+tokens are stored as Data Protection ciphertext; installation and device codes
+are stored only as SHA-256 hashes. The Google subject is the plain lookup key.
+
+SQLite supports one remote process per data directory (`server.lock` enforces this),
+not multiple load-balanced instances. Research text is never stored remotely.
+After changing the model, add a migration with the repository's pinned tool:
+
+```powershell
+dotnet tool restore
+dotnet ef migrations add <Name> --project apps\RemoteBackend --output-dir Data\Migrations --namespace MeldResearch.RemoteBackend.Data.Migrations
+```
+
+Check that `RemoteDbContextModelSnapshot.cs` was written to `Data\Migrations`.
 
 No DNS, certificate, cloud resource, production deployment, or store submission
 is performed by the source launcher. The chosen public policy URL is
 <https://www.meldresearch.org/privacy.html>; it must actually be hosted publicly
 before store review.
 
+## Deploy the remote backend to Ubuntu
+
+[deploy/](deploy) hosts the blue remote service on an Ubuntu server as
+`https://www.meldresearch.org`: nginx terminates TLS and proxies to Kestrel on
+`127.0.0.1:8080`, run by systemd as the unprivileged `meldresearch` user. **You
+set the server up once by hand; releases are built and deployed on the server
+from a clone of this repository.**
+
+| File | Purpose |
+| --- | --- |
+| [deploy.sh](deploy/deploy.sh) | Bash entry point: installs missing prerequisites (curl, sqlite3, ICU, PowerShell 7; asks first, `--yes` skips the prompt, `--prerequisites` stops after this), checks the build tools, then runs `deploy.ps1` with the same arguments. |
+| [deploy.ps1](deploy/deploy.ps1) | Run on the server as your deploy user: builds the remote backend (always) and the desktop packages (only when the client changed; cross-built for Windows/macOS), signs desktop releases, then runs `apply-release.sh` with sudo. |
+| [apply-release.sh](deploy/apply-release.sh) | Verifies your setup, installs the release under `/opt/meldresearch/releases`, restarts, health-checks (rollback on failure), then publishes desktop updates. Never installs packages, nginx, certificates, units, users or secrets. |
+| [meldresearch-remote.service](deploy/meldresearch-remote.service) | Reference systemd unit (hardened, non-secret production settings). |
+| [nginx/meldresearch.conf](deploy/nginx/meldresearch.conf) | Reference nginx site: TLS, `meldresearch.org` → `www`, 3 MiB body limit, 5-minute analysis timeout, path-only access logs. |
+| [remote.env.example](deploy/remote.env.example) | Template for `/etc/meldresearch/remote.env`, with the (non-secret) Google client ID and Foundry values filled in. |
+
+### Server setup (once, by hand)
+
+Prerequisites: DNS A/AAAA records for `www.meldresearch.org` and `meldresearch.org`
+point to the server; inbound TCP 80 and 443 are open (on Azure, in the VM's network
+security group); you have a normal **deploy user** with `sudo` (not root, not
+`meldresearch`); the VM's user-assigned managed identity holds **Cognitive Services
+OpenAI User** on the Foundry resource and can reach it over the network.
+
+1. **Build tools, repository and prerequisites** (as the deploy user). Install
+   git and Node 24 with npm (e.g. NodeSource), and the .NET 10 SDK from one apt
+   source only (`apt-cache policy dotnet-sdk-10.0`). Then clone the repository and
+   let `deploy.sh` install the remaining prerequisites: curl, sqlite3, the ICU
+   library .NET needs, and PowerShell 7 (from Microsoft's apt repository, or the
+   snap when that repository does not cover your Ubuntu release yet):
+
+   ```bash
+   git clone <repository URL> ~/meldresearch && cd ~/meldresearch
+   bash deploy/deploy.sh --prerequisites      # asks before installing anything with sudo
+   cd deploy
+   ```
+
+2. **System configuration** (from `~/meldresearch/deploy`):
+
+   ```bash
+   sudo apt-get install -y nginx certbot
+   sudo useradd --system --user-group --home-dir /var/lib/meldresearch --no-create-home --shell /usr/sbin/nologin meldresearch
+   sudo install -d -m 0750 -o root -g meldresearch /etc/meldresearch
+   sudo install -m 0640 -o root -g meldresearch remote.env.example /etc/meldresearch/remote.env
+   sudoedit /etc/meldresearch/remote.env      # review; it needs no secrets with a managed identity
+   # Data-protection certificate (protects the key ring in remote.db); back it up with the database.
+   export pw=$(openssl rand -hex 32); d=$(mktemp -d)
+   openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 36500 -subj "/CN=Meld Research Remote Data Protection" -keyout $d/k.pem -out $d/c.pem
+   openssl pkcs12 -export -inkey $d/k.pem -in $d/c.pem -keypbe AES-256-CBC -certpbe AES-256-CBC -macalg sha256 -passout env:pw -out $d/dp.pfx
+   sudo install -m 0640 -o root -g meldresearch $d/dp.pfx /etc/meldresearch/dataprotection.pfx
+   printf 'MELDRESEARCH_DataProtection__CertificatePassword=%s\n' "$pw" | sudo sh -c 'umask 027; cat > /etc/meldresearch/dataprotection.env'
+   sudo chown root:meldresearch /etc/meldresearch/dataprotection.env
+   rm -rf $d; unset pw
+   sudo install -m 0644 meldresearch-remote.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable meldresearch-remote
+   # TLS certificate (any method; the site expects /etc/letsencrypt/live/www.meldresearch.org/), e.g.:
+   sudo install -d /var/www/letsencrypt
+   sudo certbot certonly --standalone -d www.meldresearch.org -d meldresearch.org \
+     --pre-hook 'systemctl stop nginx' --post-hook 'systemctl start nginx'
+   sudo install -m 0644 nginx/meldresearch.conf /etc/nginx/sites-available/
+   sudo ln -s ../sites-available/meldresearch.conf /etc/nginx/sites-enabled/
+   sudo nginx -t && sudo systemctl reload nginx
+   ```
+
+3. **Update signing key**: install it as described in the next section.
+4. **First release**: `cd ~/meldresearch && bash deploy/deploy.sh -FoundrySmokeTest`
+   (it builds everything, asks for the signing passphrase, starts the service and
+   checks Foundry with the managed identity).
+5. **Verify**: `curl https://www.meldresearch.org/healthz`, then open the site and
+   sign up with Google. If the Google button reports that the origin is not
+   allowed, add `https://www.meldresearch.org` to the OAuth client's Authorized
+   JavaScript origins; in OAuth "Testing" mode, add your account as a test user.
+
+### Update signing key
+
+Desktop update manifests are signed with an ECDSA P-256 key whose public half is
+[committed](apps/LocalBackend/update-signing-public-key.txt) and stamped into every
+package. The private key is a **passphrase-encrypted PEM** in the deploy user's
+`~/.config/meldresearch/update-signing-key.pem` (mode 0600). The `meldresearch`
+service account cannot read it, so a compromise of the web service cannot sign
+updates; the passphrase is typed only when a desktop release is signed, so the
+file alone is useless. Someone with root who captures the passphrase during a
+deploy could still sign releases.
+
+```bash
+# One-time move of the existing key (created on Windows) to the server:
+#   Windows:  .\tools\update-signing-key.ps1 -ConvertWindowsKey .\update-signing-key.pem
+#             scp .\update-signing-key.pem you@www.meldresearch.org:
+#   then delete %APPDATA%\MeldResearch\update-signing-key.dpapi.
+cd ~/meldresearch
+pwsh tools/update-signing-key.ps1 -Install ~/update-signing-key.pem && rm ~/update-signing-key.pem
+pwsh tools/update-signing-key.ps1          # verify key + passphrase
+```
+
+Keep one offline copy of the encrypted PEM and its passphrase. Without the key,
+installed clients can no longer be updated automatically; `-Create` makes a new
+key, but only fresh installs trust it. Never commit the private key.
+
+### Releases
+
+```bash
+cd ~/meldresearch && git pull --ff-only
+./deploy/deploy.sh                         # add -FoundrySmokeTest to verify Foundry afterwards
+./deploy/deploy.sh -BuildOnly              # build and stage in artifacts/remote without applying
+```
+
+`deploy.sh` and `pwsh deploy/deploy.ps1` are equivalent; the PowerShell script is
+the single implementation (on Windows it can build with `-BuildOnly`; applying a
+release needs the Ubuntu server). If `./deploy/deploy.sh` reports "Permission
+denied", run `bash deploy/deploy.sh`, or record the executable bit once with
+`git update-index --chmod=+x deploy/deploy.sh` and commit.
+
+- The **remote backend** is rebuilt and deployed every time. Releases live in
+  `/opt/meldresearch/releases` (latest five kept); a release failing
+  `http://127.0.0.1:8080/healthz` is rolled back and publishes no desktop update.
+- The **desktop client** has a content-based release identity: the SHA-256 of
+  the committed client inputs' git tree (`apps/LocalBackend`, `apps/BrowserHost`,
+  `apps/frontend`, `libraries`, `browser/overleaf`, the packaging/install/launch
+  scripts and build settings; see [release-common.ps1](tools/release-common.ps1)).
+  Packages for `win-x64`, `osx-arm64` and `osx-x64` are rebuilt (and the
+  passphrase requested) only when that identity changes, and republished only
+  when they differ from the live release. Uncommitted client changes are refused,
+  because a changed build with an old version would be skipped by every updater.
+  `-ForceDesktopBuild` rebuilds anyway; `-DesktopRuntimes` limits platforms.
+- Packages are served publicly at `/api/updates/{runtime}` and
+  `/api/updates/{runtime}/package/{version}` from `/var/lib/meldresearch/downloads`.
+  The same ZIPs remain account-gated website downloads at `/downloads/{runtime}`.
+
+**Back up together:** the database and `/etc/meldresearch/dataprotection.pfx` +
+`dataprotection.env`, and separately the encrypted update signing key with its passphrase. Take a consistent online copy with
+`sudo -u meldresearch sqlite3 /var/lib/meldresearch/remote/remote.db ".backup '/var/lib/meldresearch/remote-backup.db'"`
+(copying `remote.db` alone while the service runs can miss WAL data). Never
+regenerate the certificate while `remote.db` exists: the key ring, sessions and
+encrypted account columns would become unreadable. Logs: `journalctl -u meldresearch-remote`.
+
 ## Desktop and extension packaging
 
 ```powershell
-.\tools\package-local.ps1 -Runtime win-x64
-.\tools\package-local.ps1 -Runtime osx-arm64
-.\tools\package-local.ps1 -Runtime osx-x64
+.\tools\package-local.ps1 -Runtime win-x64 -AllowUncommitted   # local test build; never self-updates
 .\browser\prepare-chrome.ps1
 ```
 
@@ -236,8 +462,25 @@ Desktop ZIPs in `artifacts\desktop` are self-contained **test distributions**.
 They include per-user installation/start scripts, native-host registration, the
 Angular UI, and a development connector folder. They do not require a separate
 .NET installation. Windows uses `Install-Meld.ps1` under the machine's normal
-PowerShell policy. macOS uses `Install-Meld.command`. The terminal remains the
-owned launcher; autostart/update distribution is not implemented.
+PowerShell policy; macOS uses `Install-Meld.command`. Each release installs side
+by side in `MeldResearch\App\<first 12 characters of the release>`, and a stable
+`App\Start-Meld.ps1` / `Start-Meld.command` launcher starts the version named in
+`App\current.json`. The terminal remains the owned launcher; autostart is not implemented.
+
+**Automatic updates.** An installed client checks `/api/updates/{runtime}` after
+45 seconds and then every two minutes. It installs a release only if the manifest
+signature verifies with the stamped public key, the runtime matches, the release
+is **newer** (by commit date; replays and downgrades are refused) and the package
+length and SHA-256 match. Extraction rejects unsafe ZIP entries. The new version is
+installed into its own folder (the running files are never modified), the native
+host is re-registered, `current.json` and the stable launcher are repointed, and
+once no research cycle or browser transfer is running the application exits with
+code 75. The launcher then starts the new version; if it does not become ready,
+the launcher returns to the previous version and never retries that release. The
+current and previous versions are kept; older ones are pruned. `/api/version` reports
+the installed release and update state. Development, Dummy and uncommitted builds
+never update themselves. Releases installed before this mechanism need one manual
+install. The browser extension still updates through the Chrome Web Store.
 
 After the private store listing is approved, build with `-StorePublished` so
 onboarding opens the store installation flow. The browser still asks the user

@@ -1,9 +1,9 @@
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.Http.HttpResults;
 using MeldResearch.BrowserProtocol;
 using MeldResearch.RemoteBackend.Services;
@@ -63,7 +63,7 @@ internal static class RemoteEndpoints
         {
             ct.ThrowIfCancellationRequested();
             string message = context.Request.Query.ContainsKey("signInFailed")
-                ? "<p class=\"notice\">Google sign-in failed. Check the configured OAuth client and callback address, then try again.</p>" : "";
+                ? "<p class=\"notice\">Google sign-in failed. Try again.</p>" : "";
             string auth = options.Dummy
                 ? $"<form method=\"post\" action=\"/auth/dummy\">{Token(context, antiforgery)}<button>Use the synthetic test account</button></form>"
                 : options.GoogleConfigured
@@ -85,15 +85,49 @@ internal static class RemoteEndpoints
                 auth + "<p><a href=\"/docs.html\">Read the setup guide</a> &middot; <a href=\"/privacy.html\">Privacy and data use</a></p>", options);
         }).ExcludeFromDescription();
 
-        app.MapGet("/login", (HttpContext context, RemoteOptions options, CancellationToken ct) =>
-            GoogleChallenge(context, options, false, ct)).ExcludeFromDescription();
-        app.MapGet("/signup", (HttpContext context, RemoteOptions options, CancellationToken ct) =>
-            GoogleChallenge(context, options, true, ct)).ExcludeFromDescription();
-        app.MapGet("/signup-complete", async Task<RedirectHttpResult> (
-            HttpContext context, IAccountService accounts, CancellationToken ct) =>
+        app.MapGet("/login", (HttpContext context, IAntiforgery antiforgery, RemoteOptions options, CancellationToken ct) =>
         {
-            await accounts.RegisterAsync(context.User, ct);
-            return TypedResults.Redirect(ReturnPath(context));
+            ct.ThrowIfCancellationRequested();
+            string? code = OptionalCode(context);
+            return Page("Sign in to Meld Research", "<p>Sign in with the Google account you used to create your Meld account. " +
+                "Signing in does not create an account.</p>" + SignInControls(context, antiforgery, options, signup: false, code) +
+                $"<p>No account yet? <a href=\"/signup{(code is null ? "" : "?code=" + code)}\">Sign up with Google</a></p>", options);
+        }).ExcludeFromDescription();
+        app.MapGet("/signup", (HttpContext context, IAntiforgery antiforgery, RemoteOptions options, CancellationToken ct) =>
+        {
+            ct.ThrowIfCancellationRequested();
+            string? code = OptionalCode(context);
+            return Page("Create your Meld Research account", "<p>Your Google account identifies you; Meld stores its identifier, " +
+                "name and verified email address. Google does not share your password with Meld.</p>" +
+                SignInControls(context, antiforgery, options, signup: true, code), options);
+        }).ExcludeFromDescription();
+        // The Google button's callback submits this same-origin form, so antiforgery and Origin checks still apply.
+        app.MapPost("/auth/google", async Task<RedirectHttpResult> (HttpContext context, IAntiforgery antiforgery,
+            IAccountService accounts, IGoogleIdTokenVerifier google, RemoteOptions options, CancellationToken ct) =>
+        {
+            await ValidateFormAsync(context, antiforgery);
+            var form = await context.Request.ReadFormAsync(ct);
+            string? code = form["code"].ToString() is { Length: > 0 } value ? Code(value) : null;
+            bool signup = form["mode"].ToString() == "signup";
+            string nonce = context.Request.Cookies[GoogleNonceCookie] ?? "";
+            context.Response.Cookies.Delete(GoogleNonceCookie, new CookieOptions { Path = "/auth/google" });
+            GoogleIdentity identity;
+            try
+            {
+                if (options.Dummy) throw new ResearchFailure(503, "google_not_configured", "Dummy mode uses the synthetic account.");
+                identity = await google.VerifyAsync(form["credential"].ToString(), nonce, ct);
+            }
+            catch (ResearchFailure)
+            {
+                return TypedResults.Redirect("/?signInFailed=1");
+            }
+            var principal = new ClaimsPrincipal(new ClaimsIdentity([
+                new(ClaimTypes.NameIdentifier, identity.Subject), new(ClaimTypes.Name, identity.Name),
+                new(ClaimTypes.Email, identity.Email), new("meld_provider", "google"), new("meld_email_verified", "true")
+            ], CookieAuthenticationDefaults.AuthenticationScheme));
+            if (signup) await accounts.RegisterAsync(principal, ct);
+            await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
+            return TypedResults.Redirect(code is null ? "/account" : "/connect?code=" + code);
         }).ExcludeFromDescription();
 
         app.MapGet("/account", async Task<ContentHttpResult> (
@@ -114,12 +148,8 @@ internal static class RemoteEndpoints
             string code = Code(context.Request.Query["code"].ToString());
             string name = await accounts.DeviceNameAsync(code, ct);
             if (context.User.Identity?.IsAuthenticated != true)
-            {
-                string login = options.Dummy
-                    ? $"<form method=\"post\" action=\"/auth/dummy\">{Token(context, antiforgery)}<input type=\"hidden\" name=\"code\" value=\"{code}\"><button>Use the synthetic test account</button></form>"
-                    : $"<p><a class=\"button\" href=\"/login?code={code}\">Continue with Google</a></p>";
-                return Page("Link your Meld installation", "<p>Sign in to the same Google identity used for your existing Meld account.</p>" + login, options);
-            }
+                return Page("Link your Meld installation", "<p>Sign in with the same Google account used for your existing Meld account.</p>" +
+                    SignInControls(context, antiforgery, options, signup: false, code), options);
             var account = await accounts.FindAsync(context.User, ct);
             if (account is null)
                 return Page("Create a remote account first", $"<p>This Google identity has no Meld Research account.</p><p><a href=\"/signup?code={code}\">Sign up on this website</a></p>", options);
@@ -174,21 +204,84 @@ internal static class RemoteEndpoints
                 throw new ResearchFailure(503, "installer_not_published", "The desktop package has not been made available by this server yet.");
             return TypedResults.PhysicalFile(path, "application/zip", filename);
         }).WithName("DownloadLocalApplication").WithSummary("Download an available desktop package after remote account signup.");
+
+        // Public by design: installed clients verify the offline signature, length and SHA-256 before using a package.
+        app.MapGet("/api/updates/{runtime}", async Task<ContentHttpResult> (string runtime, RemoteOptions options, CancellationToken ct) =>
+        {
+            var (_, envelope) = await PublishedUpdateAsync(runtime, options, ct);
+            return TypedResults.Content(envelope, "application/json");
+        }).WithName("GetDesktopUpdate").WithSummary("Read the signed manifest of the published desktop release for a runtime.");
+        app.MapGet("/api/updates/{runtime}/package/{version}", async Task<PhysicalFileHttpResult> (
+            string runtime, string version, RemoteOptions options, CancellationToken ct) =>
+        {
+            var (manifest, _) = await PublishedUpdateAsync(runtime, options, ct);
+            if (version != manifest.Version)
+                throw new ResearchFailure(404, "update_superseded", "That desktop release is no longer published. Check for updates again.");
+            string path = Path.Combine(options.DownloadDirectory!, DesktopUpdates.PackageFileName(runtime));
+            if (!File.Exists(path))
+                throw new ResearchFailure(404, "update_not_published", "No desktop update is published for this platform.");
+            return TypedResults.PhysicalFile(path, "application/zip", DesktopUpdates.PackageFileName(runtime));
+        }).WithName("DownloadDesktopUpdate").WithSummary("Download the published desktop package named by the signed manifest.");
     }
 
-    private static IResult GoogleChallenge(HttpContext context, RemoteOptions options, bool signup, CancellationToken ct)
+    private static async Task<(DesktopUpdateManifest Manifest, string Envelope)> PublishedUpdateAsync(
+        string runtime, RemoteOptions options, CancellationToken ct)
     {
-        ct.ThrowIfCancellationRequested();
-        if (!options.GoogleConfigured || options.Dummy)
-            throw new ResearchFailure(503, "google_not_configured", "Real Google sign-in is not configured on this server.");
-        string code = context.Request.Query["code"].ToString();
-        string destination = signup ? "/signup-complete" : "/account";
-        if (code.Length != 0) destination = (signup ? "/signup-complete" : "/connect") + "?code=" + Code(code);
-        return TypedResults.Challenge(new AuthenticationProperties { RedirectUri = destination }, [GoogleDefaults.AuthenticationScheme]);
+        if (!DesktopUpdates.IsRuntime(runtime) || options.DownloadDirectory is not { } directory ||
+            new FileInfo(Path.Combine(directory, DesktopUpdates.ManifestFileName(runtime))) is not { Exists: true } file)
+            throw new ResearchFailure(404, "update_not_published", "No desktop update is published for this platform.");
+        try
+        {
+            if (file.Length > DesktopUpdates.MaxEnvelopeBytes) throw new InvalidDataException("The published update manifest is too large.");
+            byte[] bytes = await File.ReadAllBytesAsync(file.FullName, ct);
+            var manifest = DesktopUpdates.ReadUnverified(DesktopUpdates.ReadEnvelope(bytes));
+            if (manifest.Runtime != runtime) throw new InvalidDataException("The published update manifest names another runtime.");
+            return (manifest, System.Text.Encoding.UTF8.GetString(bytes));
+        }
+        catch (InvalidDataException)
+        {
+            throw new ResearchFailure(503, "update_manifest_invalid", "The published desktop update is unavailable.");
+        }
     }
 
-    private static string ReturnPath(HttpContext context) =>
-        context.Request.Query["code"].ToString() is { Length: > 0 } code ? "/connect?code=" + Code(code) : "/account";
+    private const string GoogleNonceCookie = "MeldResearch.Remote.GoogleNonce";
+    private const string GoogleContentSecurityPolicy = "default-src 'self'; script-src 'self' https://accounts.google.com/gsi/client; " +
+        "style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; frame-src https://accounts.google.com/gsi/; " +
+        "connect-src 'self' https://accounts.google.com/gsi/; font-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; " +
+        "frame-ancestors 'none'; form-action 'self'";
+
+    /// <summary>
+    /// Renders Sign in with Google for this page only: Google's script, a per-page nonce cookie, and a hidden
+    /// same-origin form that our callback fills with the ID token. Other pages keep the strict default policy.
+    /// </summary>
+    private static string SignInControls(HttpContext context, IAntiforgery antiforgery, RemoteOptions options, bool signup, string? code)
+    {
+        string codeInput = code is null ? "" : $"<input type=\"hidden\" name=\"code\" value=\"{code}\">";
+        if (options.Dummy)
+            return $"<form method=\"post\" action=\"/auth/dummy\">{Token(context, antiforgery)}{codeInput}<button>Use the synthetic test account</button></form>";
+        if (!options.GoogleConfigured)
+            return "<p class=\"notice\">Google sign-in is not configured on this server yet.</p>";
+        string nonce = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
+        context.Response.Cookies.Append(GoogleNonceCookie, nonce, new CookieOptions
+        {
+            HttpOnly = true, SameSite = SameSiteMode.Strict, Secure = context.Request.IsHttps, Path = "/auth/google",
+            MaxAge = TimeSpan.FromMinutes(15), IsEssential = true
+        });
+        context.Response.Headers.ContentSecurityPolicy = GoogleContentSecurityPolicy;
+        // Google's button validates the page origin from the Referer; same-origin would send none to accounts.google.com.
+        context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+        return $"<form id=\"google-sign-in\" method=\"post\" action=\"/auth/google\">{Token(context, antiforgery)}{codeInput}" +
+            $"<input type=\"hidden\" name=\"mode\" value=\"{(signup ? "signup" : "login")}\"><input type=\"hidden\" name=\"credential\" value=\"\"></form>" +
+            $"<div id=\"g_id_onload\" data-client_id=\"{E(options.GoogleClientId!)}\" data-callback=\"meldGoogleCredential\" " +
+            $"data-nonce=\"{nonce}\" data-auto_prompt=\"false\" data-context=\"{(signup ? "signup" : "signin")}\" data-itp_support=\"true\"></div>" +
+            $"<div class=\"g_id_signin\" data-type=\"standard\" data-theme=\"outline\" data-size=\"large\" data-shape=\"pill\" " +
+            $"data-text=\"{(signup ? "signup_with" : "signin_with")}\" data-logo_alignment=\"left\"></div>" +
+            "<noscript><p class=\"notice\">Sign in with Google needs JavaScript from accounts.google.com.</p></noscript>" +
+            "<script src=\"https://accounts.google.com/gsi/client\" async></script><script src=\"/google-sign-in.js\"></script>";
+    }
+
+    private static string? OptionalCode(HttpContext context) =>
+        context.Request.Query["code"].ToString() is { Length: > 0 } code ? Code(code) : null;
     private static string Code(string code) => code.Length == 12 && code.All(Uri.IsHexDigit) ? code.ToUpperInvariant() :
         throw new ResearchFailure(400, "invalid_device_code", "The browser verification code is invalid.");
     private static string Token(HttpContext context, IAntiforgery antiforgery) =>

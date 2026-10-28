@@ -13,6 +13,8 @@ internal interface IResearchCoordinator
     Task SetMonitoringAsync(string projectId, SetProjectMonitoringRequest request, CancellationToken ct);
     Task ForgetAsync(string projectId, CancellationToken ct);
     void RequestSync();
+    /// <summary>True while a research cycle is reading sources or calling the remote models.</summary>
+    bool Busy { get; }
 }
 
 internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote remote, IOverleafEvidenceSource source,
@@ -26,6 +28,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     private int _busy;
     private int _force;
     private const string RevocationPending = "Local access has stopped. Remote credential revocation is pending and will retry automatically.";
+    public bool Busy => Volatile.Read(ref _busy) != 0;
 
     public async Task<ResearchStatusResponse> StatusAsync(CancellationToken ct)
     {

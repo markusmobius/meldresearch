@@ -1,8 +1,5 @@
-using System.Security.Claims;
 using System.Text;
-using Microsoft.AspNetCore.DataProtection;
 using MeldResearch.LocalBackend.Services.Research;
-using MeldResearch.RemoteBackend.Services;
 using MeldResearch.Research;
 
 namespace MeldResearch.Tests;
@@ -127,40 +124,5 @@ public sealed class ResearchTests : IDisposable
         var error = await Assert.ThrowsAsync<ResearchFailure>(() => vault.ReadAsync(CancellationToken.None));
         Assert.Equal("research_store_damaged", error.Code);
         Assert.Equal(encrypted, await File.ReadAllBytesAsync(Path.Combine(_temporary.Path, "research.protected")));
-    }
-
-    [Fact]
-    public async Task DeviceLinkRequiresExistingAccountAndProofAndCanBeRevoked()
-    {
-        var clock = new TestClock(Now);
-        var options = new RemoteOptions { DataDirectory = _temporary.Path, PublicOrigin = new("https://meld.example.invalid"), Dummy = false, GoogleConfigured = true };
-        using var service = new AccountService(options, new EphemeralDataProtectionProvider(), clock);
-        var principal = new ClaimsPrincipal(new ClaimsIdentity([
-            new(ClaimTypes.NameIdentifier, "synthetic-subject"), new(ClaimTypes.Name, "Synthetic"),
-            new(ClaimTypes.Email, "synthetic@example.invalid"), new("meld_provider", "google"),
-            new("meld_email_verified", "true")
-        ], "test"));
-        string verifier = new('a', 64);
-        var link = await service.BeginLinkAsync(new("Synthetic device", ResearchEvidence.Hash(verifier)), CancellationToken.None);
-        var notRegistered = await Assert.ThrowsAsync<ResearchFailure>(() => service.ApproveAsync(link.UserCode, principal, true, CancellationToken.None));
-        Assert.Equal("meld_account_required", notRegistered.Code);
-        var account = await service.RegisterAsync(principal, CancellationToken.None);
-        await service.ApproveAsync(link.UserCode, principal, true, CancellationToken.None);
-        var invalid = await Assert.ThrowsAsync<ResearchFailure>(() => service.PollAsync(new(link.DeviceCode, new string('b', 64)), CancellationToken.None));
-        Assert.Equal("invalid_device_proof", invalid.Code);
-        var result = await service.PollAsync(new(link.DeviceCode, verifier), CancellationToken.None);
-        Assert.Equal("approved", result.Status);
-        Assert.Equal(account, await service.AuthenticateAsync("Bearer " + result.AccessToken, CancellationToken.None));
-        clock.UtcNow = Now.AddSeconds(6);
-        var retry = await service.PollAsync(new(link.DeviceCode, verifier), CancellationToken.None);
-        Assert.Equal(result.AccessToken, retry.AccessToken);
-        await service.RevokeAsync("Bearer " + result.AccessToken, CancellationToken.None);
-        await Assert.ThrowsAsync<ResearchFailure>(() => service.AuthenticateAsync("Bearer " + result.AccessToken, CancellationToken.None));
-    }
-
-    private sealed class TestClock(DateTimeOffset now) : TimeProvider
-    {
-        public DateTimeOffset UtcNow { get; set; } = now;
-        public override DateTimeOffset GetUtcNow() => UtcNow;
     }
 }

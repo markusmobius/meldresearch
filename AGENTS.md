@@ -44,6 +44,14 @@ instruction file. Start with the [README](README.md) for setup and release detai
   novelty and no-change outcomes; embeddings select relevant prior facts.
 - Models select source line ranges; the server copies and validates actual
   citation text. Preserve grounding, evidence limits and visible validation errors.
+- The remote backend persists accounts, devices, pending device links and the
+  Data Protection key ring in SQLite via EF Core
+  ([RemoteDbContext](apps/RemoteBackend/Data/RemoteDbContext.cs)). Change the
+  schema only through checked-in migrations (`dotnet tool restore`, then
+  `dotnet ef migrations add`). Keep names, emails, device names and access
+  tokens as Data Protection ciphertext and credentials/codes as hashes. Make
+  state transitions conditional updates or transactions, not read-then-write.
+  Research text is never stored remotely.
 - Commit revisions, facts and Updates atomically. Failed processing must not
   advance the stored revision. Pause, deletion, cancellation and account changes
   must not allow an in-flight result to restore removed data.
@@ -51,6 +59,12 @@ instruction file. Start with the [README](README.md) for setup and release detai
   Host/Origin checks. The remote service deliberately uses
   `Referrer-Policy: same-origin` so normal browser form submissions retain a
   usable Origin; do not casually replace it with `no-referrer`.
+- Remote sign-in is **Sign in with Google** with server-verified ID tokens
+  ([GoogleIdTokenVerifier](apps/RemoteBackend/Services/GoogleIdTokenVerifier.cs)):
+  Google signature, issuer, client-ID audience, expiry, verified email and a
+  per-page nonce cookie. No client secret. Google's script and the relaxed CSP /
+  `strict-origin-when-cross-origin` referrer apply only to the sign-in pages; the
+  token is posted through the site's own antiforgery-protected form. Keep it that way.
 
 ## Running locally
 
@@ -167,6 +181,11 @@ node .\tests\research.e2e.mjs --public-pages-only
   **real Foundry** import/delta/no-change/restart/revocation tests. It requires
   configured inference and consumes quota; use it for processing changes, not
   merely public CSS/documentation changes.
+- `MeldResearch.RemoteBackend --foundry-smoke-test` is the cheaper live LLM check
+  (one chat, two embedding calls; see [README](README.md#foundry-setup-and-llm-smoke-test)).
+  Use it after Foundry client, prompt/schema or deployment changes, and on the
+  server to verify its managed identity. It consumes quota and prints no content.
+  Keep Foundry chat calls stateless with `store: false`, matching Project Meld.
 - Keep regression tests aligned with consent, account isolation, exact unchanged
   inference counts, grounded citations and persistence. Report what actually ran.
 
@@ -175,11 +194,26 @@ node .\tests\research.e2e.mjs --public-pages-only
 - Use [desktop packaging](tools/package-local.ps1) for `win-x64`, `osx-arm64` or
   `osx-x64`, and [Windows package smoke tests](tests/desktop-package.e2e.ps1).
   Rebuild packages after source changes; old ZIPs are not current builds.
+- [Remote deployment](deploy) ships releases to an Ubuntu server the owner set
+  up by hand (nginx, certificates, systemd, user, secrets); `deploy.ps1` (run on
+  the server) and `apply-release.sh` must not perform that setup. Keep the reference nginx
+  forwarded headers (`Host`, overwritten `X-Forwarded-Proto/For`), path-only
+  access logs and body/timeout limits aligned with the backend. Run it only with
+  explicit approval.
+- Desktop release identity is the SHA-256 of the committed client inputs listed
+  in [release-common.ps1](tools/release-common.ps1); keep that list complete when
+  adding anything the package contains. Packages rebuild only when it changes.
+  Update manifests are signed with the owner's ECDSA key, a passphrase-encrypted
+  PEM in the deploy user's home on the server (never in the repo, never readable
+  by the `meldresearch` service account); clients verify signature, runtime, newer date, length and SHA-256,
+  install side by side, and restart through the stable launcher (exit code 75).
+  Never weaken those checks or make clients accept unsigned or older releases.
+  Validate with `tests\desktop-update.e2e.ps1` (isolated; no registry changes).
 - [Chrome preparation](browser/prepare-chrome.ps1) creates local draft materials
   only. Follow [store submission guidance](browser/store/submission.md).
   Do not upload, publish, deploy or change native registrations without approval.
 - Desktop packages are self-contained test distributions, not signed MSI/PKG
-  installers; autostart and update distribution are not implemented.
+  installers; automatic signed updates exist, autostart is not implemented.
 - At this handoff, no public deployment or store submission has been performed
   from this work. Real Google login, a post-store-identity live Overleaf read,
   macOS execution/Keychain/registration, signing/notarization, and remaining
