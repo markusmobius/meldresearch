@@ -25,6 +25,9 @@ internal static class OverleafEndpoints
             cancellationToken.ThrowIfCancellationRequested();
             return TypedResults.Ok(service.GetSetup());
         }).WithName("GetExtensionSetup").WithSummary("Read the browser connector identity and development setup instructions.");
+        app.MapPost("/api/extension/open-extensions-page", Results<NoContent, NotFound> (OpenExtensionsPageRequest request, IExtensionSetupService service) =>
+            service.OpenExtensionsPage(request.Browser) ? TypedResults.NoContent() : TypedResults.NotFound())
+            .WithName("OpenExtensionsPage").WithSummary("Open chrome://extensions or edge://extensions in the installed browser.");
 
         app.MapGet("/api/version", (DesktopUpdater updater, CancellationToken cancellationToken) =>
         {

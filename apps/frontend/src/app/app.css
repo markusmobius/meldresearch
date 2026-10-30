@@ -36,9 +36,50 @@ mat-card-content { font-family: 'Outfit', sans-serif; font-size: 14px; line-heig
 mat-card-avatar { color: #084d42; }
 .connection.online { color: #0f766e; }
 .installation { margin: 16px 0; box-shadow: none !important; border: 1px solid #e2e8f0; }
-.installation ol { padding-left: 20px; }
-.installation li { margin: 12px 0; }
-.installation p { margin: 6px 0; }
+.setup-steps { list-style: none; counter-reset: step; margin: 0; padding: 0; }
+.setup-steps > li {
+  counter-increment: step; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 4px 0;
+  border-top: 1px solid #f1f5f9; font-size: 13px;
+}
+.setup-steps > li:first-child { border-top: 0; }
+.setup-steps > li::before {
+  content: counter(step); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 22px; height: 22px;
+  border-radius: 50%; background: #084d42; color: #ffffff; font-size: 12px; font-weight: 700;
+}
+.setup-steps .step-text { flex: 1; min-width: 0; }
+.setup-steps code { padding: 1px 6px; border-radius: 4px; background: #f1f5f9; font-size: 12px; }
+.setup-steps button, .setup-steps a { flex-shrink: 0; }
+.setup-steps [mat-stroked-button] { height: 32px; padding: 0 12px; font-size: 13px; }
+.setup-steps .copy-button { width: 32px; height: 32px; padding: 4px; }
+.setup-steps .copy-button mat-icon { font-size: 18px; width: 18px; height: 18px; }
+.hint { margin: 8px 0 0; color: #94a3b8; font-size: 12px; }
+.notice.compact { padding: 6px 10px; margin: 8px 0; font-size: 12.5px; }
+
+.install-tip {
+  position: fixed; top: 12px; right: 24px; z-index: 1100; display: flex; flex-direction: column; gap: 8px; max-width: 320px;
+  padding: 14px 16px; border: 1px solid rgba(8, 77, 66, 0.2); border-radius: 12px; background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px); box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+}
+.install-tip-arrow {
+  position: absolute; top: -10px; right: 75px; width: 0; height: 0; border-left: 10px solid transparent;
+  border-right: 10px solid transparent; border-bottom: 10px solid rgba(255, 255, 255, 0.95);
+}
+.install-tip-body { display: flex; align-items: flex-start; gap: 12px; }
+.install-tip-icon {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 36px; height: 36px; border-radius: 8px;
+  background: linear-gradient(135deg, #084d42 0%, #0a6655 100%); color: #ffffff; box-shadow: 0 4px 8px rgba(8, 77, 66, 0.15);
+}
+.install-tip-icon mat-icon { font-size: 20px; width: 20px; height: 20px; }
+.install-tip-text { flex: 1; min-width: 0; }
+.install-tip-text h4 { margin: 0; color: #0f172a; font-size: 0.88rem; font-weight: 700; }
+.install-tip-text p { margin: 3px 0 0; color: #475569; font-size: 0.78rem; line-height: 1.3; }
+.install-tip-close { width: 24px !important; height: 24px !important; padding: 0 !important; margin: -4px -4px 0 0; color: #94a3b8; }
+.install-tip-close mat-icon { font-size: 16px; width: 16px; height: 16px; }
+.install-tip-now {
+  height: 28px !important; border-radius: 6px !important; font-size: 0.75rem !important; font-weight: 600;
+  background: linear-gradient(135deg, #084d42 0%, #0a6655 100%) !important; color: #ffffff !important;
+}
+.install-tip-now mat-icon { font-size: 14px; width: 14px; height: 14px; }
 mat-form-field { display: block; width: 100%; margin-top: 12px; }
 .source-tools { display: flex; flex-direction: column; gap: 16px; margin-top: 24px; }
 .source-tools mat-expansion-panel { border: 1px solid #e2e8f0; box-shadow: none; }

@@ -1,0 +1,16 @@
+{
+  "name": "Meld Research",
+  "short_name": "Meld Research",
+  "description": "Your local research assistant for Overleaf projects.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#084d42",
+  "background_color": "#f8fafc",
+  "icons": [
+    { "src": "/pwa/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/pwa/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/favicon.png", "sizes": "64x64", "type": "image/png" }
+  ]
+}

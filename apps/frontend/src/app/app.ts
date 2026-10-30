@@ -3,9 +3,7 @@ import { Component, DestroyRef, HostListener, OnInit, computed, effect, inject, 
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatExpansionModule } from '@angular/material/expansion';
-import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
-import { MatInputModule } from '@angular/material/input';
 import { MatSidenavModule } from '@angular/material/sidenav';
 import { BrowserConnector, ConnectorResult } from './browser-connector';
 import { BridgeStatus, Download, ExtensionSetup, OverleafApi, OverleafProject, describeFailure, needsOverleafSignIn } from './overleaf-api';
@@ -19,11 +17,17 @@ const overleafConfirmedKey = 'meldresearch.overleafConnectedFor';
 function readOverleafConfirmed(): string | null {
   try { return localStorage.getItem(overleafConfirmedKey); } catch { return null; }
 }
+const installDismissedKey = 'meldresearch.installTipDismissed';
+/** Chrome/Edge's deferred install prompt (not in the TypeScript DOM library). */
+interface InstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  readonly userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+}
 
 @Component({
   selector: 'app-root',
   imports: [DatePipe, DecimalPipe, ResearchPanel, MeldToolbar, MatButtonModule, MatCardModule,
-    MatExpansionModule, MatFormFieldModule, MatIconModule, MatInputModule, MatSidenavModule],
+    MatExpansionModule, MatIconModule, MatSidenavModule],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
@@ -48,7 +52,6 @@ export class App implements OnInit {
   readonly busy = signal('');
   readonly connectorBusy = signal(false);
   readonly showSetup = signal(false);
-  readonly copyMessage = signal('');
   readonly signInRequired = signal(false);
   readonly refreshed = signal(false);
   readonly extensionsPage = /Edg\//.test(navigator.userAgent) ? 'edge://extensions' : 'chrome://extensions';
@@ -150,6 +153,8 @@ export class App implements OnInit {
   }
 
   ngOnInit(): void {
+    if ('serviceWorker' in navigator) void navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+    if (this.installTipAllowed()) this.showInstallTip.set(true);
     void this.loadDownloads();
     void this.checkStatus();
     const timer = setInterval(() => { void this.checkStatus(); }, 3000);
@@ -214,13 +219,68 @@ export class App implements OnInit {
     }
   }
 
+  /** The text most recently copied, so its button can show a check mark. */
+  readonly copied = signal<string | null>(null);
+  readonly setupNote = signal('');
+
   async copy(text: string): Promise<void> {
     try {
       await navigator.clipboard.writeText(text);
-      this.copyMessage.set('Copied.');
+      this.copied.set(text);
+      setTimeout(() => { if (this.copied() === text) this.copied.set(null); }, 2000);
     } catch {
-      this.copyMessage.set('Automatic copy is unavailable. Select the text in the field and copy it manually.');
+      this.setupNote.set('Copying is blocked in this browser. Select the text and copy it manually: ' + text);
     }
+  }
+
+  async openExtensions(): Promise<void> {
+    const browser = /Edg\//.test(navigator.userAgent) ? 'edge' : 'chrome';
+    if (await this.api.openExtensionsPage(browser)) {
+      this.setupNote.set('');
+      return;
+    }
+    await this.copy(this.extensionsPage);
+    this.setupNote.set(`Copied ${this.extensionsPage}; paste it into the address bar.`);
+  }
+
+  reload(): void { location.reload(); }
+
+  // Install as an app (Chrome/Edge), with the same top-right nudge as Project Meld.
+  private readonly installEvent = signal<InstallPromptEvent | null>(null);
+  readonly showInstallTip = signal(false);
+  readonly canInstallNow = computed(() => this.installEvent() !== null);
+
+  private installTipAllowed(): boolean {
+    const standalone = typeof matchMedia === 'function' && matchMedia('(display-mode: standalone)').matches;
+    let dismissed = false;
+    try { dismissed = localStorage.getItem(installDismissedKey) === 'true'; } catch { /* storage disabled */ }
+    return !standalone && /Chrome|Edg\//.test(navigator.userAgent) && !dismissed;
+  }
+
+  @HostListener('window:beforeinstallprompt', ['$event'])
+  onBeforeInstallPrompt(event: Event): void {
+    event.preventDefault();
+    this.installEvent.set(event as InstallPromptEvent);
+    if (this.installTipAllowed()) this.showInstallTip.set(true);
+  }
+
+  @HostListener('window:appinstalled')
+  onAppInstalled(): void {
+    this.showInstallTip.set(false);
+    this.installEvent.set(null);
+  }
+
+  async installNow(): Promise<void> {
+    const prompt = this.installEvent();
+    if (!prompt) return;
+    await prompt.prompt();
+    if ((await prompt.userChoice).outcome === 'accepted') this.showInstallTip.set(false);
+    this.installEvent.set(null);
+  }
+
+  dismissInstallTip(): void {
+    this.showInstallTip.set(false);
+    try { localStorage.setItem(installDismissedKey, 'true'); } catch { /* storage disabled */ }
   }
 
   async refresh(): Promise<void> {

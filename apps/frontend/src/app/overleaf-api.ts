@@ -46,6 +46,16 @@ export class OverleafApi {
     return firstValueFrom(this.http.get<ExtensionSetup>('/api/extension', { timeout: 10000 }));
   }
 
+  /** Asks the local app to open the browser's extensions page; false when that browser is not installed. */
+  async openExtensionsPage(browser: 'chrome' | 'edge'): Promise<boolean> {
+    try {
+      await firstValueFrom(this.http.post('/api/extension/open-extensions-page', { browser }));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async refresh(): Promise<ReadonlyArray<OverleafProject>> {
     const response = await firstValueFrom(
       this.http.post<{ projects: OverleafProject[] }>('/api/overleaf/projects/refresh', {}),

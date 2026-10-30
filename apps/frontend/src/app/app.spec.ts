@@ -14,6 +14,7 @@ describe('Overleaf connection screen', () => {
     refresh: vi.fn(),
     download: vi.fn(),
     extension: vi.fn(),
+    openExtensionsPage: vi.fn(),
   };
   const browser = { send: vi.fn() };
   const setup = { extensionId: 'pejcljoimoeklelcfbfddnkimlkjgfhe', extensionVersion: '0.3.0',
@@ -166,19 +167,66 @@ describe('Overleaf connection screen', () => {
     fixture.destroy();
   });
 
-  it('shows honest one-time setup and does not read through a different browser connection', async () => {
+  it('shows compact one-time setup and does not read through a different browser connection', async () => {
     api.status.mockResolvedValue(status(true));
     browser.send.mockResolvedValue({ kind: 'missing', message: 'Connector not detected.' });
     const fixture = await screen();
     const element: HTMLElement = fixture.nativeElement;
     expect(element.textContent).toContain('One-time setup needed');
     expect(element.querySelector('.installation mat-expansion-panel-header')?.getAttribute('aria-expanded')).toBe('true');
-    expect(element.querySelector<HTMLInputElement>('[aria-label="Connector folder"]')?.value).toBe(setup.developmentDirectory);
+    expect(element.textContent).not.toContain(setup.developmentDirectory);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    element.querySelector<HTMLButtonElement>('button.copy-folder')!.click();
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith(setup.developmentDirectory));
+    fixture.detectChanges();
+    expect(element.querySelector('button.copy-folder')?.textContent).toContain('Copied');
+    api.openExtensionsPage.mockResolvedValue(true);
+    element.querySelector<HTMLButtonElement>('button.open-extensions')!.click();
+    await vi.waitFor(() => expect(api.openExtensionsPage).toHaveBeenCalledWith('chrome'));
+    expect(element.querySelector('button.reload-button')).not.toBeNull();
     fixture.componentInstance.page.set('about-me');
     fixture.detectChanges();
     expect(element.querySelector<HTMLButtonElement>('.refresh-button')?.disabled).toBe(true);
     expect(api.refresh).not.toHaveBeenCalled();
     fixture.destroy();
+  });
+
+  it('copies the extensions address when the browser cannot be opened for the user', async () => {
+    browser.send.mockResolvedValue({ kind: 'missing', message: 'Connector not detected.' });
+    const fixture = await screen();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    api.openExtensionsPage.mockResolvedValue(false);
+    await fixture.componentInstance.openExtensions();
+    expect(writeText).toHaveBeenCalledWith('chrome://extensions');
+    expect(fixture.componentInstance.setupNote()).toContain('paste it into the address bar');
+    fixture.destroy();
+  });
+
+  it('nudges Chrome and Edge users to install the app once, and remembers a dismissal', async () => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Windows NT 10.0) Chrome/130.0 Safari/537.36');
+    const fixture = await screen('home');
+    const element: HTMLElement = fixture.nativeElement;
+    expect(element.querySelector('.install-tip')?.textContent).toContain('Install Desktop App');
+    expect(element.querySelector('.install-tip-now')).toBeNull();
+    const prompt = vi.fn().mockResolvedValue(undefined);
+    const event = Object.assign(new Event('beforeinstallprompt', { cancelable: true }),
+      { prompt, userChoice: Promise.resolve({ outcome: 'accepted' as const }) });
+    window.dispatchEvent(event);
+    fixture.detectChanges();
+    expect(event.defaultPrevented).toBe(true);
+    element.querySelector<HTMLButtonElement>('.install-tip-now')!.click();
+    await vi.waitFor(() => expect(fixture.componentInstance.showInstallTip()).toBe(false));
+    expect(prompt).toHaveBeenCalled();
+    fixture.destroy();
+
+    const again = await screen('home');
+    again.componentInstance.dismissInstallTip();
+    again.destroy();
+    const third = await screen('home');
+    expect(third.componentInstance.showInstallTip()).toBe(false);
+    third.destroy();
   });
 
   it('keeps one research component and its consent state while navigating between working pages', async () => {

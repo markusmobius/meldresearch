@@ -128,14 +128,15 @@
         <section class="connection-settings" aria-label="Overleaf connection">
           <mat-card>
             <mat-card-header><mat-icon mat-card-avatar>link</mat-icon>
-              <mat-card-title>Overleaf connection</mat-card-title>
+              <mat-card-title>Overleaf</mat-card-title>
               <mat-card-subtitle class="connection" [class.online]="verified()">Step 2 of 2 &middot; {{ connectionLabel() }}</mat-card-subtitle>
             </mat-card-header>
             <mat-card-content>
-              <p>{{ status()?.dummy ? 'The local backend supplies synthetic Overleaf evidence. No real browser profile, account, or private project is used.' :
-                'The Chrome / Edge connector uses your normal Overleaf sign-in. No separate browser, passwords, or cookie exports.' }}</p>
-              @if (connectorMessage()) { <p class="notice" role="status">{{ connectorMessage() }}</p> }
-              @if (!status()?.dummy) {
+              @if (status()?.dummy) {
+                <p class="muted">Synthetic Overleaf evidence from the local backend; no browser profile or private project is used.</p>
+              } @else {
+                <p class="muted">Reads Overleaf through your normal Chrome or Edge sign-in. No passwords or cookie exports.</p>
+                @if (connectorMessage()) { <p class="notice compact" role="status">{{ connectorMessage() }}</p> }
                 <div class="controls">
                   @if (!verified()) {
                     <button mat-flat-button class="connect-button" (click)="connect()"
@@ -152,41 +153,36 @@
                   }
                 </div>
                 @if (browserState()?.signInPending) {
-                  <p class="muted">Finish signing in or browser verification in the Overleaf tab. Return here when done; your projects will load automatically.</p>
+                  <p class="muted">Finish signing in in the Overleaf tab; your projects load automatically.</p>
                 } @else if (verified()) {
-                  <p class="muted">Connected. Keep your normal browser running for background project reads.</p>
-                } @else if (connected() && !signInRequired()) {
-                  <p class="muted">The browser bridge is available. A successful project read confirms Overleaf sign-in.</p>
+                  <p class="muted">Connected. Keep your browser running for background project reads.</p>
                 }
                 <mat-expansion-panel class="installation" [expanded]="setupNeeded()">
-                  <mat-expansion-panel-header><mat-panel-title>One-time setup / troubleshooting</mat-panel-title></mat-expansion-panel-header>
-                  @if (setup()?.storePublished) {
-                    <p><a mat-flat-button [href]="setup()?.storeUrl" target="_blank" rel="noopener noreferrer">Install the Chrome connector</a></p>
-                    <p>Approve the browser installation prompt, then reload Meld. Private pilots require membership in the tester group.</p>
-                  } @else {
-                    <p>The Chrome store listing is not yet marked published. Use the development setup below.</p>
-                  }
-                  <ol>
-                    <li><strong>Open your extensions page</strong><p>Copy this address into your normal browser.</p>
-                      <mat-form-field appearance="outline"><mat-label>Browser extensions address</mat-label>
-                        <input matInput aria-label="Browser extensions address" readonly [value]="extensionsPage"></mat-form-field>
-                      <button mat-button (click)="copy(extensionsPage)">Copy address</button>
-                    </li>
-                    <li><strong>Load the connector</strong><p>Enable Developer mode, choose Load unpacked, and select this folder.</p>
-                      @if (setup()?.developmentDirectory; as directory) {
-                        <mat-form-field appearance="outline"><mat-label>Connector folder</mat-label>
-                          <input matInput aria-label="Connector folder" readonly [value]="directory"></mat-form-field>
-                        <button mat-button (click)="copy(directory)">Copy folder path</button>
-                      } @else { <p>Run the source launcher to make the connector folder available.</p> }
-                    </li>
-                    <li><strong>Return to Meld</strong><p>Reload this page in the same browser profile. Connection and project loading are automatic.</p></li>
+                  <mat-expansion-panel-header><mat-panel-title>Install the browser connector (one time)</mat-panel-title></mat-expansion-panel-header>
+                  <ol class="setup-steps">
+                    @if (setup()?.storePublished) {
+                      <li><span class="step-text">Add the connector from the Chrome Web Store</span>
+                        <a mat-stroked-button [href]="setup()?.storeUrl" target="_blank" rel="noopener noreferrer"><mat-icon>open_in_new</mat-icon>Open store</a></li>
+                    } @else {
+                      <li><span class="step-text">Open <code>{{ extensionsPage }}</code></span>
+                        <button mat-stroked-button class="open-extensions" (click)="openExtensions()"><mat-icon>open_in_new</mat-icon>Open</button>
+                        <button mat-icon-button class="copy-button" (click)="copy(extensionsPage)"
+                          [attr.aria-label]="copied() === extensionsPage ? 'Copied' : 'Copy address'" [title]="copied() === extensionsPage ? 'Copied' : 'Copy address'">
+                          <mat-icon>{{ copied() === extensionsPage ? 'check' : 'content_copy' }}</mat-icon></button></li>
+                      <li><span class="step-text">Turn on <strong>Developer mode</strong>, choose <strong>Load unpacked</strong> and paste the folder</span>
+                        @if (setup()?.developmentDirectory; as directory) {
+                          <button mat-stroked-button class="copy-folder" (click)="copy(directory)" [title]="directory">
+                            <mat-icon>{{ copied() === directory ? 'check' : 'content_copy' }}</mat-icon>{{ copied() === directory ? 'Copied' : 'Copy folder' }}</button>
+                        } @else { <span class="muted">Start Meld from its launcher to provide the folder.</span> }</li>
+                    }
+                    <li><span class="step-text">Reload this page</span>
+                      <button mat-stroked-button class="reload-button" (click)="reload()"><mat-icon>refresh</mat-icon>Reload</button></li>
                   </ol>
-                  <p>Already installed? Reload the connector, then Meld. Allow Overleaf access if asked. For native-bridge errors, restart the Meld launcher.</p>
-                  @if (setup(); as info) { <p class="muted">Connector {{ info.extensionVersion }} &middot; {{ info.extensionId }}</p> }
-                  @if (copyMessage()) { <p role="status">{{ copyMessage() }}</p> }
+                  @if (setupNote()) { <p class="muted" role="status">{{ setupNote() }}</p> }
+                  <p class="hint">Already installed? Reload the connector on the extensions page, then reload here.
+                    @if (setup(); as info) { Connector {{ info.extensionVersion }}. }</p>
                 </mat-expansion-panel>
               }
-              <p class="muted">ZIP downloads remain local. Monitoring sends selected text through Meld to Azure AI Foundry only after you sign in and give explicit consent.</p>
             </mat-card-content>
           </mat-card>
         </section>
@@ -196,6 +192,20 @@
       }
     </mat-sidenav-content>
   </mat-sidenav-container>
+  @if (showInstallTip()) {
+    <aside class="install-tip" role="complementary" aria-label="Install Meld Research as an app">
+      <span class="install-tip-arrow" aria-hidden="true"></span>
+      <div class="install-tip-body">
+        <span class="install-tip-icon"><mat-icon>install_desktop</mat-icon></span>
+        <div class="install-tip-text"><h4>Install Desktop App</h4>
+          <p>Click the <strong>Install</strong> icon in the browser address bar above to run Meld Research as a desktop app.</p></div>
+        <button mat-icon-button class="install-tip-close" (click)="dismissInstallTip()" aria-label="Dismiss" title="Dismiss"><mat-icon>close</mat-icon></button>
+      </div>
+      @if (canInstallNow()) {
+        <button mat-flat-button class="install-tip-now" (click)="installNow()"><mat-icon>add_to_home_screen</mat-icon>Install Now</button>
+      }
+    </aside>
+  }
   <footer class="meld-footer"><span>Meld Research &middot; Independent research software</span>
     <a href="/docs.html">Docs</a><a href="/privacy.html">Privacy</a><a href="/team.html">Project Team</a>
     <a href="mailto:markusmobius@gmail.com">Contact</a>
