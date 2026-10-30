@@ -29,6 +29,8 @@ internal interface IResearchRemote
     Task RevokeAsync(string token, CancellationToken ct);
     Task<AnalyzeResearchResponse> AnalyzeAsync(string token, AnalyzeResearchRequest request, CancellationToken ct);
     Task<ResearchEmbeddingResponse> EmbedAsync(string token, ResearchEmbeddingRequest request, CancellationToken ct);
+    Task<ResearcherSearchResponse> SearchResearcherAsync(string token, ResearcherSearchRequest request, CancellationToken ct);
+    Task<ResearcherWorksResponse> ResearcherWorksAsync(string token, ResearcherWorksRequest request, CancellationToken ct);
 }
 
 internal sealed class ResearchRemote(ResearchOptions options, IHttpClientFactory clients) : IResearchRemote
@@ -44,11 +46,15 @@ internal sealed class ResearchRemote(ResearchOptions options, IHttpClientFactory
         CallAsync<AnalyzeResearchResponse>("api/research/analyze", HttpMethod.Post, request, token, ct);
     public Task<ResearchEmbeddingResponse> EmbedAsync(string token, ResearchEmbeddingRequest request, CancellationToken ct) =>
         CallAsync<ResearchEmbeddingResponse>("api/research/embeddings", HttpMethod.Post, request, token, ct);
+    public Task<ResearcherSearchResponse> SearchResearcherAsync(string token, ResearcherSearchRequest request, CancellationToken ct) =>
+        CallAsync<ResearcherSearchResponse>("api/researcher/candidates", HttpMethod.Post, request, token, ct);
+    public Task<ResearcherWorksResponse> ResearcherWorksAsync(string token, ResearcherWorksRequest request, CancellationToken ct) =>
+        CallAsync<ResearcherWorksResponse>("api/researcher/works", HttpMethod.Post, request, token, ct);
 
     private async Task<T> CallAsync<T>(string route, HttpMethod method, object? body, string? token, CancellationToken ct)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        deadline.CancelAfter(route.StartsWith("api/research/", StringComparison.Ordinal) ? TimeSpan.FromMinutes(4) : TimeSpan.FromSeconds(20));
+        deadline.CancelAfter(route.StartsWith("api/research", StringComparison.Ordinal) ? TimeSpan.FromMinutes(4) : TimeSpan.FromSeconds(20));
         using var request = new HttpRequestMessage(method, new Uri(options.RemoteOrigin, route));
         if (body is not null)
         {
@@ -68,7 +74,7 @@ internal sealed class ResearchRemote(ResearchOptions options, IHttpClientFactory
                 if (method == HttpMethod.Delete && typeof(T) == typeof(JsonElement)) return default!;
                 throw InvalidResponse();
             }
-            int limit = response.IsSuccessStatusCode ? 5 * 1024 * 1024 : 65536;
+            int limit = !response.IsSuccessStatusCode ? 65536 : route == "api/researcher/works" ? 16 * 1024 * 1024 : 5 * 1024 * 1024;
             if (response.Content.Headers.ContentLength > limit) throw InvalidResponse();
             await using var stream = await response.Content.ReadAsStreamAsync(deadline.Token);
             using var memory = new MemoryStream();

@@ -14,6 +14,8 @@ internal interface IFoundryService
     long EmbeddingRequests { get; }
     Task<AnalyzeResearchResponse> AnalyzeAsync(AnalyzeResearchRequest request, CancellationToken ct);
     Task<ResearchEmbeddingResponse> EmbedAsync(ResearchEmbeddingRequest request, CancellationToken ct);
+    /// <summary>One strict-JSON chat completion with untrusted <paramref name="input"/> serialized as the user message.</summary>
+    Task<JsonElement> CompleteJsonAsync(string system, string schemaName, string schema, object input, CancellationToken ct);
 }
 
 internal sealed record DevelopmentCredential(string Provider, string Token, DateTimeOffset ExpiresOn,
@@ -147,6 +149,37 @@ internal sealed class FoundryService : IFoundryService, IDisposable
         catch (Exception error) when (error is JsonException or InvalidOperationException or KeyNotFoundException or FormatException)
         {
             throw new ResearchFailure(502, "invalid_embeddings", "Foundry returned unsupported embedding data. Nothing was committed.");
+        }
+    }
+
+    public async Task<JsonElement> CompleteJsonAsync(string system, string schemaName, string schema, object input, CancellationToken ct)
+    {
+        RequireConfiguration();
+        var payload = new
+        {
+            model = _chat, stream = false, store = false, max_completion_tokens = 4000,
+            messages = new object[]
+            {
+                new { role = "system", content = system },
+                new { role = "user", content = "INPUT:\n" + JsonSerializer.Serialize(input, ResearchJson.Options) }
+            },
+            response_format = new { type = "json_schema", json_schema = new
+            {
+                name = schemaName, strict = true, schema = JsonDocument.Parse(schema).RootElement
+            } }
+        };
+        using var result = await SendAsync("chat/completions", payload, ct);
+        try
+        {
+            var choice = result.RootElement.GetProperty("choices")[0];
+            if (choice.GetProperty("finish_reason").GetString() != "stop") throw new JsonException("Incomplete model response.");
+            using var content = JsonDocument.Parse(choice.GetProperty("message").GetProperty("content").GetString() ??
+                throw new JsonException("Missing model content."));
+            return content.RootElement.Clone();
+        }
+        catch (Exception error) when (error is JsonException or InvalidOperationException or KeyNotFoundException or IndexOutOfRangeException)
+        {
+            throw new ResearchFailure(502, "invalid_model_response", "Foundry returned an unsupported response. Nothing was changed.");
         }
     }
 

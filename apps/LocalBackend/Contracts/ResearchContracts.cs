@@ -17,4 +17,23 @@ public sealed record MonitoredProjectResponse(string ProjectId, string Name, boo
 public sealed record ResearchStatusResponse(MeldAccountResponse? Account, DateTimeOffset? CredentialExpiresAt,
     AccountLinkResponse? PendingLink, string? AccountError, bool Busy, bool Dummy, string PrivacyUrl,
     string ConsentVersion, int PollSeconds, int PendingRevocations, IReadOnlyList<MonitoredProjectResponse> Projects,
-    IReadOnlyList<ResearchUpdate> Updates, int TotalUpdates);
+    IReadOnlyList<ResearchUpdate> Updates, int TotalUpdates, IReadOnlyList<ProjectDecisionResponse> Decisions,
+    OverleafProjectsSnapshot? OverleafProjects, ResearcherStatusResponse? Researcher);
+
+/// <summary>Includes a project in the private profile (which starts monitoring, so it needs consent) or excludes it.</summary>
+public sealed record ProjectDecisionRequest(bool Included, string? ConsentVersion);
+public sealed record ProjectDecisionResponse(string ProjectId, bool Included, DateTimeOffset DecidedAt);
+
+/// <summary>The most recent Overleaf project list read through the browser, by the page or by monitoring.</summary>
+public sealed record OverleafProjectsSnapshot(IReadOnlyList<OverleafProjectResponse> Projects, DateTimeOffset FetchedAt);
+
+/// <summary>Action: search (with SearchName), confirm (with AuthorId from the offered candidates) or none.</summary>
+public sealed record ResearcherDecisionRequest(string Action, string? AuthorId, string? SearchName, long? BaseVersion);
+
+/// <summary>The account's OpenAlex match, without the full publication list.</summary>
+public sealed record ResearcherStatusResponse(long Version, string Status, string SearchName,
+    IReadOnlyList<ResearcherCandidate> Candidates, ResearcherCandidate? Researcher, int WorkCount,
+    DateTimeOffset? UpdatedAt, DateTimeOffset? NextRefreshAt, string? LastError);
+
+/// <summary>The confirmed author's public works, stored on this computer.</summary>
+public sealed record PublicationsResponse(ResearcherCandidate? Researcher, IReadOnlyList<PublicationWork> Works, DateTimeOffset? UpdatedAt);

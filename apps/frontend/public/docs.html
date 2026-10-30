@@ -79,8 +79,8 @@
             <h3>Your Daily Workflow</h3>
             <ul>
               <li><strong>Feed:</strong> read new Updates from your monitored projects and review their cited evidence.</li>
-              <li><strong>About me:</strong> choose which Overleaf projects to monitor, give consent, pause, or forget local research.</li>
-              <li><strong>Account:</strong> sign in with Google and connect the Overleaf browser connector.</li>
+              <li><strong>About me:</strong> your public publications from OpenAlex.</li>
+              <li><strong>Account:</strong> sign in with Google, connect Overleaf, include or exclude projects, and link OpenAlex.</li>
             </ul>
             <h3>Azure AI Foundry Processing</h3>
             <p>Analysis is not on-device-only. After you sign in and consent for a project, selected text, prior
@@ -145,9 +145,14 @@
                 <h4>Sign in to Overleaf in your normal browser</h4>
                 <p>Meld never asks for your Overleaf password or reads your browser's cookie database.</p></div></div>
               <div class="doc-timeline-step"><span class="step-number">4</span><div class="step-content">
-                <h4>Select projects and consent</h4>
-                <p>In <strong>About me</strong>, review <a href="privacy.html">Privacy &amp; Controls</a>, give consent, and choose
-                  <strong>Monitor project</strong>. Only process research you are authorized to send to these services.</p></div></div>
+                <h4>Choose projects and consent</h4>
+                <p>In <strong>Account &rarr; Overleaf &rarr; Projects</strong>, review <a href="privacy.html">Privacy &amp; Controls</a>,
+                  give consent, and choose <strong>Include</strong> or <strong>Exclude</strong> for each project updated in the last six
+                  months. Only process research you are authorized to send to these services.</p></div></div>
+              <div class="doc-timeline-step"><span class="step-number">5</span><div class="step-content">
+                <h4>Link OpenAlex (optional)</h4>
+                <p>In <strong>Account &rarr; OpenAlex</strong>, search by your name and confirm which author profile is you. Your
+                  public publications then appear in <strong>About me</strong>.</p></div></div>
             </div>
             <p class="doc-actions role-remote"><a class="team-profile-btn" href="/">Sign up or install</a></p>
           </section>
@@ -174,16 +179,19 @@
 
           <section class="doc-section" id="projects">
             <h2>Projects &amp; Consent</h2>
-            <p><strong>About me</strong> is where you control which research Meld processes. Nothing is monitored until you link
-              your account, give explicit consent, and select a project.</p>
+            <p><strong>Account &rarr; Overleaf &rarr; Projects</strong> is where you control which research Meld processes. Nothing
+              is monitored until you link your account, give explicit consent, and include a project. Every project updated in the
+              last six months needs an active choice to include or exclude it; Meld opens this tab each time you load the app, and
+              whenever a new project appears, until you have chosen. Older projects are optional. Your feed opens once one project is
+              included.</p>
             <ul>
               <li><strong>Select Overleaf projects:</strong> the list comes from your signed-in Overleaf account through the connector.
                 Archived and deleted projects are not included.</li>
               <li><strong>Consent:</strong> allow selected project text to be sent through Meld's remote service to Azure AI Foundry for
                 update extraction and embeddings. If the notice changes, Meld asks for consent again before continuing.</li>
               <li><strong>Pause:</strong> stop processing a project without deleting the knowledge already collected.</li>
-              <li><strong>Forget local research:</strong> delete that project's local index and Updates for your account. Overleaf
-                originals and manual ZIP downloads are unchanged.</li>
+              <li><strong>Forget local research:</strong> delete that project's local index and Updates for your account and exclude it
+                from your profile. Overleaf originals and manual ZIP downloads are unchanged.</li>
               <li><strong>Download ZIP:</strong> save a local snapshot of a project. ZIP files are ordinary, unencrypted files.</li>
             </ul>
             <p>Only UTF-8 <code>.tex</code>, <code>.bib</code>, <code>.md</code>, and <code>.txt</code> sources are analyzed. PDFs
@@ -273,7 +281,7 @@
               the next check retries. Pausing, forgetting, or disconnecting during processing prevents an in-flight result from
               restoring removed data.</p>
             <h3>Failures, Offline Use, and Visibility</h3>
-            <p>Failures are shown on the project in About me rather than replaced by invented results. Previously collected Updates
+            <p>Failures are shown on the project in Account &rarr; Overleaf &rarr; Projects rather than replaced by invented results. Previously collected Updates
               remain readable when Overleaf or the network is unavailable.</p>
           </section>
 

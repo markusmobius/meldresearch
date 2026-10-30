@@ -1,6 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
+import { OverleafProject } from './overleaf-api';
 
 export interface AccountLink { signInUrl: string; expiresAt: string; }
 export interface ResearchProject {
@@ -15,12 +16,31 @@ export interface ResearchUpdate {
   revision: string; previousRevision: string | null; previousSummary: string | null;
   evidence: ReadonlyArray<{ path: string; quote: string; version: 'current' | 'previous' }>;
 }
+export interface ProjectDecision { projectId: string; included: boolean; decidedAt: string; }
+export interface PublicationWork {
+  id: string; title: string; authors: ReadonlyArray<string>; year: number; publicationDate: string | null;
+  venue: string | null; doi: string | null; abstract: string | null; isRetracted: boolean;
+}
+export interface ResearcherCandidate {
+  id: string; name: string; orcid: string | null; affiliations: ReadonlyArray<string>;
+  alternativeNames: ReadonlyArray<string>; worksCount: number; samplePublications: ReadonlyArray<PublicationWork>;
+}
+export type ResearcherPhase = 'searching' | 'choice' | 'unmatched' | 'rejected' | 'importing' | 'ready';
+export interface ResearcherStatus {
+  version: number; status: ResearcherPhase; searchName: string; candidates: ReadonlyArray<ResearcherCandidate>;
+  researcher: ResearcherCandidate | null; workCount: number; updatedAt: string | null; nextRefreshAt: string | null;
+  lastError: string | null;
+}
+export interface Publications { researcher: ResearcherCandidate | null; works: ReadonlyArray<PublicationWork>; updatedAt: string | null; }
 export interface ResearchStatus {
   account: { id: string; name: string; email: string } | null;
   credentialExpiresAt: string | null; pendingLink: AccountLink | null; accountError: string | null;
   busy: boolean; dummy: boolean; privacyUrl: string; consentVersion: string; pollSeconds: number;
   pendingRevocations: number; projects: ReadonlyArray<ResearchProject>;
   updates: ReadonlyArray<ResearchUpdate>; totalUpdates: number;
+  decisions: ReadonlyArray<ProjectDecision>;
+  overleafProjects: { projects: ReadonlyArray<OverleafProject>; fetchedAt: string } | null;
+  researcher: ResearcherStatus | null;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -34,6 +54,16 @@ export class ResearchApi {
   monitor(id: string, enabled: boolean, consentVersion: string | null): Promise<void> {
     return firstValueFrom(this.http.put<void>(`/api/research/projects/${encodeURIComponent(id)}`, { enabled, consentVersion }));
   }
+  /** Includes a project in the private profile (starts monitoring; needs consent) or excludes it. */
+  decide(id: string, included: boolean, consentVersion: string | null): Promise<void> {
+    return firstValueFrom(this.http.put<void>(`/api/research/projects/${encodeURIComponent(id)}/decision`, { included, consentVersion }));
+  }
+  researcher(action: 'search' | 'confirm' | 'none', options: { authorId?: string; searchName?: string; baseVersion?: number } = {}): Promise<void> {
+    return firstValueFrom(this.http.post<void>('/api/research/researcher', {
+      action, authorId: options.authorId ?? null, searchName: options.searchName ?? null, baseVersion: options.baseVersion ?? null,
+    }));
+  }
+  publications(): Promise<Publications> { return firstValueFrom(this.http.get<Publications>('/api/research/publications')); }
   forget(id: string): Promise<void> { return firstValueFrom(this.http.delete<void>(`/api/research/projects/${encodeURIComponent(id)}`)); }
   sync(): Promise<void> { return firstValueFrom(this.http.post<void>('/api/research/sync', {})); }
   demoChange(): Promise<unknown> { return firstValueFrom(this.http.post('/api/development/overleaf/change', {})); }

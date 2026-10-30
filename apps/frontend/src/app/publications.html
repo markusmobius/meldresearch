@@ -1,0 +1,53 @@
+@let current = researcher();
+<section class="publications-section" aria-labelledby="publications-heading">
+  <header class="publications-head">
+    <h2 id="publications-heading"><mat-icon>menu_book</mat-icon>Publications</h2>
+    @if (data()?.researcher; as author) {
+      <a class="author-link" [href]="'https://openalex.org/' + author.id" target="_blank" rel="noopener noreferrer">{{ author.name }}<mat-icon>open_in_new</mat-icon></a>
+    }
+  </header>
+  @if (error()) { <p class="alert" role="alert">{{ error() }}</p> }
+  @switch (current?.status ?? null) {
+    @case ('ready') {
+      <p class="summary">{{ data()?.works?.length ?? current?.workCount }} publications from <a href="https://openalex.org" target="_blank" rel="noopener noreferrer">OpenAlex</a>,
+        stored on this computer. Refreshed weekly.</p>
+      @if (data()?.works?.length) {
+        <mat-form-field appearance="outline" class="filter" subscriptSizing="dynamic">
+          <mat-label>Search publications</mat-label>
+          <mat-icon matPrefix>search</mat-icon>
+          <input matInput [value]="query()" (input)="search($event)">
+        </mat-form-field>
+      }
+      <div class="publication-list">
+        @for (work of visible(); track work.id) {
+          <article class="publication-row">
+            <div class="row-head">
+              <h3><a [href]="'https://openalex.org/' + work.id" target="_blank" rel="noopener noreferrer">{{ work.title }}</a></h3>
+              <span class="year">{{ work.year || '' }}</span>
+            </div>
+            <p class="authors">{{ work.authors.join(', ') }}@if (work.venue) { <span> | {{ work.venue }}</span> }</p>
+            @if (work.isRetracted) { <span class="retracted">Retracted</span> }
+            @if (work.abstract) {
+              <button mat-button class="abstract-toggle" [attr.aria-expanded]="expanded() === work.id"
+                (click)="expanded.set(expanded() === work.id ? null : work.id)">
+                <mat-icon>{{ expanded() === work.id ? 'expand_less' : 'expand_more' }}</mat-icon>Abstract</button>
+              @if (expanded() === work.id) { <p class="abstract">{{ work.abstract }}</p> }
+            }
+          </article>
+        } @empty {
+          <p class="muted">{{ query() ? 'No publications match this search.' : 'OpenAlex returned no publications for this author.' }}</p>
+        }
+      </div>
+      @if (filtered().length > visible().length) {
+        <button mat-stroked-button class="more" (click)="shown.set(shown() + 20)">Show more ({{ filtered().length - visible().length }} left)</button>
+      }
+    }
+    @case ('importing') { <p class="muted" role="status">Importing publications from OpenAlex...</p> }
+    @default {
+      <div class="empty-card">
+        <p>Link your OpenAlex author profile to add your public publications to your private profile.</p>
+        <a mat-flat-button class="link-button" href="/#account"><mat-icon>person_search</mat-icon>Find me on OpenAlex</a>
+      </div>
+    }
+  }
+</section>

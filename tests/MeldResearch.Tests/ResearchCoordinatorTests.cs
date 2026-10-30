@@ -110,7 +110,7 @@ public sealed class ResearchCoordinatorTests
         new(store, remote, source, new(new Uri("https://meld.example.invalid"), false, 300),
             NullLogger<ResearchCoordinator>.Instance, TimeProvider.System);
 
-    private sealed class MemoryStore(LocalResearchState state) : IResearchStore
+    internal sealed class MemoryStore(LocalResearchState state) : IResearchStore
     {
         public LocalResearchState State { get; set; } = state;
         public Task<LocalResearchState> ReadAsync(CancellationToken ct) => Task.FromResult(State);
@@ -120,13 +120,14 @@ public sealed class ResearchCoordinatorTests
     private sealed class Source(ResearchSnapshot snapshot) : IOverleafEvidenceSource
     {
         public bool Available { get; set; } = true;
+        public OverleafProjectsSnapshot? Latest => null;
         public int Reads { get; private set; }
         public Task<IReadOnlyList<OverleafProjectResponse>> ProjectsAsync(CancellationToken ct) =>
             Task.FromResult<IReadOnlyList<OverleafProjectResponse>>([new(snapshot.ProjectId, snapshot.ProjectName, null)]);
         public Task<ResearchSnapshot> SnapshotAsync(OverleafProjectResponse project, CancellationToken ct)
         { Reads++; return Task.FromResult(snapshot); }
     }
-    private sealed class Remote : IResearchRemote
+    internal sealed class Remote : IResearchRemote
     {
         public int ModelCalls { get; private set; }
         public ResearchFailure? Failure { get; init; }
@@ -145,6 +146,12 @@ public sealed class ResearchCoordinatorTests
         public Task<ResearchEmbeddingResponse> EmbedAsync(string token, ResearchEmbeddingRequest request, CancellationToken ct)
         { ModelCalls++; return Task.FromResult(new ResearchEmbeddingResponse("embedding", [[1f]])); }
         public Task RevokeAsync(string token, CancellationToken ct) => Task.CompletedTask;
+        public Func<ResearcherSearchRequest, ResearcherSearchResponse>? Search { get; set; }
+        public Func<ResearcherWorksRequest, ResearcherWorksResponse>? Works { get; set; }
+        public Task<ResearcherSearchResponse> SearchResearcherAsync(string token, ResearcherSearchRequest request, CancellationToken ct) =>
+            Task.FromResult((Search ?? throw new NotSupportedException())(request));
+        public Task<ResearcherWorksResponse> ResearcherWorksAsync(string token, ResearcherWorksRequest request, CancellationToken ct) =>
+            Task.FromResult((Works ?? throw new NotSupportedException())(request));
         public RedeemSignInRequest? Redeemed { get; private set; }
         public Task<RedeemSignInResponse> RedeemSignInAsync(RedeemSignInRequest request, CancellationToken ct)
         {
@@ -202,5 +209,66 @@ public sealed class ResearchCoordinatorTests
         store.State = store.State with { Credential = null };
         await coordinator.CompleteLinkAsync(code, query["state"], CancellationToken.None);
         Assert.Null(store.State.Credential);
+    }
+
+    [Fact]
+    public async Task ProjectDecisionsAreActiveChoicesAndIncludingStillRequiresConsent()
+    {
+        var snapshot = ResearchTests.Snapshot("Synthetic research.");
+        var store = new MemoryStore(new(1, Credential, null, null, [], []));
+        using var coordinator = Coordinator(store, new Remote(), new Source(snapshot));
+        string id = snapshot.ProjectId;
+
+        var refused = await Assert.ThrowsAsync<ResearchFailure>(() => coordinator.DecideProjectAsync(id, new(true, null), CancellationToken.None));
+        Assert.Equal("research_consent_required", refused.Code);
+        Assert.Empty(store.State.Projects);
+        Assert.Null(store.State.Decisions);
+
+        await coordinator.DecideProjectAsync(id, new(true, ResearchEvidence.ConsentVersion), CancellationToken.None);
+        Assert.True(Assert.Single(store.State.Projects).Enabled);
+        Assert.True(Assert.Single(store.State.Decisions!).Included);
+
+        await coordinator.DecideProjectAsync(id, new(false, null), CancellationToken.None);
+        Assert.False(Assert.Single(store.State.Projects).Enabled);
+        var decision = Assert.Single((await coordinator.StatusAsync(CancellationToken.None)).Decisions);
+        Assert.Equal((id, false), (decision.ProjectId, decision.Included));
+
+        await coordinator.DecideProjectAsync(id, new(true, ResearchEvidence.ConsentVersion), CancellationToken.None);
+        await coordinator.ForgetAsync(id, CancellationToken.None);
+        Assert.Empty(store.State.Projects);
+        Assert.False(Assert.Single(store.State.Decisions!).Included);
+    }
+
+    [Fact]
+    public async Task ProjectDecisionsAndResearchersBelongToOneAccount()
+    {
+        var other = new ProjectDecision(Guid.NewGuid(), "0123456789abcdef01234567", true, DateTimeOffset.UtcNow);
+        var otherResearcher = new ResearcherState(other.AccountId, 1, "ready", "Someone", [], null, [], null, null, null);
+        var store = new MemoryStore(new(1, Credential, null, null, [], [], [other], [otherResearcher]));
+        using var coordinator = Coordinator(store, new Remote(), new Source(ResearchTests.Snapshot("Synthetic.")));
+        var status = await coordinator.StatusAsync(CancellationToken.None);
+        Assert.Empty(status.Decisions);
+        Assert.Null(status.Researcher);
+    }
+
+    [Fact]
+    public async Task StateWrittenBeforeDecisionsAndResearchersStillLoads()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "meld-vault-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            using var vault = new LocalVault(directory, new byte[32]);
+            await vault.WriteAsync(new(1, Credential, null, null, [], []), CancellationToken.None);
+            string json = System.Text.Json.JsonSerializer.Serialize(new LocalResearchState(1, Credential, null, null, [], []), ResearchJson.Options);
+            Assert.Contains("\"decisions\":null", json);
+            var legacy = System.Text.Json.Nodes.JsonNode.Parse(json)!.AsObject();
+            legacy.Remove("decisions");
+            legacy.Remove("researchers");
+            var restored = System.Text.Json.JsonSerializer.Deserialize<LocalResearchState>(legacy.ToJsonString(), ResearchJson.Options)!;
+            Assert.Null(restored.Decisions);
+            Assert.Null(restored.Researchers);
+            Assert.Equal(Credential, (await vault.ReadAsync(CancellationToken.None)).Credential);
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
 }

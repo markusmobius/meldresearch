@@ -52,6 +52,16 @@ mat-card-avatar { color: #084d42; }
 .setup-steps span.step-action { font-size: 12px; text-align: center; }
 .hint { margin: 8px 0 0; color: #94a3b8; font-size: 12px; }
 .notice.compact { padding: 6px 10px; margin: 8px 0; font-size: 12.5px; }
+.sub-tabs { display: flex; gap: 4px; width: fit-content; max-width: 100%; margin: 4px 0 16px; padding: 4px; background: #f1f5f9; border-radius: 999px; }
+.sub-tab { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px; border: 0; border-radius: 999px;
+  background: transparent; color: #475569; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
+.sub-tab:hover:not(:disabled) { color: #084d42; }
+.sub-tab.active { background: #ffffff; color: #084d42; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.14); }
+.sub-tab:disabled { opacity: 0.45; cursor: default; }
+.sub-tab mat-icon { font-size: 18px; width: 18px; height: 18px; }
+.sub-tab-badge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: #f59e0b; color: #ffffff;
+  font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; box-sizing: border-box; }
+.about-me { margin-top: 8px; }
 .update-notice { display: flex; gap: 8px; align-items: flex-start; }
 .update-notice mat-icon { flex: none; font-size: 20px; width: 20px; height: 20px; color: #8a5a00; }
 

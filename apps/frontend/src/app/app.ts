@@ -1,5 +1,5 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { Component, DestroyRef, HostListener, OnInit, computed, effect, inject, signal } from '@angular/core';
+import { Component, DestroyRef, HostListener, OnInit, computed, effect, inject, signal, untracked, viewChild } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatExpansionModule } from '@angular/material/expansion';
@@ -10,8 +10,13 @@ import { BridgeStatus, Download, ExtensionSetup, OverleafApi, OverleafProject, d
 import { ResearchPanel } from './research-panel';
 import { ResearchApi, ResearchStatus } from './research-api';
 import { LocalPage, MeldToolbar } from './meld-toolbar';
+import { ProjectSelection } from './project-selection';
+import { ResearcherSetup } from './researcher-setup';
+import { PublicationsList } from './publications';
+import { includedCount, researcherDone, undecidedRecent } from './project-decisions';
 
-export type SetupTab = 'meld' | 'overleaf';
+export type SetupTab = 'meld' | 'overleaf' | 'openalex';
+export type OverleafTab = 'connection' | 'projects';
 /** The account ID for which this browser has connected Overleaf at least once; later Overleaf outages keep the feed. */
 const overleafConfirmedKey = 'meldresearch.overleafConnectedFor';
 function readOverleafConfirmed(): string | null {
@@ -28,7 +33,7 @@ interface InstallPromptEvent extends Event {
 
 @Component({
   selector: 'app-root',
-  imports: [DatePipe, DecimalPipe, ResearchPanel, MeldToolbar, MatButtonModule, MatCardModule,
+  imports: [DatePipe, DecimalPipe, ResearchPanel, MeldToolbar, ProjectSelection, ResearcherSetup, PublicationsList, MatButtonModule, MatCardModule,
     MatExpansionModule, MatIconModule, MatSidenavModule],
   templateUrl: './app.html',
   styleUrl: './app.css',
@@ -101,18 +106,50 @@ export class App implements OnInit {
     return location.hash === '#about-me' ? 'about-me' : location.hash === '#account' ? 'account' : 'home';
   }
 
-  // Setup: the Meld account (Google) first, then Overleaf. Until both are done, only the Account view exists.
+  // Setup: the Meld account (Google), then Overleaf (connection, then an active choice per recent project), then
+  // OpenAlex. Only the Account view exists until a project is included; OpenAlex never blocks the feed.
   private readonly researchApi = inject(ResearchApi);
+  private readonly panel = viewChild(ResearchPanel);
   readonly accountAction = signal('');
   private readonly chosenTab = signal<SetupTab | null>(null);
+  private readonly chosenOverleafTab = signal<OverleafTab | null>(null);
   private readonly overleafConfirmedFor = signal(readOverleafConfirmed());
   readonly setupKnown = computed(() => this.research() !== null);
   readonly accountLinked = computed(() => !!this.research()?.account);
   readonly overleafReady = computed(() => this.verified() ||
     (!!this.research()?.account && this.overleafConfirmedFor() === this.research()?.account?.id));
-  readonly setupComplete = computed(() => this.accountLinked() && this.overleafReady() && !this.connectorStale());
+  /** The freshest Overleaf project list: the backend's last read (also by monitoring), else this page's own refresh. */
+  readonly overleafProjects = computed<ReadonlyArray<OverleafProject>>(() => this.research()?.overleafProjects?.projects ?? this.projects());
+  readonly undecided = computed(() => undecidedRecent(this.research(), this.overleafProjects()));
+  readonly includedProjects = computed(() => includedCount(this.research()));
+  readonly openAlexDone = computed(() => researcherDone(this.research()));
+  readonly overleafDone = computed(() => this.overleafReady() && !this.connectorStale() && this.includedProjects() > 0 && !this.undecided().length);
+  readonly setupComplete = computed(() => this.accountLinked() && this.overleafReady() && !this.connectorStale() && this.includedProjects() > 0);
   readonly setupTab = computed<SetupTab>(() => this.chosenTab() ?? (this.accountLinked() ? 'overleaf' : 'meld'));
+  readonly overleafTab = computed<OverleafTab>(() => this.chosenOverleafTab() ??
+    (this.overleafReady() && !this.connectorStale() && !this.setupNeeded() && this.connector()?.kind === 'available' ? 'projects' : 'connection'));
   readonly view = computed<LocalPage>(() => this.setupKnown() && this.setupComplete() ? this.page() : 'account');
+  readonly overleafLabel = computed(() => {
+    if (!this.verified() || this.connectorStale()) return this.connectionLabel();
+    const undecided = this.undecided().length;
+    if (undecided) return `${undecided} ${undecided === 1 ? 'project' : 'projects'} to decide`;
+    const included = this.includedProjects();
+    return included ? `${included} ${included === 1 ? 'project' : 'projects'} included` : 'Choose your projects';
+  });
+  readonly researcherLabel = computed(() => {
+    const researcher = this.research()?.researcher;
+    switch (researcher?.status) {
+      case 'searching': return 'Searching...';
+      case 'choice': return 'Confirm your profile';
+      case 'unmatched': return 'No match yet';
+      case 'rejected': return 'Not linked';
+      case 'importing': return 'Importing publications';
+      case 'ready': return `${researcher.workCount} publications`;
+      default: return 'Find your publications';
+    }
+  });
+  /** Set after a while, so the OpenAlex nudge does not wait forever for an Overleaf list that never loads. */
+  private readonly listWaitOver = signal(false);
 
   constructor() {
     effect(() => {
@@ -122,17 +159,48 @@ export class App implements OnInit {
         this.overleafConfirmedFor.set(account);
       }
     });
-    // Finishing setup opens the feed.
-    let wasComplete: boolean | null = null;
+    // Every recent project needs an active choice: each page load, and each newly appearing project, opens
+    // Account → Overleaf → Projects until the choice is made.
+    const nudged = new Set<string>();
+    effect(() => {
+      if (!this.setupKnown() || !this.accountLinked() || !this.overleafReady() || this.connectorStale()) return;
+      const fresh = this.undecided().filter(project => !nudged.has(project.id));
+      if (!fresh.length) return;
+      for (const project of fresh) nudged.add(project.id);
+      untracked(() => this.open('overleaf', 'projects'));
+    });
+    // Once per page load, OpenAlex is offered after the projects are settled (projects come first).
+    let openAlexNudged = false;
+    effect(() => {
+      if (openAlexNudged || !this.setupKnown() || !this.setupComplete() || this.undecided().length || this.openAlexDone()) return;
+      if (!this.research()?.overleafProjects && !this.listWaitOver()) return;
+      openAlexNudged = true;
+      untracked(() => this.open('openalex'));
+    });
+    // Finishing everything, including OpenAlex, opens the feed.
+    let wasDone: boolean | null = null;
     effect(() => {
       if (!this.setupKnown()) return;
-      const complete = this.setupComplete();
-      if (wasComplete === false && complete && this.page() === 'account') location.hash = '#feed';
-      wasComplete = complete;
+      const done = this.setupComplete() && !this.undecided().length && this.openAlexDone();
+      if (wasDone === false && done && untracked(() => this.page()) === 'account') {
+        this.chosenTab.set(null);
+        location.hash = '#feed';
+        this.page.set('home');
+      }
+      wasDone = done;
     });
   }
 
   chooseTab(tab: SetupTab): void { this.chosenTab.set(tab); }
+  chooseOverleafTab(tab: OverleafTab): void { this.chosenOverleafTab.set(tab); }
+  private open(tab: SetupTab, overleafTab?: OverleafTab): void {
+    this.chosenTab.set(tab);
+    if (overleafTab) this.chosenOverleafTab.set(overleafTab);
+    if (location.hash !== '#account') location.hash = '#account';
+    this.page.set('account');
+  }
+  /** A project or researcher action changed the research state; show it without waiting for the next poll. */
+  researchChanged(): void { void this.panel()?.refresh(); }
 
   /** Signs in on the Meld website in this tab; the website returns to /account/callback and then to this app. */
   async signIn(): Promise<void> {
@@ -165,7 +233,8 @@ export class App implements OnInit {
     void this.loadDownloads();
     void this.checkStatus();
     const timer = setInterval(() => { void this.checkStatus(); }, 3000);
-    this.destroyRef.onDestroy(() => { this.stopped = true; clearInterval(timer); });
+    const wait = setTimeout(() => this.listWaitOver.set(true), 15000);
+    this.destroyRef.onDestroy(() => { this.stopped = true; clearInterval(timer); clearTimeout(wait); });
   }
 
   private async loadDownloads(): Promise<void> {

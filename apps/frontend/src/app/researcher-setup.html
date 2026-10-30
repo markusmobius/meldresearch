@@ -1,0 +1,89 @@
+@let current = researcher();
+<div class="researcher-setup">
+  @if (current?.lastError) { <p class="alert" role="status">{{ current?.lastError }} Meld retries automatically.</p> }
+
+  @switch (phase()) {
+    @case ('searching') {
+      <p class="phase-status" role="status"><mat-icon>person_search</mat-icon>Searching OpenAlex for <strong>{{ current?.searchName }}</strong>...</p>
+      <mat-progress-bar mode="indeterminate" aria-label="Searching OpenAlex"></mat-progress-bar>
+      <p class="muted">This takes up to a minute. You can keep using Meld; the candidates appear here.</p>
+    }
+    @case ('choice') {
+      <p class="source-note">{{ current?.searchName }} <span>Public source: OpenAlex</span></p>
+      <p class="muted">Choose the author profile that is you. Its public publications become part of your private profile on this computer.</p>
+      <mat-radio-group aria-label="OpenAlex author profiles" [value]="selectedId()" (change)="selectedId.set($event.value)">
+        @for (candidate of current?.candidates; track candidate.id) {
+          <article class="researcher-candidate" [class.selected]="selectedId() === candidate.id">
+            <div class="candidate-head">
+              <mat-radio-button [value]="candidate.id" [disabled]="saving()"><strong>{{ candidate.name }}</strong></mat-radio-button>
+              <a mat-icon-button [href]="'https://openalex.org/' + candidate.id" target="_blank" rel="noopener noreferrer"
+                [attr.aria-label]="'Open OpenAlex profile for ' + candidate.name" title="OpenAlex profile"><mat-icon>open_in_new</mat-icon></a>
+            </div>
+            <p class="candidate-meta">{{ candidate.affiliations.join('; ') || 'Affiliation unavailable' }}</p>
+            <p class="candidate-meta">{{ candidate.worksCount | number }} publications</p>
+            <ul class="candidate-samples">
+              @for (work of candidate.samplePublications.slice(0, 3); track work.id) {
+                <li><span>{{ work.title }}</span><span class="sample-year">{{ work.year || '' }}</span></li>
+              } @empty { <li class="muted">No sample publications available.</li> }
+            </ul>
+          </article>
+        }
+      </mat-radio-group>
+      <div class="actions">
+        <button mat-stroked-button [disabled]="saving()" (click)="none()">None of these</button>
+        <button mat-button [disabled]="saving()" (click)="editing.set(true)"><mat-icon>search</mat-icon>Search another name</button>
+        <button mat-flat-button class="confirm" [disabled]="!selectedId() || saving()" (click)="confirm()">
+          <mat-icon>check</mat-icon>{{ saving() ? 'Saving...' : 'Confirm' }}</button>
+      </div>
+    }
+    @case ('importing') {
+      <p class="phase-status" role="status"><mat-icon>downloading</mat-icon>Importing publications for <strong>{{ current?.researcher?.name }}</strong>...</p>
+      <mat-progress-bar mode="indeterminate" aria-label="Importing publications"></mat-progress-bar>
+    }
+    @case ('ready') {
+      @if (current?.researcher; as author) {
+        <div class="confirmed">
+          <mat-icon class="confirmed-icon">verified</mat-icon>
+          <div>
+            <a class="author-link" [href]="'https://openalex.org/' + author.id" target="_blank" rel="noopener noreferrer">{{ author.name }}<mat-icon>open_in_new</mat-icon></a>
+            <p class="candidate-meta">{{ author.affiliations.join('; ') || 'Affiliation unavailable' }}</p>
+            <p class="candidate-meta">{{ current?.workCount | number }} publications imported
+              @if (current?.updatedAt) { &middot; updated {{ current?.updatedAt | date:'mediumDate' }} }</p>
+          </div>
+        </div>
+        <div class="actions">
+          <a mat-stroked-button href="/#about-me"><mat-icon>menu_book</mat-icon>View publications</a>
+          @if (!editing()) { <button mat-button (click)="editing.set(true)"><mat-icon>manage_search</mat-icon>Change author</button> }
+        </div>
+      }
+    }
+    @case ('unmatched') {
+      <p class="phase-status"><mat-icon>search_off</mat-icon>No OpenAlex author matched <strong>{{ current?.searchName }}</strong>. Try another spelling.</p>
+    }
+    @case ('rejected') {
+      <p class="phase-status"><mat-icon>link_off</mat-icon>No OpenAlex profile is linked. You can search again any time.</p>
+    }
+    @default {
+      <p>Meld can add your public publications from <a href="https://openalex.org" target="_blank" rel="noopener noreferrer">OpenAlex</a>
+        to your private profile. Search by your name, then confirm which author is you.</p>
+    }
+  }
+
+  @if (showSearch()) {
+    <form class="search" (submit)="$event.preventDefault(); search()">
+      <mat-form-field appearance="outline" subscriptSizing="dynamic">
+        <mat-label>Your name on publications</mat-label>
+        <input matInput name="researcherName" [value]="searchName()" (input)="nameChanged($event)" maxlength="160" required>
+      </mat-form-field>
+      <button mat-flat-button class="search-button" type="submit" [disabled]="saving() || searchName().trim().length < 2">
+        <mat-icon>search</mat-icon>Search OpenAlex</button>
+      @if (editing()) { <button mat-button type="button" (click)="editing.set(false)">Cancel</button> }
+      @if (phase() !== 'rejected' && !editing()) {
+        <button mat-button type="button" class="not-listed" [disabled]="saving()" (click)="none()">I'm not on OpenAlex</button>
+      }
+    </form>
+    @if (current?.researcher && editing()) { <p class="muted">A new search replaces the current author and its imported publications.</p> }
+    <p class="muted fine-print">Searching sends this name through Meld's remote service to Azure AI Foundry (name variants and ranking) and to OpenAlex.</p>
+  }
+  @if (error()) { <p class="alert" role="alert">{{ error() }}</p> }
+</div>

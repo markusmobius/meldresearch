@@ -10,7 +10,7 @@
       @if (view() === 'about-me') {
         <header class="page-header page-container">
           <div><h1 class="page-title"><mat-icon>badge</mat-icon>About me</h1>
-            <p class="page-subtitle">Your projects and private research knowledge.</p></div>
+            <p class="page-subtitle">Your public publications and private research profile.</p></div>
           <a mat-button href="/#account"><mat-icon>settings</mat-icon>Account &amp; Overleaf</a>
         </header>
       }
@@ -18,16 +18,93 @@
         <header class="page-header page-container">
           <div><h1 class="page-title"><mat-icon>account_circle</mat-icon>{{ setupComplete() ? 'Account' : 'Set up Meld Research' }}</h1>
             @if (!setupComplete()) {
-              <p class="page-subtitle">Sign in with Google, then connect Overleaf. Your feed opens when both are connected.</p>
+              <p class="page-subtitle">Sign in with Google, connect Overleaf and choose your projects. Your feed opens once a project is included.</p>
             }</div>
         </header>
       }
 
-      <app-research-panel [page]="view()" [projects]="projects()" [sourceReady]="verified()"
-        (statusChange)="research.set($event)"></app-research-panel>
+      <app-research-panel [page]="view()" (statusChange)="research.set($event)"></app-research-panel>
 
       @if (view() === 'about-me') {
-        <div class="page-container source-tools">
+        <div class="page-container about-me">
+          <app-publications [researcher]="research()?.researcher ?? null"></app-publications>
+        </div>
+      }
+
+      @if (view() === 'account' && setupKnown()) {
+        <div class="page-container setup-layout">
+          <nav class="setup-tabs" role="tablist" aria-label="Connections">
+            <button type="button" role="tab" class="setup-tab" [class.active]="setupTab() === 'meld'"
+              [attr.aria-selected]="setupTab() === 'meld'" (click)="chooseTab('meld')">
+              <mat-icon>account_circle</mat-icon>
+              <span class="setup-tab-text"><strong>Meld account</strong>
+                <small>{{ research()?.account?.email ?? 'Sign in with Google' }}</small></span>
+              <mat-icon class="setup-state" [class.done]="accountLinked()">{{ accountLinked() ? 'check_circle' : 'radio_button_unchecked' }}</mat-icon>
+            </button>
+            <button type="button" role="tab" class="setup-tab" [class.active]="setupTab() === 'overleaf'"
+              [attr.aria-selected]="setupTab() === 'overleaf'" (click)="chooseTab('overleaf')">
+              <mat-icon>link</mat-icon>
+              <span class="setup-tab-text"><strong>Overleaf</strong><small>{{ overleafLabel() }}</small></span>
+              <mat-icon class="setup-state" [class.done]="overleafDone()">{{ overleafDone() ? 'check_circle' : 'radio_button_unchecked' }}</mat-icon>
+            </button>
+            <button type="button" role="tab" class="setup-tab" [class.active]="setupTab() === 'openalex'"
+              [attr.aria-selected]="setupTab() === 'openalex'" (click)="chooseTab('openalex')">
+              <mat-icon>school</mat-icon>
+              <span class="setup-tab-text"><strong>OpenAlex</strong><small>{{ researcherLabel() }}</small></span>
+              <mat-icon class="setup-state" [class.done]="openAlexDone()">{{ openAlexDone() ? 'check_circle' : 'radio_button_unchecked' }}</mat-icon>
+            </button>
+          </nav>
+
+          <div class="setup-panel" role="tabpanel">
+            @if (setupTab() === 'meld') {
+              <mat-card class="meld-account" aria-label="Meld account">
+                <mat-card-header><mat-icon mat-card-avatar>account_circle</mat-icon>
+                  <mat-card-title>{{ accountLinked() ? 'Your Meld account' : 'Sign in to Meld Research' }}</mat-card-title>
+                  <mat-card-subtitle>Step 1 of 3</mat-card-subtitle>
+                </mat-card-header>
+                <mat-card-content>
+                  @if (research()?.dummy) { <p class="notice">Dummy mode: the account and Overleaf project are synthetic. Foundry processing is real and consumes model quota.</p> }
+                  @if (research()?.account; as account) {
+                    <p class="account-name">{{ account.name }}</p><p class="muted">{{ account.email }}</p>
+                    <div class="controls">
+                      @if (!verified()) {
+                        <button mat-flat-button class="next-step" (click)="chooseTab('overleaf')"><mat-icon>arrow_forward</mat-icon>Next: connect Overleaf</button>
+                      }
+                      <button mat-button (click)="disconnect()" [disabled]="!!accountAction()">Disconnect account</button>
+                    </div>
+                  } @else {
+                    <p>Sign in with the Google account you use for Meld Research. Your browser opens the Meld website and returns here.</p>
+                    <button mat-flat-button class="google-sign-in" (click)="signIn()" [disabled]="!!accountAction()">
+                      <mat-icon>login</mat-icon>{{ research()?.dummy ? 'Sign in with the test account' : 'Sign in with Google' }}
+                    </button>
+                  }
+                  @if (accountAction()) { <p class="muted" role="status">{{ accountAction() }}</p> }
+                  @if (research()?.pendingLink; as link) {
+                    <p class="muted" role="status">Sign-in did not finish? <a [href]="link.signInUrl">Continue in the browser</a>.</p>
+                  }
+                </mat-card-content>
+              </mat-card>
+            } @else if (setupTab() === 'overleaf') {
+        <section class="connection-settings" aria-label="Overleaf">
+          <mat-card>
+            <mat-card-header><mat-icon mat-card-avatar>link</mat-icon>
+              <mat-card-title>Overleaf</mat-card-title>
+              <mat-card-subtitle class="connection" [class.online]="verified()">Step 2 of 3 &middot; {{ overleafLabel() }}</mat-card-subtitle>
+            </mat-card-header>
+            <mat-card-content>
+              <div class="sub-tabs" role="tablist" aria-label="Overleaf">
+                <button type="button" role="tab" class="sub-tab connection-tab" [class.active]="overleafTab() === 'connection'"
+                  [attr.aria-selected]="overleafTab() === 'connection'" (click)="chooseOverleafTab('connection')"><mat-icon>link</mat-icon>Connection</button>
+                <button type="button" role="tab" class="sub-tab projects-tab" [class.active]="overleafTab() === 'projects'"
+                  [attr.aria-selected]="overleafTab() === 'projects'" [disabled]="!overleafReady()" (click)="chooseOverleafTab('projects')">
+                  <mat-icon>folder_open</mat-icon>Projects
+                  @if (undecided().length) { <span class="sub-tab-badge" [attr.aria-label]="undecided().length + ' projects to decide'">{{ undecided().length }}</span> }
+                </button>
+              </div>
+              @if (overleafTab() === 'projects') {
+                <app-project-selection [status]="research()" [projects]="overleafProjects()" [sourceReady]="verified()"
+                  (changed)="researchChanged()"></app-project-selection>
+                <div class="source-tools">
           <mat-expansion-panel class="source-browser">
             <mat-expansion-panel-header>
               <mat-panel-title><mat-icon>folder_open</mat-icon>Overleaf projects &amp; ZIP copies</mat-panel-title>
@@ -74,64 +151,8 @@
               } @empty { <li class="muted">No projects downloaded yet.</li> }
             </ul>
           </mat-expansion-panel>
-        </div>
-      }
-
-      @if (view() === 'account' && setupKnown()) {
-        <div class="page-container setup-layout">
-          <nav class="setup-tabs" role="tablist" aria-label="Connections">
-            <button type="button" role="tab" class="setup-tab" [class.active]="setupTab() === 'meld'"
-              [attr.aria-selected]="setupTab() === 'meld'" (click)="chooseTab('meld')">
-              <mat-icon>account_circle</mat-icon>
-              <span class="setup-tab-text"><strong>Meld account</strong>
-                <small>{{ research()?.account?.email ?? 'Sign in with Google' }}</small></span>
-              <mat-icon class="setup-state" [class.done]="accountLinked()">{{ accountLinked() ? 'check_circle' : 'radio_button_unchecked' }}</mat-icon>
-            </button>
-            <button type="button" role="tab" class="setup-tab" [class.active]="setupTab() === 'overleaf'"
-              [attr.aria-selected]="setupTab() === 'overleaf'" (click)="chooseTab('overleaf')">
-              <mat-icon>link</mat-icon>
-              <span class="setup-tab-text"><strong>Overleaf</strong><small>{{ connectionLabel() }}</small></span>
-              <mat-icon class="setup-state" [class.done]="verified() && !connectorStale()">{{ verified() && !connectorStale() ? 'check_circle' : 'radio_button_unchecked' }}</mat-icon>
-            </button>
-          </nav>
-
-          <div class="setup-panel" role="tabpanel">
-            @if (setupTab() === 'meld') {
-              <mat-card class="meld-account" aria-label="Meld account">
-                <mat-card-header><mat-icon mat-card-avatar>account_circle</mat-icon>
-                  <mat-card-title>{{ accountLinked() ? 'Your Meld account' : 'Sign in to Meld Research' }}</mat-card-title>
-                  <mat-card-subtitle>Step 1 of 2</mat-card-subtitle>
-                </mat-card-header>
-                <mat-card-content>
-                  @if (research()?.dummy) { <p class="notice">Dummy mode: the account and Overleaf project are synthetic. Foundry processing is real and consumes model quota.</p> }
-                  @if (research()?.account; as account) {
-                    <p class="account-name">{{ account.name }}</p><p class="muted">{{ account.email }}</p>
-                    <div class="controls">
-                      @if (!verified()) {
-                        <button mat-flat-button class="next-step" (click)="chooseTab('overleaf')"><mat-icon>arrow_forward</mat-icon>Next: connect Overleaf</button>
-                      }
-                      <button mat-button (click)="disconnect()" [disabled]="!!accountAction()">Disconnect account</button>
-                    </div>
-                  } @else {
-                    <p>Sign in with the Google account you use for Meld Research. Your browser opens the Meld website and returns here.</p>
-                    <button mat-flat-button class="google-sign-in" (click)="signIn()" [disabled]="!!accountAction()">
-                      <mat-icon>login</mat-icon>{{ research()?.dummy ? 'Sign in with the test account' : 'Sign in with Google' }}
-                    </button>
-                  }
-                  @if (accountAction()) { <p class="muted" role="status">{{ accountAction() }}</p> }
-                  @if (research()?.pendingLink; as link) {
-                    <p class="muted" role="status">Sign-in did not finish? <a [href]="link.signInUrl">Continue in the browser</a>.</p>
-                  }
-                </mat-card-content>
-              </mat-card>
-            } @else {
-        <section class="connection-settings" aria-label="Overleaf connection">
-          <mat-card>
-            <mat-card-header><mat-icon mat-card-avatar>link</mat-icon>
-              <mat-card-title>Overleaf</mat-card-title>
-              <mat-card-subtitle class="connection" [class.online]="verified()">Step 2 of 2 &middot; {{ connectionLabel() }}</mat-card-subtitle>
-            </mat-card-header>
-            <mat-card-content>
+                </div>
+              } @else {
               @if (status()?.dummy) {
                 <p class="muted">Synthetic Overleaf evidence from the local backend; no browser profile or private project is used.</p>
               } @else {
@@ -194,9 +215,25 @@
                   }
                 </mat-expansion-panel>
               }
+              }
             </mat-card-content>
           </mat-card>
         </section>
+            } @else {
+              <mat-card class="openalex-card" aria-label="OpenAlex">
+                <mat-card-header><mat-icon mat-card-avatar>school</mat-icon>
+                  <mat-card-title>OpenAlex publications</mat-card-title>
+                  <mat-card-subtitle>Step 3 of 3 &middot; {{ researcherLabel() }}</mat-card-subtitle>
+                </mat-card-header>
+                <mat-card-content>
+                  @if (accountLinked()) {
+                    <app-researcher-setup [researcher]="research()?.researcher ?? null" [accountName]="research()?.account?.name ?? ''"
+                      (changed)="researchChanged()"></app-researcher-setup>
+                  } @else {
+                    <p class="muted">Sign in to your Meld account first.</p>
+                  }
+                </mat-card-content>
+              </mat-card>
             }
           </div>
         </div>

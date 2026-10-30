@@ -1,0 +1,104 @@
+@if (status(); as current) {
+  <section class="project-selection" aria-label="Overleaf projects in your private profile">
+    <mat-checkbox class="consent" [checked]="consent()" (change)="consent.set($event.checked)">
+      I allow included project text to be sent through Meld's remote service to Azure AI Foundry to build my private profile
+      and research updates. Monitoring continues while Meld and my browser are running.
+    </mat-checkbox>
+    <p class="muted fine-print">UTF-8 .tex, .bib, .md, and .txt sources only; PDFs and images are not analyzed. Your profile stays on this computer.
+      <a href="/privacy.html" target="_blank" rel="noopener noreferrer">Privacy and data use</a></p>
+    @if (error()) { <p class="alert" role="alert">{{ error() }}</p> }
+    @if (action()) { <p class="muted" role="status">{{ action() }}</p> }
+
+    <div class="list-head">
+      <h3>Updated in the last six months</h3>
+      @if (undecided().length) {
+        <span class="to-decide" role="status"><mat-icon>pending_actions</mat-icon>{{ undecided().length }} to decide</span>
+      } @else if (recent().length) {
+        <span class="all-decided"><mat-icon>task_alt</mat-icon>All decided</span>
+      }
+    </div>
+    <p class="muted list-hint">Choose for each project whether it belongs in your private profile.</p>
+    <ul class="decision-list">
+      @for (project of recent(); track project.id) {
+        <ng-container *ngTemplateOutlet="row; context: { $implicit: project }"></ng-container>
+      } @empty {
+        <li class="muted empty">{{ projects().length ? 'No projects were updated in the last six months.' : 'Your Overleaf projects load once the connection is ready.' }}</li>
+      }
+    </ul>
+
+    @if (older().length) {
+      <mat-expansion-panel class="older-projects">
+        <mat-expansion-panel-header>
+          <mat-panel-title>Older projects</mat-panel-title>
+          <mat-panel-description>Optional &middot; {{ includedOlder() }} of {{ older().length }} included</mat-panel-description>
+        </mat-expansion-panel-header>
+        <ul class="decision-list">
+          @for (project of older(); track project.id) {
+            <ng-container *ngTemplateOutlet="row; context: { $implicit: project }"></ng-container>
+          }
+        </ul>
+      </mat-expansion-panel>
+    }
+
+    @if (current.busy) { <p class="muted" role="status">Checking included projects and processing meaningful changes...</p> }
+    @if (current.projects.length) {
+      <h3 class="details-title">Included project details</h3>
+      <div class="project-statuses">
+        @for (project of current.projects; track project.projectId) {
+          <mat-expansion-panel class="project-card" [expanded]="!!project.error || project.consentRequired">
+            <mat-expansion-panel-header>
+              <mat-panel-title>{{ project.name }}</mat-panel-title>
+              <mat-panel-description>{{ project.enabled ? 'Monitoring' : 'Paused' }} &middot; {{ project.factCount }} facts</mat-panel-description>
+            </mat-expansion-panel-header>
+            @if (project.summary) { <p class="project-summary">{{ project.summary }}</p> }
+            @if (project.lastSuccessAt) { <p class="muted">Last content check {{ project.lastSuccessAt | date:'medium' }}</p> }
+            @if (project.error) { <p class="alert" role="alert">{{ project.error }}</p> }
+            @if (project.consentRequired) { <p class="alert">Updated consent is required. Approve processing above, then resume this project.</p> }
+            @if (project.explanation) { <p class="muted">{{ project.explanation }}</p> }
+            @if (project.unprocessedFiles) { <p class="muted">{{ project.unprocessedFiles }} non-text files were tracked by hash but not sent to the model.</p> }
+            <div class="controls">
+              @if (project.enabled) {
+                <button mat-button (click)="pause(project.projectId)" [disabled]="!!action()"><mat-icon>pause</mat-icon>Pause</button>
+              } @else if (choice(project.projectId) === 'included') {
+                <button mat-button (click)="resume(project.projectId)" [disabled]="!!action() || !consent() || !sourceReady()"><mat-icon>play_arrow</mat-icon>Resume</button>
+              }
+              @if (confirmForget() === project.projectId) {
+                <p>Delete this project's local index and updates? It is then excluded from your profile. Manual ZIPs and Overleaf originals remain.</p>
+                <button mat-button color="warn" (click)="forget(project.projectId)" [disabled]="!!action()">Confirm deletion</button>
+                <button mat-button (click)="confirmForget.set(null)">Cancel</button>
+              } @else {
+                <button mat-button (click)="confirmForget.set(project.projectId)"><mat-icon>delete_outline</mat-icon>Forget local research</button>
+              }
+            </div>
+          </mat-expansion-panel>
+        }
+      </div>
+    }
+    @if (current.dummy) {
+      <div class="demo-tools"><span class="muted">Dummy development tools</span>
+        <button mat-button (click)="demoChange()" [disabled]="!!action() || current.busy"><mat-icon>science</mat-icon>Apply synthetic project change</button></div>
+    }
+  </section>
+}
+
+<ng-template #row let-project>
+  @let decided = choice(project.id);
+  @let watched = monitored(project.id);
+  <li class="decision-row" [class.undecided]="decided === null && isRecentProject(project)">
+    <div class="decision-name">
+      <strong>{{ project.name }}</strong>
+      <small>
+        @if (project.updatedAt) { Updated {{ project.updatedAt | date:'mediumDate' }} }
+        @if (decided === 'included') { &middot; {{ watched?.error ? 'Needs attention' : watched?.enabled ? 'Monitoring' : 'Paused' }} }
+      </small>
+    </div>
+    <div class="decision-actions" role="group" [attr.aria-label]="'Profile choice for ' + project.name">
+      <button mat-stroked-button class="include" [class.selected]="decided === 'included'" [attr.aria-pressed]="decided === 'included'"
+        [disabled]="!!action() || decided === 'included' || !consent() || !sourceReady()" (click)="decide(project, true)">
+        <mat-icon>{{ decided === 'included' ? 'check_circle' : 'add_circle_outline' }}</mat-icon>Include</button>
+      <button mat-stroked-button class="exclude" [class.selected]="decided === 'excluded'" [attr.aria-pressed]="decided === 'excluded'"
+        [disabled]="!!action() || decided === 'excluded'" (click)="decide(project, false)">
+        <mat-icon>{{ decided === 'excluded' ? 'block' : 'remove_circle_outline' }}</mat-icon>Exclude</button>
+    </div>
+  </li>
+</ng-template>

@@ -14,6 +14,8 @@ internal interface IResearchCoordinator
     Task CompleteLinkAsync(string? code, string? state, CancellationToken ct);
     Task UnlinkAsync(CancellationToken ct);
     Task SetMonitoringAsync(string projectId, SetProjectMonitoringRequest request, CancellationToken ct);
+    /// <summary>Records an active include/exclude choice. Including starts monitoring and requires current consent.</summary>
+    Task DecideProjectAsync(string projectId, ProjectDecisionRequest request, CancellationToken ct);
     Task ForgetAsync(string projectId, CancellationToken ct);
     void RequestSync();
     /// <summary>True while a research cycle is reading sources or calling the remote models.</summary>
@@ -43,6 +45,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         var projects = state.Projects.Where(project => project.AccountId == account).ToArray();
         var updates = projects.SelectMany(project => project.Updates).OrderByDescending(update => update.ObservedAt).ToArray();
         var signIn = _signIn is { } pending && pending.ExpiresAt > clock.GetUtcNow() && state.Credential is null ? pending : null;
+        var researcher = state.Researchers?.FirstOrDefault(item => item.AccountId == account);
         return new(state.Credential?.Account, state.Credential?.ExpiresAt,
             signIn is null ? null : new(signIn.SignInUrl, signIn.ExpiresAt),
             state.AccountError, Volatile.Read(ref _busy) != 0, options.Dummy,
@@ -51,7 +54,13 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             projects.Select(project => new MonitoredProjectResponse(project.ProjectId, project.Name, project.Enabled,
                 project.ConsentVersion != ResearchEvidence.ConsentVersion, project.Snapshot?.Revision, project.Summary,
                 project.Facts.Count, project.LastAttemptAt, project.LastSuccessAt, project.ErrorCode, project.Error,
-                project.Explanation, project.UnprocessedFiles)).ToArray(), updates.Take(100).ToArray(), updates.Length);
+                project.Explanation, project.UnprocessedFiles)).ToArray(), updates.Take(100).ToArray(), updates.Length,
+            (state.Decisions ?? []).Where(decision => decision.AccountId == account)
+                .Select(decision => new ProjectDecisionResponse(decision.ProjectId, decision.Included, decision.DecidedAt)).ToArray(),
+            account is null ? null : source.Latest,
+            researcher is null ? null : new(researcher.Version, researcher.Status, researcher.SearchName, researcher.Candidates,
+                researcher.Researcher, researcher.Works.Count, researcher.UpdatedAt,
+                researcher.Status == "ready" ? researcher.DueAt : null, researcher.LastError));
     }
 
     public async Task<AccountLinkResponse> BeginLinkAsync(string callbackUri, CancellationToken ct)
@@ -127,15 +136,46 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         finally { _accountGate.Release(); }
     }
 
-    public async Task SetMonitoringAsync(string projectId, SetProjectMonitoringRequest request, CancellationToken ct)
+    public Task SetMonitoringAsync(string projectId, SetProjectMonitoringRequest request, CancellationToken ct) =>
+        ChangeMonitoringAsync(projectId, request.Enabled, request.ConsentVersion, null, ct);
+
+    public async Task DecideProjectAsync(string projectId, ProjectDecisionRequest request, CancellationToken ct)
+    {
+        if (request.Included)
+        {
+            await ChangeMonitoringAsync(projectId, true, request.ConsentVersion, true, ct);
+            return;
+        }
+        if (!ResearchEvidence.IsProjectId(projectId)) throw new ResearchFailure(400, "invalid_project_id", "Select a valid Overleaf project.");
+        var account = RequireCredential(await store.ReadAsync(ct));
+        CancelCycle();
+        await store.ChangeAsync(current =>
+        {
+            if (current.Credential?.Account.Id != account.Account.Id) throw AccountChanged();
+            var existing = current.Projects.FirstOrDefault(project => project.AccountId == account.Account.Id && project.ProjectId == projectId);
+            return current with
+            {
+                Projects = existing is { Enabled: true } ? Replace(current.Projects, existing with { Enabled = false }) : current.Projects,
+                Decisions = Decide(current.Decisions, account.Account.Id, projectId, false)
+            };
+        }, ct);
+    }
+
+    private IReadOnlyList<ProjectDecision> Decide(IReadOnlyList<ProjectDecision>? decisions, Guid account, string projectId, bool included) =>
+    [
+        .. (decisions ?? []).Where(decision => decision.AccountId != account || decision.ProjectId != projectId),
+        new ProjectDecision(account, projectId, included, clock.GetUtcNow())
+    ];
+
+    private async Task ChangeMonitoringAsync(string projectId, bool enabled, string? consentVersion, bool? decision, CancellationToken ct)
     {
         if (!ResearchEvidence.IsProjectId(projectId)) throw new ResearchFailure(400, "invalid_project_id", "Select a valid Overleaf project.");
-        if (request.Enabled && request.ConsentVersion != ResearchEvidence.ConsentVersion)
+        if (enabled && consentVersion != ResearchEvidence.ConsentVersion)
             throw new ResearchFailure(400, "research_consent_required", "Approve processing of selected project text through Meld and Azure AI Foundry first.");
         var state = await store.ReadAsync(ct);
         var account = RequireCredential(state);
         string name;
-        if (request.Enabled)
+        if (enabled)
         {
             var projects = await source.ProjectsAsync(ct);
             name = projects.FirstOrDefault(project => project.Id == projectId)?.Name ??
@@ -154,11 +194,15 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             var updated = existing is null
                 ? new MonitoredProject(account.Account.Id, projectId, name, true, ResearchEvidence.ConsentVersion,
                     null, null, [], [], null, null, null, null, null, 0, 0)
-                : existing with { Enabled = request.Enabled, Name = name, ConsentVersion = request.Enabled ? ResearchEvidence.ConsentVersion : existing.ConsentVersion,
+                : existing with { Enabled = enabled, Name = name, ConsentVersion = enabled ? ResearchEvidence.ConsentVersion : existing.ConsentVersion,
                     FailureCount = 0, ErrorCode = null, Error = null };
-            return current with { Projects = Replace(current.Projects, updated) };
+            return current with
+            {
+                Projects = Replace(current.Projects, updated),
+                Decisions = decision is { } included ? Decide(current.Decisions, account.Account.Id, projectId, included) : current.Decisions
+            };
         }, ct);
-        if (request.Enabled) RequestSync();
+        if (enabled) RequestSync();
     }
 
     public async Task ForgetAsync(string projectId, CancellationToken ct)
@@ -167,7 +211,10 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         CancelCycle();
         await store.ChangeAsync(current => current with
         {
-            Projects = current.Projects.Where(project => project.AccountId != account.Account.Id || project.ProjectId != projectId).ToArray()
+            Projects = current.Projects.Where(project => project.AccountId != account.Account.Id || project.ProjectId != projectId).ToArray(),
+            // Forgetting removes the project from the private profile, so it stays excluded rather than asking again.
+            Decisions = current.Credential?.Account.Id == account.Account.Id
+                ? Decide(current.Decisions, account.Account.Id, projectId, false) : current.Decisions
         }, ct);
     }
 

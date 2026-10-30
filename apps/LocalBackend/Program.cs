@@ -61,6 +61,9 @@ builder.Services.AddHttpClient("research-remote", client => client.Timeout = Tim
 builder.Services.AddSingleton<ResearchCoordinator>();
 builder.Services.AddSingleton<IResearchCoordinator>(services => services.GetRequiredService<ResearchCoordinator>());
 builder.Services.AddHostedService(services => services.GetRequiredService<ResearchCoordinator>());
+builder.Services.AddSingleton<ResearcherService>();
+builder.Services.AddSingleton<IResearcherService>(services => services.GetRequiredService<ResearcherService>());
+builder.Services.AddHostedService(services => services.GetRequiredService<ResearcherService>());
 builder.Services.AddSingleton(UpdateOptions.Load(builder.Configuration, researchOptions));
 builder.Services.AddSingleton<INativeHostRegistrar, NativeHostRegistrar>();
 builder.Services.AddHttpClient(DesktopUpdater.HttpClientName, client => client.Timeout = Timeout.InfiniteTimeSpan)

@@ -13,9 +13,12 @@ instruction file. Start with the [README](README.md) for setup and release detai
   Preserve the ported 64px toolbar, share icon, Outfit typography, pill navigation,
   full-height scrolling workspace and compact Update cards. Do not replace them
   with a new hero/marketing dashboard or import unrelated Meld functionality.
-- Overleaf is the only private-data source. The feed contains research
-  **Updates only**, including initial imports and meaningful project changes.
-  Do not add WorkIQ, other news sources, TRAPI, or alternate inference fallbacks.
+- Overleaf is the only private-data source. The only other source is the user's
+  public OpenAlex record (ported from Project Meld): searched only on request,
+  candidates confirmed by the user, works stored in the local encrypted state.
+  The feed contains research **Updates only**, including initial imports and
+  meaningful project changes. Do not add WorkIQ, other news sources, TRAPI, or
+  alternate inference fallbacks.
 - All model decisions and embeddings use configured Azure AI Foundry.
   Deterministic source hashing is appropriate; canned model responses or local
   novelty heuristics are not substitutes for real inference.
@@ -111,8 +114,14 @@ Use .NET 10, Node 24/npm and PowerShell 7. Run from this repository's root, e.g.
   [MeldToolbar](apps/frontend/src/app/meld-toolbar.ts) is the shared Angular
   Material toolbar, including visible service roles. The local tabs are Feed,
   About me and Account; Docs / Privacy / Project Team are under More.
-  Account/connector setup must not dominate the feed. About me owns project
-  selection, explicit consent, monitoring and ZIP downloads.
+  Account has vertical tabs Meld account / Overleaf (horizontal Connection |
+  Projects) / OpenAlex. Projects owns include/exclude choices, consent,
+  monitoring and ZIP downloads; About me shows OpenAlex publications.
+- Projects updated within six months need an active include/exclude choice;
+  older ones are optional. The feed unlocks once one project is included. Each
+  page load, and each newly seen undecided project, opens Overleaf → Projects;
+  then OpenAlex is offered once per load until confirmed or declined. Neither
+  nudge blocks the feed.
 - Do not restore Microsoft corporate footers, internal-service or research-study
   claims. Retain accurate Azure/Microsoft provider disclosures and required
   [third-party notices](THIRD-PARTY-NOTICES.md).

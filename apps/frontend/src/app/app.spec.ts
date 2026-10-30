@@ -39,11 +39,22 @@ describe('Overleaf connection screen', () => {
     return fixture;
   }
   const account = { id: 'account-one', name: 'Synthetic researcher', email: 'researcher@example.invalid' };
-  const researchStatus = (signedIn = true) => ({
+  const included = {
+    projectId: 'c123456789abcdef01234567', name: 'Included project', enabled: true, consentRequired: false, revision: null,
+    summary: null, factCount: 0, lastAttemptAt: null, lastSuccessAt: null, errorCode: null, error: null, explanation: null, unprocessedFiles: 0,
+  };
+  const recent = (id: string, name: string, daysAgo = 3) =>
+    ({ id, name, updatedAt: new Date(Date.now() - daysAgo * 86400000).toISOString() });
+  const researcher = (phase: string) => ({ version: 1, status: phase, searchName: account.name, candidates: [], researcher: null,
+    workCount: 0, updatedAt: null, nextRefreshAt: null, lastError: null });
+  // By default one project is included and OpenAlex was declined, so nothing nudges away from the requested page.
+  const researchStatus = (signedIn = true, extra: Record<string, unknown> = {}) => ({
     account: signedIn ? account : null, pendingLink: null, accountError: null, busy: false, dummy: false,
-    privacyUrl: 'https://www.meldresearch.org/privacy.html', projects: [], updates: [], totalUpdates: 0, pendingRevocations: 0,
+    privacyUrl: 'https://www.meldresearch.org/privacy.html', consentVersion: 'overleaf-foundry-2026-10', pollSeconds: 300,
+    projects: signedIn ? [included] : [], updates: [], totalUpdates: 0, pendingRevocations: 0,
+    decisions: [], overleafProjects: null, researcher: researcher('rejected'), ...extra,
   });
-  const researchApi = { status: vi.fn(), link: vi.fn(), unlink: vi.fn() };
+  const researchApi = { status: vi.fn(), link: vi.fn(), unlink: vi.fn(), decide: vi.fn(), researcher: vi.fn(), publications: vi.fn(), monitor: vi.fn() };
 
   beforeEach(() => {
     vi.resetAllMocks();
@@ -79,7 +90,8 @@ describe('Overleaf connection screen', () => {
     expect(element.querySelector('a[aria-label="About me"]')).toBeNull();
     expect(element.querySelector('.feed-column')).toBeNull();
     const tabs = [...element.querySelectorAll('.setup-tab')];
-    expect(tabs.map(tab => tab.textContent)).toEqual([expect.stringContaining('Meld account'), expect.stringContaining('Overleaf')]);
+    expect(tabs.map(tab => tab.textContent)).toEqual([expect.stringContaining('Meld account'), expect.stringContaining('Overleaf'),
+      expect.stringContaining('OpenAlex')]);
     expect(tabs[0].getAttribute('aria-selected')).toBe('true');
     const signInUrl = 'https://www.meldresearch.org/connect?state=a&challenge=b&redirect_uri=c&device=d';
     researchApi.link.mockResolvedValue({ signInUrl, expiresAt: '2026-10-30T00:00:00Z' });
@@ -91,8 +103,9 @@ describe('Overleaf connection screen', () => {
     fixture.destroy();
   });
 
-  it('presses for Overleaf after signing in and opens the feed once Overleaf is connected', async () => {
+  it('presses for Overleaf after signing in, then requires an included project before the feed opens', async () => {
     localStorage.clear();
+    researchApi.status.mockResolvedValue(researchStatus(true, { projects: [] }));
     const fixture = await screen('home');
     const element: HTMLElement = fixture.nativeElement;
     expect(fixture.componentInstance.view()).toBe('account');
@@ -105,6 +118,15 @@ describe('Overleaf connection screen', () => {
     browser.send.mockResolvedValue(connector(true));
     vi.advanceTimersByTime(3000);
     await vi.waitFor(() => expect(fixture.componentInstance.verified()).toBe(true));
+    fixture.detectChanges();
+    // Connected, but nothing is included yet: the Projects tab is shown and the working pages stay hidden.
+    expect(fixture.componentInstance.view()).toBe('account');
+    expect(fixture.componentInstance.overleafTab()).toBe('projects');
+    expect(element.querySelector('app-project-selection')).not.toBeNull();
+    expect(element.querySelector('a[aria-label="Feed"]')).toBeNull();
+
+    researchApi.status.mockResolvedValue(researchStatus());
+    await (fixture.componentInstance as unknown as { panel: () => { refresh(): Promise<void> } }).panel().refresh();
     fixture.detectChanges();
     await vi.waitFor(() => expect(location.hash).toBe('#feed'));
     expect(localStorage.getItem('meldresearch.overleafConnectedFor')).toBe(account.id);
@@ -149,6 +171,62 @@ describe('Overleaf connection screen', () => {
     fixture.destroy();
   });
 
+  it('nudges to an active choice for recent projects on load and again for a new project, without blocking the feed', async () => {
+    const old = { id: 'b123456789abcdef01234567', name: 'Old project', updatedAt: '2020-01-01T00:00:00Z' };
+    const projects = [recent('a123456789abcdef01234567', 'Recent project'), old];
+    researchApi.status.mockResolvedValue(researchStatus(true, { overleafProjects: { projects, fetchedAt: new Date().toISOString() } }));
+    api.status.mockResolvedValue(status(true));
+    browser.send.mockResolvedValue(connector(true));
+    const fixture = await screen('home');
+    const element: HTMLElement = fixture.nativeElement;
+    await vi.waitFor(() => expect(fixture.componentInstance.view()).toBe('account'));
+    fixture.detectChanges();
+    expect(location.hash).toBe('#account');
+    expect(fixture.componentInstance.setupTab()).toBe('overleaf');
+    expect(fixture.componentInstance.overleafTab()).toBe('projects');
+    expect(element.querySelector('.projects-tab .sub-tab-badge')?.textContent).toContain('1');
+    expect(element.querySelector('.decision-row.undecided')?.textContent).toContain('Recent project');
+    expect(element.querySelector('.older-projects')?.textContent).toContain('Old project');
+    // One included project already unlocks the working pages.
+    expect(element.querySelector('a[aria-label="Feed"]')).not.toBeNull();
+
+    // Leaving is allowed; a newly appearing project brings the user back.
+    fixture.componentInstance.page.set('home');
+    location.hash = '#feed';
+    researchApi.status.mockResolvedValue(researchStatus(true, {
+      overleafProjects: { projects: [...projects, recent('d123456789abcdef01234567', 'Brand new project', 0)], fetchedAt: new Date().toISOString() },
+      decisions: [{ projectId: 'a123456789abcdef01234567', included: false, decidedAt: new Date().toISOString() }],
+    }));
+    vi.advanceTimersByTime(3000);
+    await vi.waitFor(() => expect(location.hash).toBe('#account'));
+    fixture.detectChanges();
+    expect([...element.querySelectorAll('.decision-row.undecided')].map(row => row.textContent)).toEqual([expect.stringContaining('Brand new project')]);
+    fixture.destroy();
+  });
+
+  it('offers OpenAlex once per load after the projects are settled and opens the feed when it is done', async () => {
+    researchApi.status.mockResolvedValue(researchStatus(true, {
+      researcher: null, overleafProjects: { projects: [recent(included.projectId, included.name)], fetchedAt: new Date().toISOString() },
+    }));
+    api.status.mockResolvedValue(status(true));
+    browser.send.mockResolvedValue(connector(true));
+    const fixture = await screen('home');
+    const element: HTMLElement = fixture.nativeElement;
+    await vi.waitFor(() => expect(fixture.componentInstance.setupTab()).toBe('openalex'));
+    fixture.detectChanges();
+    expect(location.hash).toBe('#account');
+    expect(element.querySelector('app-researcher-setup')).not.toBeNull();
+    expect(element.querySelector<HTMLInputElement>('app-researcher-setup input')?.value).toBe(account.name);
+    expect(element.querySelector('a[aria-label="Feed"]')).not.toBeNull();
+
+    researchApi.status.mockResolvedValue(researchStatus(true, {
+      researcher: researcher('rejected'), overleafProjects: { projects: [recent(included.projectId, included.name)], fetchedAt: new Date().toISOString() },
+    }));
+    vi.advanceTimersByTime(3000);
+    await vi.waitFor(() => expect(location.hash).toBe('#feed'));
+    fixture.destroy();
+  });
+
   it('uses the Meld Material toolbar, working tabs and More menu instead of a landing dashboard', async () => {
     const fixture = await screen('home');
     const element: HTMLElement = fixture.nativeElement;
@@ -173,8 +251,7 @@ describe('Overleaf connection screen', () => {
     const fixture = await screen();
     const element: HTMLElement = fixture.nativeElement;
     expect(element.textContent).toContain('Browser connector disconnected');
-    fixture.componentInstance.page.set('about-me');
-    fixture.detectChanges();
+    expect(fixture.componentInstance.overleafTab()).toBe('projects');
     expect(element.querySelector<HTMLButtonElement>('.refresh-button')?.disabled).toBe(true);
     expect(api.refresh).not.toHaveBeenCalled();
     fixture.destroy();
@@ -184,9 +261,10 @@ describe('Overleaf connection screen', () => {
     api.status.mockResolvedValue(status(true));
     browser.send.mockResolvedValue(connector(true));
     api.refresh.mockResolvedValue([{ id: '0123456789abcdef01234567', name: '<img src=x> Synthetic', updatedAt: null }]);
-    const fixture = await screen('about-me');
+    const fixture = await screen('account');
     const element: HTMLElement = fixture.nativeElement;
     expect(element.textContent).toContain('<img src=x> Synthetic');
+    expect(element.querySelector('app-project-selection img')).toBeNull();
     expect(element.querySelector('.project-list img')).toBeNull();
 
     api.refresh.mockRejectedValue(new HttpErrorResponse({ status: 502, error: { detail: 'Overleaf page format changed.' } }));
@@ -219,7 +297,7 @@ describe('Overleaf connection screen', () => {
     expect(element.querySelector('button.reload-button')).not.toBeNull();
     const actions = [...element.querySelectorAll<HTMLElement>('.setup-steps .step-action')];
     expect(actions).toHaveLength(3);
-    fixture.componentInstance.page.set('about-me');
+    fixture.componentInstance.chooseOverleafTab('projects');
     fixture.detectChanges();
     expect(element.querySelector<HTMLButtonElement>('.refresh-button')?.disabled).toBe(true);
     expect(api.refresh).not.toHaveBeenCalled();
@@ -330,6 +408,8 @@ describe('Overleaf connection screen', () => {
     await vi.advanceTimersByTimeAsync(12000);
     expect(api.refresh).not.toHaveBeenCalled();
     expect(browser.send.mock.calls.every(([, command]) => command === 'ensure')).toBe(true);
+    fixture.componentInstance.chooseOverleafTab('connection');
+    fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('Resume auto-connect');
     fixture.destroy();
   });

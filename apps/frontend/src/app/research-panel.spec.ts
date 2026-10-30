@@ -2,7 +2,6 @@ import { TestBed } from '@angular/core/testing';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { ResearchPanel } from './research-panel';
 import { ResearchApi, ResearchStatus } from './research-api';
-import { OverleafApi } from './overleaf-api';
 import { LocalPage } from './meld-toolbar';
 
 describe('Research Updates onboarding', () => {
@@ -16,49 +15,26 @@ describe('Research Updates onboarding', () => {
     credentialExpiresAt: null, pendingLink: null, accountError: null, busy: false, dummy: false,
     privacyUrl: 'https://www.meldresearch.org/privacy.html', consentVersion: 'overleaf-foundry-2026-10',
     pollSeconds: 300, pendingRevocations: 0, projects: [], updates: [], totalUpdates: 0,
+    decisions: [], overleafProjects: null, researcher: null,
   };
   beforeEach(() => {
     vi.resetAllMocks();
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     api.status.mockResolvedValue(base);
-    api.monitor.mockResolvedValue(undefined);
     TestBed.configureTestingModule({ imports: [ResearchPanel], providers: [
       provideNoopAnimations(),
-      { provide: ResearchApi, useValue: api }, { provide: OverleafApi, useValue: { status: vi.fn().mockResolvedValue({}) } },
+      { provide: ResearchApi, useValue: api },
     ] });
   });
   afterEach(() => vi.useRealTimers());
-  async function screen(page: LocalPage = 'about-me') {
+  async function screen(page: LocalPage = 'home') {
     const fixture = TestBed.createComponent(ResearchPanel);
     fixture.componentRef.setInput('page', page);
-    fixture.componentRef.setInput('projects', [{ id: projectId, name: '<img src=x> Synthetic project', updatedAt: null }]);
-    fixture.componentRef.setInput('sourceReady', true);
     fixture.detectChanges();
     await vi.waitFor(() => expect(fixture.componentInstance.state()).not.toBeNull());
     fixture.detectChanges();
     return fixture;
   }
-
-  it('does not enable monitoring without an explicit consent action', async () => {
-    const fixture = await screen();
-    await fixture.componentInstance.monitor(projectId, true);
-    expect(api.monitor).not.toHaveBeenCalled();
-    expect(fixture.componentInstance.error()).toContain('Approve processing');
-    fixture.componentInstance.consent.set(true);
-    await fixture.componentInstance.monitor(projectId, true);
-    expect(api.monitor).toHaveBeenCalledWith(projectId, true, base.consentVersion);
-    expect(fixture.nativeElement.querySelector('img')).toBeNull();
-    fixture.destroy();
-  });
-
-  it('clears a previous consent checkbox when the linked account changes', async () => {
-    const fixture = await screen();
-    fixture.componentInstance.consent.set(true);
-    api.status.mockResolvedValue({ ...base, account: { ...base.account, id: 'account-two' } });
-    await fixture.componentInstance.refresh();
-    expect(fixture.componentInstance.consent()).toBe(false);
-    fixture.destroy();
-  });
 
   it('keeps the prior feed visible when a status request fails', async () => {
     const fixture = await screen();
@@ -74,36 +50,6 @@ describe('Research Updates onboarding', () => {
     const fixture = await screen('home');
     expect(fixture.nativeElement.textContent).toContain('Foundry processing is real');
     expect(fixture.nativeElement.textContent).toContain('Synthetic Overleaf evidence');
-    fixture.destroy();
-  });
-
-  it('keeps onboarding out of the feed after selection but exposes project failures', async () => {
-    api.status.mockResolvedValue({ ...base, projects: [{
-      projectId, name: 'Synthetic', enabled: true, consentRequired: false, revision: null, summary: null,
-      factCount: 0, lastAttemptAt: null, lastSuccessAt: null, errorCode: 'synthetic_failure',
-      error: 'Synthetic model failure; prior state preserved.', explanation: null, unprocessedFiles: 0,
-    }] });
-    const fixture = await screen();
-    const element: HTMLElement = fixture.nativeElement;
-    expect(element.querySelector('.monitoring mat-expansion-panel-header')?.getAttribute('aria-expanded')).toBe('false');
-    expect(element.querySelector('.project-statuses mat-expansion-panel-header')?.getAttribute('aria-expanded')).toBe('true');
-    expect(element.textContent).toContain('prior state preserved');
-    fixture.destroy();
-  });
-
-  it('uses an explicit Material checkbox before enabling the monitoring action', async () => {
-    const fixture = await screen();
-    const element: HTMLElement = fixture.nativeElement;
-    const monitor = element.querySelector<HTMLButtonElement>('.selection button')!;
-    expect(element.querySelector('mat-checkbox')).not.toBeNull();
-    expect(monitor.disabled).toBe(true);
-    element.querySelector<HTMLInputElement>('mat-checkbox input')!.click();
-    fixture.detectChanges();
-    expect(fixture.componentInstance.consent()).toBe(true);
-    expect(monitor.disabled).toBe(false);
-    monitor.click();
-    await fixture.whenStable();
-    expect(api.monitor).toHaveBeenCalledWith(projectId, true, base.consentVersion);
     fixture.destroy();
   });
 

@@ -1,0 +1,36 @@
+:host { display: block; }
+.consent { font-size: 14px; line-height: 1.6; }
+.fine-print { font-size: 12px; margin: 4px 0 16px; }
+.list-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; }
+.list-head h3, .details-title { font-size: 15px; font-weight: 600; margin: 0; color: #1e293b; }
+.details-title { margin: 24px 0 8px; }
+.list-hint { font-size: 12.5px; margin: 2px 0 8px; }
+.to-decide, .all-decided { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 2px 10px; }
+.to-decide { background: #fff7ed; color: #9a3412; }
+.all-decided { background: #ecfdf5; color: #166534; }
+.to-decide mat-icon, .all-decided mat-icon { font-size: 16px; width: 16px; height: 16px; }
+.decision-list { list-style: none; margin: 0; padding: 0; }
+.decision-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px;
+  padding: 10px 12px; border-top: 1px solid #e2e8f0; border-left: 3px solid transparent; }
+.decision-row.undecided { border-left-color: #f59e0b; background: #fffbeb; }
+.decision-name { display: flex; flex-direction: column; flex: 1; min-width: 180px; overflow-wrap: anywhere; }
+.decision-name small { color: #64748b; font-size: 12px; }
+.decision-actions { display: grid; grid-template-columns: 112px 112px; gap: 8px; }
+.decision-actions button { height: 32px; font-size: 13px; padding: 0 10px; }
+.decision-actions mat-icon { font-size: 18px; width: 18px; height: 18px; }
+.decision-actions .include.selected { background: #084d42; color: #ffffff; border-color: #084d42; opacity: 1; }
+.decision-actions .exclude.selected { background: #f1f5f9; color: #334155; opacity: 1; }
+.older-projects, .project-card { box-shadow: none !important; border: 1px solid #e2e8f0; border-radius: 8px !important; margin-top: 16px; }
+.older-projects mat-panel-description { justify-content: flex-end; font-size: 12px; }
+.older-projects .decision-row:first-child { border-top: 0; }
+.project-card { margin: 0 0 8px; }
+.project-card mat-panel-title { font-weight: 600; }
+.project-card mat-panel-description { flex: 0 0 auto; font-size: 12px; }
+.project-summary { font-size: 14px; line-height: 1.6; }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.demo-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+.empty { padding: 12px 0; }
+@media (max-width: 600px) {
+  .decision-actions { width: 100%; grid-template-columns: 1fr 1fr; }
+  .project-card mat-panel-description { display: none; }
+}

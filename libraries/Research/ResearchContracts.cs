@@ -86,3 +86,19 @@ public sealed record RedeemSignInResponse(string AccessToken, DateTimeOffset Exp
 /// <summary>Non-secret capabilities of the remote service.</summary>
 public sealed record RemoteStatusResponse(bool Dummy, bool GoogleConfigured, bool FoundryConfigured,
     string PrivacyUrl, string ExtensionId, string ExtensionStoreUrl);
+
+/// <summary>A public OpenAlex work. IDs are bare OpenAlex IDs such as W2741809807.</summary>
+public sealed record PublicationWork(string Id, string Title, IReadOnlyList<string> Authors, int Year, string? PublicationDate,
+    string? Venue, string? Doi, string? Abstract, bool IsRetracted);
+
+/// <summary>A real OpenAlex author offered for the user's confirmation; never confirmed automatically.</summary>
+public sealed record ResearcherCandidate(string Id, string Name, string? Orcid, IReadOnlyList<string> Affiliations,
+    IReadOnlyList<string> AlternativeNames, int WorksCount, IReadOnlyList<PublicationWork> SamplePublications);
+
+/// <summary>Finds plausible OpenAlex authors for a researcher name. The service keeps no record of the search.</summary>
+public sealed record ResearcherSearchRequest(string Name);
+public sealed record ResearcherSearchResponse(IReadOnlyList<ResearcherCandidate> Candidates);
+
+/// <summary>Reads a confirmed author's public works. The service keeps no record of the request.</summary>
+public sealed record ResearcherWorksRequest(string AuthorId);
+public sealed record ResearcherWorksResponse(IReadOnlyList<PublicationWork> Works);

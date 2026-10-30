@@ -11,7 +11,7 @@
           <header class="feed-column-head">
             <mat-icon>newspaper</mat-icon><h2 id="updates-title">Updates</h2>
             <span class="feed-count" [attr.aria-label]="current.totalUpdates + ' research updates'">{{ current.totalUpdates }}</span>
-            <a mat-icon-button class="feed-icon-button feed-settings" href="/#about-me" aria-label="Manage projects" title="Manage projects"><mat-icon>tune</mat-icon></a>
+            <a mat-icon-button class="feed-icon-button feed-settings" href="/#account" aria-label="Manage projects" title="Manage projects"><mat-icon>tune</mat-icon></a>
             <button mat-icon-button class="feed-icon-button" (click)="sync()" [disabled]="!current.account || !!action() || current.busy"
               aria-label="Check for changes" title="Check for changes"><mat-icon>refresh</mat-icon></button>
           </header>
@@ -21,15 +21,15 @@
             @if (!current.account) {
               <mat-card class="onboarding-card"><mat-card-content>
                 <h3>Connect your research</h3>
-                <p>Sign in with Google, connect Overleaf, then choose the projects you want to monitor.</p>
+                <p>Sign in with Google, connect Overleaf, then choose the projects in your private profile.</p>
                 <a mat-flat-button href="/#account"><mat-icon>account_circle</mat-icon>Set up your account</a>
               </mat-card-content></mat-card>
             } @else if (!current.projects.length) {
-              <p class="feed-state">Choose an Overleaf project and approve processing to build your Updates feed.</p>
-              <a mat-stroked-button class="feed-setup" href="/#about-me"><mat-icon>folder_open</mat-icon>Select projects</a>
+              <p class="feed-state">Include an Overleaf project and approve processing to build your Updates feed.</p>
+              <a mat-stroked-button class="feed-setup" href="/#account"><mat-icon>folder_open</mat-icon>Select projects</a>
             }
             @if (needsProjectAttention()) {
-              <p class="alert" role="alert">A monitored project needs attention. <a href="/#about-me">View project status</a>.</p>
+              <p class="alert" role="alert">A monitored project needs attention. <a href="/#account">View project status</a>.</p>
             }
             @for (update of current.updates; track update.id) {
               <article class="feed-card share-source-own">
@@ -60,66 +60,6 @@
     </div>
   }
 
-  @if (page() === 'about-me') {
-    <section class="page-container projects-page" aria-label="Private research projects">
-      <div class="about-head"><h2>My projects</h2>
-        <span class="about-note"><mat-icon>lock</mat-icon>Stored on your computer. Selected source text is processed through Azure AI Foundry with your permission.</span>
-      </div>
-      @if (!current.account) {
-        <p class="notice">Sign in before enabling project monitoring. <a href="/#account">Open Account</a>.</p>
-      } @else {
-        <mat-expansion-panel class="monitoring" [expanded]="!current.projects.length">
-          <mat-expansion-panel-header><mat-panel-title><mat-icon>playlist_add</mat-icon>Select Overleaf projects</mat-panel-title></mat-expansion-panel-header>
-          <mat-checkbox class="consent" [checked]="consent()" (change)="consent.set($event.checked)">
-            I allow selected project text to be sent through Meld's remote service to Azure AI Foundry for research-update extraction and embeddings.
-            Monitoring continues while Meld and my browser are running.
-          </mat-checkbox>
-          <p class="muted">UTF-8 .tex, .bib, .md, and .txt sources only. PDFs and images are not analyzed.
-            <a href="/privacy.html" target="_blank" rel="noopener noreferrer">Privacy and data use</a></p>
-          <ul class="selection">
-            @for (project of projects(); track project.id) {
-              <li><span>{{ project.name }}</span><button mat-stroked-button (click)="monitor(project.id, !watched(project.id)?.enabled)"
-                [disabled]="!!action() || (!watched(project.id)?.enabled && (!consent() || !sourceReady()))">
-                <mat-icon>{{ watched(project.id)?.enabled ? 'pause' : 'add' }}</mat-icon>
-                {{ watched(project.id)?.enabled ? 'Pause' : 'Monitor project' }}
-              </button></li>
-            } @empty { <li class="muted">Connect Overleaf in Account to load your projects.</li> }
-          </ul>
-        </mat-expansion-panel>
-        @if (current.busy) { <p class="muted" role="status">Checking selected projects and processing meaningful changes...</p> }
-        <div class="project-statuses">
-          @for (project of current.projects; track project.projectId) {
-            <mat-expansion-panel class="project-card" [expanded]="!!project.error || project.consentRequired">
-              <mat-expansion-panel-header>
-                <mat-panel-title>{{ project.name }}</mat-panel-title>
-                <mat-panel-description>{{ project.enabled ? 'Monitoring' : 'Paused' }} &middot; {{ project.factCount }} facts</mat-panel-description>
-              </mat-expansion-panel-header>
-              @if (project.summary) { <p class="project-summary">{{ project.summary }}</p> }
-              @if (project.lastSuccessAt) { <p class="muted">Last content check {{ project.lastSuccessAt | date:'medium' }}</p> }
-              @if (project.error) { <p class="alert" role="alert">{{ project.error }}</p> }
-              @if (project.consentRequired) { <p class="alert">Updated consent is required. Pause and re-enable this project after reviewing the notice.</p> }
-              @if (project.explanation) { <p class="muted">{{ project.explanation }}</p> }
-              @if (project.unprocessedFiles) { <p class="muted">{{ project.unprocessedFiles }} non-text files were tracked by hash but not sent to the model.</p> }
-              <div class="controls">
-                @if (project.enabled) { <button mat-button (click)="monitor(project.projectId, false)" [disabled]="!!action()"><mat-icon>pause</mat-icon>Pause</button> }
-                @if (confirmForget() === project.projectId) {
-                  <p>Delete this project's local index and updates? Manual ZIPs and Overleaf originals remain.</p>
-                  <button mat-button color="warn" (click)="forget(project.projectId)" [disabled]="!!action()">Confirm deletion</button>
-                  <button mat-button (click)="confirmForget.set(null)">Cancel</button>
-                } @else {
-                  <button mat-button (click)="confirmForget.set(project.projectId)"><mat-icon>delete_outline</mat-icon>Forget local research</button>
-                }
-              </div>
-            </mat-expansion-panel>
-          }
-        </div>
-        @if (current.dummy) {
-          <div class="demo-tools"><span class="muted">Dummy development tools</span>
-            <button mat-button (click)="demoChange()" [disabled]="!!action() || current.busy"><mat-icon>science</mat-icon>Apply synthetic project change</button></div>
-        }
-      }
-    </section>
-  }
 } @else { <p class="action-status" role="status">Loading research status...</p> }
 
 <ng-template #evidence>

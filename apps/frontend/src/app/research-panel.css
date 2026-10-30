@@ -32,25 +32,10 @@
 .onboarding-card { box-shadow: none; border: 1px solid #e2e8f0; }
 .onboarding-card h3 { margin-top: 4px; }
 .onboarding-card p { font-size: 14px; line-height: 1.6; }
-.about-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
-.about-head h2 { font-size: 18px; margin: 0; }
-.about-note { display: flex; align-items: flex-start; gap: 6px; color: #64748b; font-size: 12px; line-height: 1.5; }
-.about-note mat-icon { flex: 0 0 16px; width: 16px; height: 16px; font-size: 16px; }
-.monitoring, .project-card { box-shadow: none !important; border: 1px solid #e2e8f0; border-radius: 8px !important; margin-bottom: 12px; }
-mat-panel-title { gap: 10px; }
-.consent { font-size: 14px; line-height: 1.6; }
-.selection { padding: 0; list-style: none; }
-.selection li { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; border-top: 1px solid #e2e8f0; padding: 12px 0; }
-.selection li > span { flex: 1; min-width: 150px; overflow-wrap: anywhere; }
-.project-summary { font-size: 14px; line-height: 1.6; }
-.project-card mat-panel-title { font-weight: 600; }
-.project-card mat-panel-description { flex: 0 0 auto; font-size: 12px; }
-.demo-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 .update-detail { font-family: 'Outfit', sans-serif; line-height: 1.6; }
 .update-detail blockquote { margin: 12px 0 24px; padding: 12px 16px; border-left: 3px solid #699581; background: #edf5f0; color: #334155; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
 .update-detail code { overflow-wrap: anywhere; }
 @media (max-width: 700px) {
   .feed-layout { grid-template-columns: minmax(0, 1fr); }
   .feed-column { border-inline: 0; }
-  .project-card mat-panel-description { display: none; }
 }

@@ -9,6 +9,7 @@ namespace MeldResearch.LocalBackend.Services.Research;
 internal interface IOverleafEvidenceSource
 {
     bool Available { get; }
+    OverleafProjectsSnapshot? Latest { get; }
     Task<IReadOnlyList<OverleafProjectResponse>> ProjectsAsync(CancellationToken ct);
     Task<ResearchSnapshot> SnapshotAsync(OverleafProjectResponse project, CancellationToken ct);
 }
@@ -16,6 +17,7 @@ internal interface IOverleafEvidenceSource
 internal sealed class OverleafEvidenceSource(IBrowserRelay browser, IOverleafService overleaf) : IOverleafEvidenceSource
 {
     public bool Available => browser.Status.Connected && !browser.Status.Busy;
+    public OverleafProjectsSnapshot? Latest => overleaf.Latest;
     public Task<IReadOnlyList<OverleafProjectResponse>> ProjectsAsync(CancellationToken ct) => overleaf.RefreshAsync(ct);
     public async Task<ResearchSnapshot> SnapshotAsync(OverleafProjectResponse project, CancellationToken ct)
     {

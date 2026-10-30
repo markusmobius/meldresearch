@@ -67,6 +67,11 @@ builder.Services.AddSingleton<IAccountService, AccountService>();
 builder.Services.AddSingleton<IFoundryService, FoundryService>();
 builder.Services.AddHttpClient("foundry", client => client.Timeout = Timeout.InfiniteTimeSpan)
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
+// OpenAlex: public author/work metadata for researcher matching. OpenAlex:ApiKey is optional but recommended.
+builder.Services.AddSingleton<IOpenAlexClient, OpenAlexClient>();
+builder.Services.AddSingleton<IResearcherResolver, ResearcherResolver>();
+builder.Services.AddHttpClient("openalex", client => client.Timeout = Timeout.InfiniteTimeSpan)
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(cookie =>
     {

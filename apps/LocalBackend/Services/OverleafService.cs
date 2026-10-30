@@ -5,15 +5,20 @@ namespace MeldResearch.LocalBackend.Services;
 
 internal interface IOverleafService
 {
+    /// <summary>The last project list read through the browser, by the page or by monitoring.</summary>
+    OverleafProjectsSnapshot? Latest { get; }
     Task<IReadOnlyList<OverleafProjectResponse>> RefreshAsync(CancellationToken cancellationToken);
     Task<DownloadResponse> DownloadAsync(string projectId, CancellationToken cancellationToken);
     Task<IReadOnlyList<DownloadResponse>> ListDownloadsAsync(CancellationToken cancellationToken);
     Task<StoredArchive> GetDownloadAsync(Guid id, CancellationToken cancellationToken);
 }
 
-internal sealed class OverleafService(IBrowserRelay browser, IArchiveStore archives) : IOverleafService
+internal sealed class OverleafService(IBrowserRelay browser, IArchiveStore archives, TimeProvider clock) : IOverleafService
 {
     private IReadOnlyList<OverleafProjectResponse> _projects = [];
+    private OverleafProjectsSnapshot? _latest;
+
+    public OverleafProjectsSnapshot? Latest => Volatile.Read(ref _latest);
 
     public async Task<IReadOnlyList<OverleafProjectResponse>> RefreshAsync(CancellationToken cancellationToken)
     {
@@ -23,6 +28,7 @@ internal sealed class OverleafService(IBrowserRelay browser, IArchiveStore archi
         await using var stream = File.OpenRead(response.Path);
         var projects = await ProjectParser.ParseAsync(stream, cancellationToken);
         Interlocked.Exchange(ref _projects, projects);
+        Volatile.Write(ref _latest, new OverleafProjectsSnapshot(projects, clock.GetUtcNow()));
         return projects;
     }
 

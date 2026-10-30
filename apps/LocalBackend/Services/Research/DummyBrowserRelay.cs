@@ -50,10 +50,13 @@ internal sealed class DummyBrowserRelay : IBrowserRelay
             await using var stream = RuntimeFiles.CreatePrivateFile(path);
             if (operation == "listProjects")
             {
+                // Recent (noon UTC on the first of this month), so Dummy exercises the required include/exclude choice. The date is stable
+                // within a month; a month change only re-reads unchanged content, which makes no model calls.
+                var now = DateTimeOffset.UtcNow;
                 await JsonSerializer.SerializeAsync(stream, new { projects = new[] { new
                 {
                     id = ProjectId, name = "Synthetic research project", archived = false, trashed = false,
-                    lastUpdated = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero).AddMinutes(revision)
+                    lastUpdated = new DateTimeOffset(now.Year, now.Month, 1, 12, 0, 0, TimeSpan.Zero).AddMinutes(revision)
                 } } }, WireProtocol.Json, ct);
                 return new(path, "application/json");
             }

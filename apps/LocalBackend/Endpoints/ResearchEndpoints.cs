@@ -42,6 +42,21 @@ internal static class ResearchEndpoints
             await service.ForgetAsync(projectId, ct);
             return TypedResults.NoContent();
         }).WithName("ForgetResearchProject").WithSummary("Delete this account's indexed project and updates without changing Overleaf or manual ZIP copies.");
+        group.MapPut("/projects/{projectId}/decision", async Task<NoContent> (
+            string projectId, ProjectDecisionRequest request, IResearchCoordinator service, CancellationToken ct) =>
+        {
+            await service.DecideProjectAsync(projectId, request, ct);
+            return TypedResults.NoContent();
+        }).WithName("DecideResearchProject").WithSummary("Include a project in the private profile (starts monitoring; needs consent) or exclude it.");
+        group.MapPost("/researcher", async Task<NoContent> (
+            ResearcherDecisionRequest request, IResearcherService service, CancellationToken ct) =>
+        {
+            await service.DecideAsync(request, ct);
+            return TypedResults.NoContent();
+        }).WithName("DecideResearcher").WithSummary("Search OpenAlex for a name, confirm an offered author, or reject all candidates.");
+        group.MapGet("/publications", async Task<Ok<PublicationsResponse>> (IResearcherService service, CancellationToken ct) =>
+            TypedResults.Ok(await service.PublicationsAsync(ct)))
+            .WithName("GetPublications").WithSummary("Read the confirmed OpenAlex author's public works stored on this computer.");
         group.MapPost("/sync", async Task<Accepted> (IResearchCoordinator service, CancellationToken ct) =>
         {
             if ((await service.StatusAsync(ct)).Account is null)

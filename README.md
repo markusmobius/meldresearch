@@ -23,8 +23,10 @@ Both services run on the same computer in routine development.
 
 The interface uses **Angular Material**: a 64px toolbar with a share icon, Outfit
 typography, pill navigation, a full-height workspace, and compact source-grounded
-Update cards. The local working tabs are **Feed**, **About me**
-(projects, monitoring and downloads), and **Account** (account/connector setup).
+Update cards. The local working tabs are **Feed**, **About me** (OpenAlex
+publications), and **Account**: vertical tabs for the Meld account, Overleaf
+(**Connection** and **Projects**, where projects are included or excluded) and
+OpenAlex.
 **More** contains Docs, Privacy and Project Team. Only the Updates feed exists;
 there are no placeholder feed types. The team currently contains only Markus Mobius.
 The app keeps accurate Azure/Microsoft provider disclosures and the required
@@ -117,12 +119,14 @@ It does not access a real Overleaf profile or register the browser connector.
 
 1. Open **Account** in Meld and choose **Sign in with the test account**.
 2. On the blue website, choose **Use the synthetic test account**; it returns to Meld signed in.
-3. Open **About me**, expand **Select Overleaf projects**, read the model-processing
-   notice, and check consent.
-4. Choose **Monitor project**. Initial ingestion produces baseline research updates
-   in **Feed**; **Review** opens the complete source evidence.
-5. In **About me**, choose **Apply synthetic project change** to exercise a meaningful delta.
-6. The **Check for changes** refresh control in **Feed** makes zero model calls
+3. Meld opens **Account → Overleaf → Projects**. Read the model-processing notice
+   and check consent.
+4. Choose **Include** for the synthetic project. Initial ingestion produces baseline
+   research updates in **Feed**; **Review** opens the complete source evidence.
+5. In **Projects**, choose **Apply synthetic project change** to exercise a meaningful delta.
+6. **OpenAlex** offers a search by your name (Foundry plus OpenAlex; consumes quota);
+   confirm an author or choose **I'm not on OpenAlex**.
+7. The **Check for changes** refresh control in **Feed** makes zero model calls
    when supported content has not changed.
 
 Keep the launcher terminal open. Ctrl+C stops only its owned backend processes.
@@ -265,7 +269,9 @@ is no code to compare or approval step. No Google console changes are needed.
    managed identity (optional `Foundry:ManagedIdentityClientId`) or a secret-stored
    `Foundry:ApiKey`. Grant the identity inference access to the Foundry resource.
    See [Foundry setup](#foundry-setup-and-llm-smoke-test).
-5. Set `PublicOrigin=https://www.meldresearch.org`, a durable private
+5. Set `OpenAlex:ApiKey` (`MELDRESEARCH_OpenAlex__ApiKey`, secret; server env file only)
+   for researcher matching. Without it OpenAlex is called anonymously.
+6. Set `PublicOrigin=https://www.meldresearch.org`, a durable private
    `DataDirectory`, and optionally `DownloadDirectory` for available packages.
 
 ### Foundry setup and LLM smoke test

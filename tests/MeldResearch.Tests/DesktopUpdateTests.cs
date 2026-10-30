@@ -272,6 +272,7 @@ public sealed class DesktopUpdateTests : IDisposable
         public Task CompleteLinkAsync(string? code, string? state, CancellationToken ct) => throw new NotSupportedException();
         public Task UnlinkAsync(CancellationToken ct) => throw new NotSupportedException();
         public Task SetMonitoringAsync(string projectId, SetProjectMonitoringRequest request, CancellationToken ct) => throw new NotSupportedException();
+        public Task DecideProjectAsync(string projectId, ProjectDecisionRequest request, CancellationToken ct) => throw new NotSupportedException();
         public Task ForgetAsync(string projectId, CancellationToken ct) => throw new NotSupportedException();
         public void RequestSync() { }
     }

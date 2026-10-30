@@ -62,6 +62,18 @@ internal static class RemoteEndpoints
             await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
             return TypedResults.Ok(await foundry.EmbedAsync(request, ct));
         }).WithName("EmbedResearch").WithSummary("Embed bounded research text using the configured Foundry deployment.");
+        app.MapPost("/api/researcher/candidates", async Task<Ok<ResearcherSearchResponse>> (
+            ResearcherSearchRequest request, HttpContext context, IAccountService accounts, IResearcherResolver resolver, CancellationToken ct) =>
+        {
+            await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            return TypedResults.Ok(new ResearcherSearchResponse(await resolver.ResolveAsync(request.Name ?? "", ct)));
+        }).WithName("FindResearcherCandidates").WithSummary("Offer up to five OpenAlex authors for a name; nothing is stored.");
+        app.MapPost("/api/researcher/works", async Task<Ok<ResearcherWorksResponse>> (
+            ResearcherWorksRequest request, HttpContext context, IAccountService accounts, IOpenAlexClient openAlex, CancellationToken ct) =>
+        {
+            await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            return TypedResults.Ok(new ResearcherWorksResponse(await openAlex.ReadPublicationsAsync(request.AuthorId ?? "", ct)));
+        }).WithName("ReadResearcherWorks").WithSummary("Read a confirmed OpenAlex author's public works; nothing is stored.");
 
         // Home is a single centered action: sign up / sign in with Google, or install once signed up.
         app.MapGet("/", async Task<ContentHttpResult> (HttpContext context, IAntiforgery antiforgery, IAccountService accounts,

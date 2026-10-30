@@ -54,6 +54,11 @@
                 Meld application does not persist a project archive or log research payloads.</li>
               <li><strong>Google:</strong> authenticates your Meld account. Google sign-in occurs in the normal browser; Meld does not
                 ask for your Google password.</li>
+              <li><strong>OpenAlex:</strong> only when you choose Search OpenAlex, the name you enter is sent through the Meld service
+                to Azure AI Foundry (to suggest spellings and rank real candidates) and to the public OpenAlex catalog (openalex.org)
+                to find author profiles. After you confirm an author, that author's public works are read from OpenAlex and stored in
+                the encrypted research store on your computer, and refreshed weekly. The Meld service does not keep these searches or
+                works.</li>
             </ul>
           </section>
 
@@ -72,6 +77,9 @@
                 profile. Connection state is held in memory.</li>
               <li><strong>Research processing:</strong> selected UTF-8 source text, file paths and hashes, before/after snapshots,
                 extracted facts, citations, and embeddings. PDF and image contents are not analyzed by this version.</li>
+              <li><strong>Profile choices and publications:</strong> whether you included or excluded each Overleaf project in your
+                private profile, the name you searched on OpenAlex, the offered author candidates, the author you confirmed, and that
+                author's public OpenAlex works (titles, authors, venues, years, DOIs and available abstracts).</li>
               <li><strong>Meld account and device information:</strong> a verified Google account identifier, name and email, approved
                 installation names, and credential/expiry records. The website uses cookies needed for account sign-in and request
                 protection, and remembers in your browser's local storage only that this browser has been used with a Meld account
@@ -93,8 +101,10 @@
             <h2><span class="material-icons site-only" aria-hidden="true">check_circle_outline</span> What You Approve</h2>
             <p>Signing in to the desktop companion opens the Meld website in your browser and returns a one-time sign-in to the
               companion on your computer that started it. If your Google account has no Meld account yet, the website asks before
-              creating one. Monitoring a project requires explicit consent to send its selected text to Azure
-              AI Foundry. If this notice changes materially, Meld asks for consent again before processing continues.</p>
+              creating one. Including a project in your private profile starts monitoring it and requires explicit consent to send its
+              selected text to Azure AI Foundry. Projects updated in the last six months each need your active choice to include or
+              exclude them; older projects are only included if you choose them. Searching OpenAlex and confirming an author are
+              separate choices of their own. If this notice changes materially, Meld asks for consent again before processing continues.</p>
             <p>Allowlisted project metadata and selected ZIP bytes are transferred to the Meld Research companion on the same computer
               through Chrome native messaging. The companion uses them to display projects, validate ZIP contents, and read supported
               source text without extracting or executing archive files. It does not edit your Overleaf originals or automatically
@@ -109,12 +119,13 @@
             <h2><span class="material-icons site-only" aria-hidden="true">visibility</span> Who Can Access Your Research</h2>
             <p>Your Updates are not published to other Meld users, colleagues, or collaborators. Each linked account's local research
               is kept separate, and the website authorizes every request for the installation that sends it. Only the research
-              Updates workflow is enabled: there is no WorkIQ integration, other news source, or alternative inference provider.</p>
+              Updates workflow is enabled with your Overleaf projects and, if you link it, your public OpenAlex record: there is no
+              WorkIQ integration, other news source, or alternative inference provider.</p>
             <p>The Meld Research application does not sell research data or use it for advertising, unrelated analytics, model
               training, creditworthiness, or lending. Provider-side handling is governed by the configured Azure AI Foundry service
               and applicable Microsoft terms; this notice does not promise provider-side zero retention.</p>
             <p><strong>Provider roles:</strong> Google supplies account authentication; Overleaf supplies the projects you are
-              authorized to access; Azure AI Foundry supplies model inference. Using these providers does not imply their
+              authorized to access; OpenAlex supplies public author and publication metadata; Azure AI Foundry supplies model inference. Using these providers does not imply their
               endorsement. Their own terms and privacy practices apply to their services.
               Overleaf and any identity provider you choose during its normal sign-in handle requests under their own privacy
               policies. Chrome and the Chrome Web Store separately handle browser services, extension delivery, and updates.</p>
