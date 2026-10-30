@@ -21,6 +21,9 @@ done
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
+# Wait for other package operations (unattended upgrades, apt hooks) instead of failing on the dpkg lock.
+apt_get() { sudo apt-get -o DPkg::Lock::Timeout=300 "$@"; }
+
 confirm() {
     $assume_yes && return 0
     [[ -t 0 ]] || die "$1 Re-run with --yes to allow it non-interactively."
@@ -49,14 +52,14 @@ ensure_packages() {
     $icu && description="${description:+$description }ICU library"
     [[ -n "$(apt_distribution)" ]] || die "Missing prerequisites ($description). Install them with your package manager."
     confirm "Missing prerequisites: $description. Install them now with sudo apt-get?" || die "Nothing was installed."
-    sudo apt-get update
+    apt_get update
     if $icu; then
         # The runtime library is versioned (libicu74, libicu78, ...); libicu-dev depends on the current one.
         local package
         package="$(apt-cache pkgnames libicu | grep -E '^libicu[0-9]+$' | sort -V | tail -n 1 || true)"
         needed+=("${package:-libicu-dev}")
     fi
-    sudo apt-get install -y --no-install-recommends "${needed[@]}"
+    apt_get install -y --no-install-recommends "${needed[@]}"
 }
 
 install_powershell() {
@@ -70,11 +73,11 @@ install_powershell() {
     name="$(. /etc/os-release && echo "$PRETTY_NAME")"
     work="$(mktemp -d)"
     trap 'rm -rf "$work"' RETURN
-    sudo apt-get install -y --no-install-recommends wget ca-certificates
+    apt_get install -y --no-install-recommends wget ca-certificates
     if wget -q -O "$work/packages-microsoft-prod.deb" "https://packages.microsoft.com/config/$distribution/$version/packages-microsoft-prod.deb"; then
         sudo dpkg -i "$work/packages-microsoft-prod.deb"
-        sudo apt-get update
-        sudo apt-get install -y powershell
+        apt_get update
+        apt_get install -y powershell
     elif command -v snap >/dev/null; then
         echo "Microsoft has no repository for $name yet; installing the PowerShell snap instead."
         sudo snap install powershell --classic
