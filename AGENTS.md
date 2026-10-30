@@ -28,7 +28,7 @@ instruction file. Start with the [README](README.md) for setup and release detai
 | --- | --- |
 | [Angular frontend](apps/frontend) | Local UI, account/connector setup, consent, monitoring and cited Updates. |
 | [Local backend](apps/LocalBackend) | Serves the built UI; owns the browser bridge, snapshots and encrypted research state. |
-| [Remote backend](apps/RemoteBackend) | Google accounts, existing-account device approval, one-line desktop installers and authenticated Foundry requests. |
+| [Remote backend](apps/RemoteBackend) | Google accounts, app sign-in (loopback + PKCE), one-line desktop installers and authenticated Foundry requests. |
 | [Research library](libraries/Research) | Shared contracts, evidence validation, content revisions and state reduction. |
 | [Overleaf extension](browser/overleaf) / [native host](apps/BrowserHost) | Read-only access through the user's normal signed-in Chrome/Edge session. |
 
@@ -44,14 +44,21 @@ instruction file. Start with the [README](README.md) for setup and release detai
   novelty and no-change outcomes; embeddings select relevant prior facts.
 - Models select source line ranges; the server copies and validates actual
   citation text. Preserve grounding, evidence limits and visible validation errors.
-- The remote backend persists accounts, devices, pending device links and the
+- The remote backend persists accounts, devices, one-time app sign-in codes and the
   Data Protection key ring in SQLite via EF Core
   ([RemoteDbContext](apps/RemoteBackend/Data/RemoteDbContext.cs)). Change the
   schema only through checked-in migrations (`dotnet tool restore`, then
-  `dotnet ef migrations add`). Keep names, emails, device names and access
-  tokens as Data Protection ciphertext and credentials/codes as hashes. Make
+  `dotnet ef migrations add`). Keep names, emails and device names as Data
+  Protection ciphertext and credentials/codes as hashes. Make
   state transitions conditional updates or transactions, not read-then-write.
   Research text is never stored remotely.
+- The local app signs in through the website with a loopback redirect + PKCE
+  ([LocalSignIn](apps/RemoteBackend/Services/LocalSignIn.cs)): `/connect` returns
+  a one-time code only to `http://127.0.0.1|localhost:<port>/account/callback`,
+  the app checks its in-memory state, and redeems the code with its verifier at
+  `/api/sign-in/redeem`. Keep the redirect loopback-only, codes single-use and
+  short-lived, and the verifier on the local machine; do not reintroduce an
+  approval code step or accept other redirect targets.
 - Commit revisions, facts and Updates atomically. Failed processing must not
   advance the stored revision. Pause, deletion, cancellation and account changes
   must not allow an in-flight result to restore removed data.

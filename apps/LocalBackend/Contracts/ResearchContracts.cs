@@ -5,8 +5,8 @@ namespace MeldResearch.LocalBackend.Contracts;
 /// <summary>Enables or pauses monitoring; enabling requires the current explicit model-processing consent.</summary>
 public sealed record SetProjectMonitoringRequest(bool Enabled, string? ConsentVersion);
 
-/// <summary>The non-secret browser approval link for an installation.</summary>
-public sealed record AccountLinkResponse(string VerificationUri, string UserCode, DateTimeOffset ExpiresAt);
+/// <summary>The website sign-in page for this installation. It returns to the app's loopback callback; it holds no secret.</summary>
+public sealed record AccountLinkResponse(string SignInUrl, DateTimeOffset ExpiresAt);
 
 /// <summary>Local monitoring state, without credentials or stored embeddings.</summary>
 public sealed record MonitoredProjectResponse(string ProjectId, string Name, bool Enabled, bool ConsentRequired,

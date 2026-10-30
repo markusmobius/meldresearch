@@ -36,14 +36,10 @@ internal static class RemoteEndpoints
                 new Uri(options.PublicOrigin, "privacy.html").AbsoluteUri, ExtensionIdentity.Id, StoreUrl));
         }).WithName("GetRemoteStatus").WithSummary("Read non-secret account and Foundry configuration status.");
 
-        app.MapPost("/api/device-links", async Task<Created<DeviceLinkResponse>> (
-            CreateDeviceLinkRequest request, IAccountService accounts, CancellationToken ct) =>
-            TypedResults.Created("/api/device-links/poll", await accounts.BeginLinkAsync(request, ct)))
-            .WithName("CreateDeviceLink").WithSummary("Request explicit browser approval to link a local installation.");
-        app.MapPost("/api/device-links/poll", async Task<Ok<PollDeviceLinkResponse>> (
-            PollDeviceLinkRequest request, IAccountService accounts, CancellationToken ct) =>
-            TypedResults.Ok(await accounts.PollAsync(request, ct)))
-            .WithName("PollDeviceLink").WithSummary("Redeem an approved device link using its private proof.");
+        app.MapPost("/api/sign-in/redeem", async Task<Ok<RedeemSignInResponse>> (
+            RedeemSignInRequest request, IAccountService accounts, CancellationToken ct) =>
+            TypedResults.Ok(await accounts.RedeemSignInAsync(request, ct)))
+            .WithName("RedeemSignIn").WithSummary("Exchange a one-time browser sign-in code and its PKCE verifier for an installation credential.");
         app.MapGet("/api/account", async Task<Ok<MeldAccountResponse>> (
             HttpContext context, IAccountService accounts, CancellationToken ct) =>
             TypedResults.Ok(await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct)))
@@ -78,25 +74,23 @@ internal static class RemoteEndpoints
             string action = account is not null
                 ? "<a class=\"install-button\" href=\"/account\"><span class=\"material-icons\" aria-hidden=\"true\">download</span>Install Meld Research</a>"
                 // A Google identity without a Meld account can only sign up; otherwise the browser chooses (see google-sign-in.js).
-                : SignInControls(context, antiforgery, options, signup: signedIn ? true : null, code: null);
+                : SignInControls(context, antiforgery, options, signup: signedIn ? true : null, link: null);
             return Page(context, "Meld Research", message + $"<div class=\"home-action\">{action}</div>", options, heading: false);
         }).ExcludeFromDescription();
 
         app.MapGet("/login", (HttpContext context, IAntiforgery antiforgery, RemoteOptions options, CancellationToken ct) =>
         {
             ct.ThrowIfCancellationRequested();
-            string? code = OptionalCode(context);
             return Page(context, "Sign in to Meld Research", "<p>Sign in with the Google account you used to create your Meld account. " +
-                "Signing in does not create an account.</p>" + SignInControls(context, antiforgery, options, signup: false, code) +
-                $"<p>No account yet? <a href=\"/signup{(code is null ? "" : "?code=" + code)}\">Sign up with Google</a></p>", options);
+                "Signing in does not create an account.</p>" + SignInControls(context, antiforgery, options, signup: false, link: null) +
+                "<p>No account yet? <a href=\"/signup\">Sign up with Google</a></p>", options);
         }).ExcludeFromDescription();
         app.MapGet("/signup", (HttpContext context, IAntiforgery antiforgery, RemoteOptions options, CancellationToken ct) =>
         {
             ct.ThrowIfCancellationRequested();
-            string? code = OptionalCode(context);
             return Page(context, "Create your Meld Research account", "<p>Your Google account identifies you; Meld stores its identifier, " +
                 "name and verified email address. Google does not share your password with Meld.</p>" +
-                SignInControls(context, antiforgery, options, signup: true, code), options);
+                SignInControls(context, antiforgery, options, signup: true, link: null), options);
         }).ExcludeFromDescription();
         // The Google button's callback submits this same-origin form, so antiforgery and Origin checks still apply.
         app.MapPost("/auth/google", async Task<RedirectHttpResult> (HttpContext context, IAntiforgery antiforgery,
@@ -104,7 +98,7 @@ internal static class RemoteEndpoints
         {
             await ValidateFormAsync(context, antiforgery);
             var form = await context.Request.ReadFormAsync(ct);
-            string? code = form["code"].ToString() is { Length: > 0 } value ? Code(value) : null;
+            var link = LocalSignIn.From(key => form[key]);
             bool signup = form["mode"].ToString() == "signup";
             string nonce = context.Request.Cookies[GoogleNonceCookie] ?? "";
             context.Response.Cookies.Delete(GoogleNonceCookie, new CookieOptions { Path = "/auth/google" });
@@ -116,7 +110,7 @@ internal static class RemoteEndpoints
             }
             catch (ResearchFailure)
             {
-                return TypedResults.Redirect("/?signInFailed=1");
+                return TypedResults.Redirect(link is null ? "/?signInFailed=1" : link.ConnectUrl + "&signInFailed=1");
             }
             var principal = new ClaimsPrincipal(new ClaimsIdentity([
                 new(ClaimTypes.NameIdentifier, identity.Subject), new(ClaimTypes.Name, identity.Name),
@@ -124,7 +118,7 @@ internal static class RemoteEndpoints
             ], CookieAuthenticationDefaults.AuthenticationScheme));
             if (signup) await accounts.RegisterAsync(principal, ct);
             await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
-            return TypedResults.Redirect(code is null ? "/account" : "/connect?code=" + code);
+            return TypedResults.Redirect(link?.ConnectUrl ?? "/account");
         }).ExcludeFromDescription();
 
         app.MapPost("/auth/signout", async Task<RedirectHttpResult> (HttpContext context, IAntiforgery antiforgery) =>
@@ -148,36 +142,47 @@ internal static class RemoteEndpoints
             return account is null
                 ? Page(context, "An existing Meld account is required", "<p>Signing in does not automatically create an account.</p><p><a href=\"/signup\">Create a Meld account with Google</a></p>", options)
                 : Page(context, "Install Meld Research", InstallPanel(origin) +
-                    "<p class=\"after-install\">After installation, open <strong>Account</strong> in the local app and link it to this account.</p>",
+                    "<p class=\"after-install\">After installation, choose <strong>Sign in with Google</strong> in the local app.</p>",
                     options, heading: false);
         }).ExcludeFromDescription();
 
-        app.MapGet("/connect", async Task<ContentHttpResult> (
+        // Sign-in for the local app: an account holder who is signed in here goes straight back to the app's loopback
+        // callback with a one-time code. Without a session, Google's button signs in first; without an account, one click
+        // creates it. Nothing is shown to approve because the code can only reach the app that started the sign-in.
+        app.MapGet("/connect", async Task<Results<RedirectHttpResult, ContentHttpResult>> (
             HttpContext context, IAccountService accounts, IAntiforgery antiforgery, RemoteOptions options, CancellationToken ct) =>
         {
-            string code = Code(context.Request.Query["code"].ToString());
-            string name = await accounts.DeviceNameAsync(code, ct);
+            var link = LocalSignIn.From(key => context.Request.Query[key]) ??
+                throw new ResearchFailure(400, "invalid_sign_in_request", "Start signing in from Account in the Meld Research app.");
+            string failed = context.Request.Query.ContainsKey("signInFailed") ? "<p class=\"notice\">Google sign-in failed. Try again.</p>" : "";
             if (context.User.Identity?.IsAuthenticated != true)
-                return Page(context, "Link your Meld installation", "<p>Sign in with the same Google account used for your existing Meld account.</p>" +
-                    SignInControls(context, antiforgery, options, signup: false, code), options);
-            var account = await accounts.FindAsync(context.User, ct);
-            if (account is null)
-                return Page(context, "Create a remote account first", $"<p>This Google identity has no Meld Research account.</p><p><a href=\"/signup?code={code}\">Sign up on this website</a></p>", options);
-            return Page(context, "Approve this installation",
-                $"<p>Account: {E(account.Name)}. Device: {E(name)}.</p><p>Only approve a device-link request you just started in your local Meld application.</p>" +
-                $"<form method=\"post\" action=\"/connect\">{Token(context, antiforgery)}<input type=\"hidden\" name=\"code\" value=\"{code}\">" +
-                "<button name=\"decision\" value=\"allow\">Allow this installation</button> <button name=\"decision\" value=\"deny\">Deny</button></form>", options);
+            {
+                var signIn = Page(context, "Sign in to Meld Research", failed + "<div class=\"home-action\">" +
+                    SignInControls(context, antiforgery, options, signup: null, link) + "</div>", options, heading: false);
+                AllowLoopbackRedirect(context);
+                return signIn;
+            }
+            if (await accounts.FindAsync(context.User, ct) is null)
+            {
+                var create = Page(context, "Create your Meld Research account",
+                    $"<p>{E(context.User.FindFirstValue(ClaimTypes.Email) ?? "This Google account")} does not have a Meld Research account yet. " +
+                    "Meld stores your Google account identifier, name and verified email address.</p>" +
+                    $"<form method=\"post\" action=\"/connect/signup\">{Token(context, antiforgery)}{link.FormInputs(E)}" +
+                    "<button>Create account and continue</button></form>", options);
+                AllowLoopbackRedirect(context);
+                return create;
+            }
+            return TypedResults.Redirect(link.Callback(await accounts.IssueSignInCodeAsync(context.User, link, ct)));
         }).ExcludeFromDescription();
-        app.MapPost("/connect", async Task<ContentHttpResult> (
-            HttpContext context, IAccountService accounts, IAntiforgery antiforgery, RemoteOptions options, CancellationToken ct) =>
+        app.MapPost("/connect/signup", async Task<RedirectHttpResult> (
+            HttpContext context, IAccountService accounts, IAntiforgery antiforgery, CancellationToken ct) =>
         {
             await ValidateFormAsync(context, antiforgery);
             var form = await context.Request.ReadFormAsync(ct);
-            string decision = form["decision"].ToString();
-            if (decision is not ("allow" or "deny")) throw new ResearchFailure(400, "invalid_decision", "Choose Allow or Deny.");
-            await accounts.ApproveAsync(Code(form["code"].ToString()), context.User, decision == "allow", ct);
-            return Page(context, decision == "allow" ? "Installation linked" : "Installation denied",
-                "<p>Return to the local Meld application. You can close this page.</p>", options);
+            var link = LocalSignIn.From(key => form[key]) ??
+                throw new ResearchFailure(400, "invalid_sign_in_request", "Start signing in from Account in the Meld Research app.");
+            await accounts.RegisterAsync(context.User, ct);
+            return TypedResults.Redirect(link.ConnectUrl);
         }).ExcludeFromDescription();
 
         if (app.Services.GetRequiredService<RemoteOptions>().Dummy)
@@ -196,8 +201,7 @@ internal static class RemoteEndpoints
                 await accounts.RegisterAsync(principal, ct);
                 await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
                 var form = await context.Request.ReadFormAsync(ct);
-                string code = form["code"].ToString();
-                return TypedResults.Redirect(code.Length == 0 ? "/account" : "/connect?code=" + Code(code));
+                return TypedResults.Redirect(LocalSignIn.From(key => form[key])?.ConnectUrl ?? "/account");
             }).ExcludeFromDescription();
         }
 
@@ -271,9 +275,9 @@ internal static class RemoteEndpoints
     /// Renders Sign in with Google for this page only: Google's script, a per-page nonce cookie, and a hidden
     /// same-origin form that our callback fills with the ID token. Other pages keep the strict default policy.
     /// </summary>
-    private static string SignInControls(HttpContext context, IAntiforgery antiforgery, RemoteOptions options, bool? signup, string? code)
+    private static string SignInControls(HttpContext context, IAntiforgery antiforgery, RemoteOptions options, bool? signup, LocalSignIn? link)
     {
-        string codeInput = code is null ? "" : $"<input type=\"hidden\" name=\"code\" value=\"{code}\">";
+        string codeInput = link?.FormInputs(E) ?? "";
         if (options.Dummy)
             return $"<form method=\"post\" action=\"/auth/dummy\">{Token(context, antiforgery)}{codeInput}" +
                 "<button class=\"dummy-sign-in\"><span class=\"material-icons\" aria-hidden=\"true\">science</span>Use the synthetic test account</button></form>";
@@ -312,10 +316,13 @@ internal static class RemoteEndpoints
         "<p>Or download the <a href=\"/api/install/windows\">Windows script</a> or the <a href=\"/api/install/macos\">macOS script</a>.</p>" +
         "</app-meld-install>";
 
-    private static string? OptionalCode(HttpContext context) =>
-        context.Request.Query["code"].ToString() is { Length: > 0 } code ? Code(code) : null;
-    private static string Code(string code) => code.Length == 12 && code.All(Uri.IsHexDigit) ? code.ToUpperInvariant() :
-        throw new ResearchFailure(400, "invalid_device_code", "The browser verification code is invalid.");
+    /// <summary>
+    /// Forms on local-app sign-in pages end in a redirect to the app's loopback callback; Chrome applies the submitting
+    /// page's form-action to that redirect, so these pages (only) also allow loopback HTTP targets.
+    /// </summary>
+    private static void AllowLoopbackRedirect(HttpContext context) =>
+        context.Response.Headers.ContentSecurityPolicy = context.Response.Headers.ContentSecurityPolicy.ToString()
+            .Replace("form-action 'self'", "form-action 'self' http://127.0.0.1:* http://localhost:*");
     private static string Token(HttpContext context, IAntiforgery antiforgery) =>
         $"<input type=\"hidden\" name=\"__RequestVerificationToken\" value=\"{E(antiforgery.GetAndStoreTokens(context).RequestToken!)}\">";
     private static async Task ValidateFormAsync(HttpContext context, IAntiforgery antiforgery)

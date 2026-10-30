@@ -7,8 +7,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace MeldResearch.RemoteBackend.Data;
 
-// Personal free text (names, email addresses, device names) and issued access tokens are stored
-// as ASP.NET Data Protection ciphertext; credentials are otherwise stored only as SHA-256 hashes.
+// Personal free text (names, email addresses, device names) is stored as ASP.NET Data Protection ciphertext;
+// credentials and one-time sign-in codes are stored only as SHA-256 hashes.
 internal sealed class AccountEntity
 {
     public Guid Id { get; set; }
@@ -29,27 +29,25 @@ internal sealed class DeviceEntity
     public DateTimeOffset ExpiresAt { get; set; }
 }
 
-internal sealed class DeviceGrantEntity
+/// <summary>
+/// A one-time code from a browser sign-in for a local installation (loopback redirect with PKCE). The code reaches only
+/// the installation's own loopback callback; redeeming it also requires the verifier whose hash is the challenge.
+/// </summary>
+internal sealed class SignInCodeEntity
 {
-    public required string DeviceCodeHash { get; set; }
-    public required string UserCode { get; set; }
+    public required string CodeHash { get; set; }
+    public Guid AccountId { get; set; }
+    public AccountEntity? Account { get; set; }
     public required string ProtectedName { get; set; }
     public required string Challenge { get; set; }
-    public required string Status { get; set; }
     public DateTimeOffset ExpiresAt { get; set; }
-    public DateTimeOffset NextPollAt { get; set; }
-    public Guid? AccountId { get; set; }
-    public AccountEntity? Account { get; set; }
-    public string? ProtectedAccessToken { get; set; }
-    public string? AccessTokenHash { get; set; }
-    public DateTimeOffset? CredentialExpiresAt { get; set; }
 }
 
 internal sealed class RemoteDbContext(DbContextOptions<RemoteDbContext> options) : DbContext(options), IDataProtectionKeyContext
 {
     public DbSet<AccountEntity> Accounts => Set<AccountEntity>();
     public DbSet<DeviceEntity> Devices => Set<DeviceEntity>();
-    public DbSet<DeviceGrantEntity> DeviceGrants => Set<DeviceGrantEntity>();
+    public DbSet<SignInCodeEntity> SignInCodes => Set<SignInCodeEntity>();
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
     // SQLite cannot compare DateTimeOffset values in SQL; UTC Unix milliseconds keep expiry queries server-side.
@@ -74,19 +72,14 @@ internal sealed class RemoteDbContext(DbContextOptions<RemoteDbContext> options)
             device.HasIndex(item => item.ExpiresAt);
             device.HasOne(item => item.Account).WithMany().HasForeignKey(item => item.AccountId).OnDelete(DeleteBehavior.Cascade);
         });
-        model.Entity<DeviceGrantEntity>(grant =>
+        model.Entity<SignInCodeEntity>(code =>
         {
-            grant.ToTable("device_grants");
-            grant.HasKey(item => item.DeviceCodeHash);
-            grant.Property(item => item.DeviceCodeHash).HasMaxLength(64);
-            grant.Property(item => item.UserCode).HasMaxLength(12);
-            grant.Property(item => item.Challenge).HasMaxLength(64);
-            grant.Property(item => item.Status).HasMaxLength(16);
-            grant.Property(item => item.AccessTokenHash).HasMaxLength(64);
-            grant.HasIndex(item => item.UserCode).IsUnique();
-            grant.HasIndex(item => item.ExpiresAt);
-            grant.HasIndex(item => item.AccessTokenHash);
-            grant.HasOne(item => item.Account).WithMany().HasForeignKey(item => item.AccountId).OnDelete(DeleteBehavior.Cascade);
+            code.ToTable("sign_in_codes");
+            code.HasKey(item => item.CodeHash);
+            code.Property(item => item.CodeHash).HasMaxLength(64);
+            code.Property(item => item.Challenge).HasMaxLength(64);
+            code.HasIndex(item => item.ExpiresAt);
+            code.HasOne(item => item.Account).WithMany().HasForeignKey(item => item.AccountId).OnDelete(DeleteBehavior.Cascade);
         });
         model.Entity<DataProtectionKey>().ToTable("data_protection_keys");
     }

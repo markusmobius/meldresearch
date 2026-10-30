@@ -71,7 +71,7 @@
               <div class="doc-card">
                 <div class="doc-card-header"><span class="material-icons" aria-hidden="true">cloud</span>
                   <h3>Remote Backend (www.meldresearch.org)</h3></div>
-                <p>The blue website handles Google sign-up, installation approval, signed desktop releases, and
+                <p>The blue website handles Google sign-up and sign-in, signed desktop releases, and
                   authenticated requests to Azure AI Foundry. It keeps account and device records, not project archives
                   or research payloads.</p>
               </div>
@@ -80,10 +80,10 @@
             <ul>
               <li><strong>Feed:</strong> read new Updates from your monitored projects and review their cited evidence.</li>
               <li><strong>About me:</strong> choose which Overleaf projects to monitor, give consent, pause, or forget local research.</li>
-              <li><strong>Account:</strong> link your Meld account and connect the Overleaf browser connector.</li>
+              <li><strong>Account:</strong> sign in with Google and connect the Overleaf browser connector.</li>
             </ul>
             <h3>Azure AI Foundry Processing</h3>
-            <p>Analysis is not on-device-only. After you link an account and consent for a project, selected text, prior
+            <p>Analysis is not on-device-only. After you sign in and consent for a project, selected text, prior
               knowledge, and relevant changes are sent through the Meld service to the configured Azure AI Foundry chat and
               embedding deployments. The service does not persist project archives or log research payloads. Provider-side
               handling is governed by Azure AI Foundry and applicable Microsoft terms.</p>
@@ -138,9 +138,9 @@
                 <p>The assistant registers its browser bridge; you still approve the extension in Chrome or Edge.
                   While the store release is pending, use the documented unpacked-extension setup.</p></div></div>
               <div class="doc-timeline-step"><span class="step-number">2</span><div class="step-content">
-                <h4>Link your installation</h4>
-                <p>Open <strong>Account</strong> in the local app and choose <strong>Link Google account</strong>. Check the device
-                  and verification code on the website and approve only the request you just started.</p></div></div>
+                <h4>Sign in</h4>
+                <p>Open <strong>Account</strong> in the local app and choose <strong>Sign in with Google</strong>. Your browser opens the
+                  Meld website; if you are already signed in there, it returns to the app immediately.</p></div></div>
               <div class="doc-timeline-step"><span class="step-number">3</span><div class="step-content">
                 <h4>Sign in to Overleaf in your normal browser</h4>
                 <p>Meld never asks for your Overleaf password or reads your browser's cookie database.</p></div></div>
@@ -193,12 +193,14 @@
           <section class="doc-section" id="account">
             <h2>Account &amp; Connector</h2>
             <h3>Your Meld Account</h3>
-            <p>Your Google account identifies you; Meld stores its identifier, name, and verified email address. Signing in to
-              link an installation never silently creates a new account. On the website, the account menu at the top right
-              shows who is signed in and offers Install and Sign out.</p>
-            <p>To link the local app, open <strong>Account</strong> and choose <strong>Link Google account</strong>, then approve the
-              installation on the website. <strong>Disconnect account</strong> stops local processing and asks the website to
-              revoke the installation's credential, retrying if it is unreachable. Installation credentials expire after 30 days.</p>
+            <p>Your Google account identifies you; Meld stores its identifier, name, and verified email address. On the website,
+              the account menu at the top right shows who is signed in and offers Install and Sign out.</p>
+            <p>To sign in to the local app, open <strong>Account</strong> and choose <strong>Sign in with Google</strong>. The app opens
+              the Meld website in your browser. If you are signed in there with a Meld account, it returns to the app at once;
+              otherwise you sign in with Google, or create an account with one click, first. The website hands the sign-in back
+              only to the app on your own computer that started it, so there is no code to check or request to approve.
+              <strong>Disconnect account</strong> stops local processing and asks the website to revoke the app's credential,
+              retrying if it is unreachable. App credentials expire after 30 days.</p>
             <h3>The Overleaf Connector</h3>
             <p>The connector is a browser extension that reads Overleaf through your normal signed-in session and passes the
               project list and selected project ZIPs to the local assistant through the browser's native messaging. You do not
@@ -254,7 +256,7 @@
 
           <section class="doc-section" id="under-the-hood">
             <h2>Background Processing</h2>
-            <p>The local assistant runs a monitoring loop for the projects you selected. Processing waits for account linking and
+            <p>The local assistant runs a monitoring loop for the projects you selected. Processing waits for sign-in and
               consent; pausing or disconnecting stops it.</p>
             <h3>1. Read Selected Projects</h3>
             <p>While the app and browser are running, the assistant checks selected projects, normally every five minutes, and
@@ -302,7 +304,7 @@
 .\run-dev.ps1 -Check</code></pre>
             <p><strong>Dummy:</strong> a clearly synthetic account and Overleaf source, but real configured Foundry chat and embeddings.
               It consumes model quota and does not use a real Overleaf profile.</p>
-            <p><strong>Live:</strong> real Overleaf through your normal browser and real Google-based account linking. Missing
+            <p><strong>Live:</strong> real Overleaf through your normal browser and real Google sign-in. Missing
               credentials are errors, not simulated success.</p>
             <p>Keep the launcher terminal open; Ctrl+C stops its own processes. An occupied port is a conflict, not permission to stop
               another application. Dummy data and logs persist under <code>.local-test\Dummy</code>.</p>

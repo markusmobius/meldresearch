@@ -8,7 +8,10 @@ namespace MeldResearch.LocalBackend.Services.Research;
 internal interface IResearchCoordinator
 {
     Task<ResearchStatusResponse> StatusAsync(CancellationToken ct);
-    Task<AccountLinkResponse> BeginLinkAsync(CancellationToken ct);
+    /// <summary>Starts a browser sign-in on the website that returns to <paramref name="callbackUri"/> (loopback + PKCE).</summary>
+    Task<AccountLinkResponse> BeginLinkAsync(string callbackUri, CancellationToken ct);
+    /// <summary>Completes a browser sign-in from the loopback callback. Failures are reported in the status, not thrown.</summary>
+    Task CompleteLinkAsync(string? code, string? state, CancellationToken ct);
     Task UnlinkAsync(CancellationToken ct);
     Task SetMonitoringAsync(string projectId, SetProjectMonitoringRequest request, CancellationToken ct);
     Task ForgetAsync(string projectId, CancellationToken ct);
@@ -21,10 +24,13 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     ResearchOptions options, ILogger<ResearchCoordinator> logger, TimeProvider clock)
     : BackgroundService, IResearchCoordinator
 {
+    private sealed record PendingSignIn(string State, string Verifier, string SignInUrl, DateTimeOffset ExpiresAt);
     private readonly SemaphoreSlim _wake = new(0, 1);
     private readonly SemaphoreSlim _accountGate = new(1, 1);
     private readonly object _cycleGate = new();
     private CancellationTokenSource? _cycle;
+    // Held in memory only: a sign-in is a short browser round trip; after a restart the user simply signs in again.
+    private PendingSignIn? _signIn;
     private int _busy;
     private int _force;
     private const string RevocationPending = "Local access has stopped. Remote credential revocation is pending and will retry automatically.";
@@ -32,13 +38,13 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
 
     public async Task<ResearchStatusResponse> StatusAsync(CancellationToken ct)
     {
-        await PollLinkAsync(ct);
         var state = await store.ReadAsync(ct);
         Guid? account = state.Credential?.Account.Id;
         var projects = state.Projects.Where(project => project.AccountId == account).ToArray();
         var updates = projects.SelectMany(project => project.Updates).OrderByDescending(update => update.ObservedAt).ToArray();
+        var signIn = _signIn is { } pending && pending.ExpiresAt > clock.GetUtcNow() && state.Credential is null ? pending : null;
         return new(state.Credential?.Account, state.Credential?.ExpiresAt,
-            state.PendingLink is { } link ? new(link.VerificationUri, link.UserCode, link.ExpiresAt) : null,
+            signIn is null ? null : new(signIn.SignInUrl, signIn.ExpiresAt),
             state.AccountError, Volatile.Read(ref _busy) != 0, options.Dummy,
             new Uri(options.RemoteOrigin, "privacy.html").AbsoluteUri, ResearchEvidence.ConsentVersion,
             options.PollSeconds, state.PendingRevocations.Count,
@@ -48,77 +54,57 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 project.Explanation, project.UnprocessedFiles)).ToArray(), updates.Take(100).ToArray(), updates.Length);
     }
 
-    public async Task<AccountLinkResponse> BeginLinkAsync(CancellationToken ct)
+    public async Task<AccountLinkResponse> BeginLinkAsync(string callbackUri, CancellationToken ct)
     {
         await _accountGate.WaitAsync(ct);
         try
         {
             var state = await store.ReadAsync(ct);
             if (state.Credential is { } credential && credential.ExpiresAt > clock.GetUtcNow())
-                throw new ResearchFailure(409, "account_already_linked", "Disconnect the current Meld account before linking a different account.");
-            if (state.PendingLink is { } pending && pending.ExpiresAt > clock.GetUtcNow())
-                return new(pending.VerificationUri, pending.UserCode, pending.ExpiresAt);
+                throw new ResearchFailure(409, "account_already_linked", "Disconnect the current Meld account before signing in with a different account.");
+            string nonce = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
             string verifier = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
             string device = OperatingSystem.IsMacOS() ? "Meld Research on macOS" : "Meld Research on Windows";
-            var response = await remote.BeginAsync(new(device, ResearchEvidence.Hash(verifier)), ct);
-            if (response.DeviceCode is not { Length: 64 } || !response.DeviceCode.All(Uri.IsHexDigit) ||
-                response.UserCode is not { Length: 12 } || !response.UserCode.All(Uri.IsHexDigit) ||
-                response.ExpiresAt <= clock.GetUtcNow() || response.ExpiresAt > clock.GetUtcNow().AddMinutes(15) ||
-                !Uri.TryCreate(response.VerificationUri, UriKind.Absolute, out var uri) ||
-                uri.GetLeftPart(UriPartial.Authority) != options.RemoteOrigin.GetLeftPart(UriPartial.Authority) ||
-                uri.AbsolutePath != "/connect" || uri.Query != "?code=" + response.UserCode || uri.Fragment.Length != 0)
-                throw new ResearchFailure(502, "invalid_account_link", "The remote service returned an invalid account-link response.");
-            var link = new PendingDeviceLink(response.DeviceCode, verifier, response.VerificationUri,
-                response.UserCode, response.ExpiresAt, clock.GetUtcNow().AddSeconds(5));
-            await store.ChangeAsync(current => current with { PendingLink = link, AccountError = null }, ct);
-            return new(link.VerificationUri, link.UserCode, link.ExpiresAt);
+            string url = new Uri(options.RemoteOrigin, $"connect?state={nonce}&challenge={ResearchEvidence.Hash(verifier)}" +
+                $"&redirect_uri={Uri.EscapeDataString(callbackUri)}&device={Uri.EscapeDataString(device)}").AbsoluteUri;
+            var expires = clock.GetUtcNow().AddMinutes(10);
+            _signIn = new(nonce, verifier, url, expires);
+            await store.ChangeAsync(current => current with { PendingLink = null, AccountError = null }, ct);
+            return new(url, expires);
         }
         finally { _accountGate.Release(); }
     }
 
-    private async Task PollLinkAsync(CancellationToken ct)
+    public async Task CompleteLinkAsync(string? code, string? state, CancellationToken ct)
     {
-        if (!await _accountGate.WaitAsync(0, ct)) return;
+        await _accountGate.WaitAsync(ct);
         try
         {
-            var state = await store.ReadAsync(ct);
-            if (state.PendingLink is not { } link || link.NextPollAt > clock.GetUtcNow()) return;
-            if (link.ExpiresAt <= clock.GetUtcNow())
+            var pending = _signIn;
+            // The state proves this callback answers the sign-in started here, so a crafted link cannot sign this app in.
+            if (pending is null || pending.ExpiresAt <= clock.GetUtcNow() || state is not { Length: 64 } ||
+                !CryptographicOperations.FixedTimeEquals(System.Text.Encoding.ASCII.GetBytes(state), System.Text.Encoding.ASCII.GetBytes(pending.State)))
+                throw new ResearchFailure(400, "invalid_sign_in_callback", "This sign-in was not started here or has expired. Choose Sign in with Google again.");
+            _signIn = null;
+            if (code is not { Length: 64 } || !code.All(Uri.IsHexDigit))
+                throw new ResearchFailure(400, "invalid_sign_in_callback", "The website returned an invalid sign-in. Choose Sign in with Google again.");
+            var result = await remote.RedeemSignInAsync(new(code, pending.Verifier), ct);
+            if (result.AccessToken is not { Length: 64 } token || !token.All(Uri.IsHexDigit) || result.ExpiresAt <= clock.GetUtcNow() ||
+                result.Account is not { } account || account.Id == Guid.Empty)
+                throw new ResearchFailure(502, "invalid_account_link", "The remote service returned invalid installation credentials.");
+            var verified = await remote.AccountAsync(token, ct);
+            if (verified.Id != account.Id) throw new ResearchFailure(502, "account_link_mismatch", "The installation identity did not match the signed-in account.");
+            CancelCycle();
+            await store.ChangeAsync(current => current with
             {
-                await store.ChangeAsync(current => current with { PendingLink = null, AccountError = "The account link expired. Start a new link." }, ct);
-                return;
-            }
-            await store.ChangeAsync(current => current with { PendingLink = link with { NextPollAt = clock.GetUtcNow().AddSeconds(6) } }, ct);
-            try
-            {
-                var result = await remote.PollAsync(new(link.DeviceCode, link.Verifier), ct);
-                if (result.Status == "pending") return;
-                if (result.Status == "denied")
-                {
-                    await store.ChangeAsync(current => current with { PendingLink = null, AccountError = "The installation was denied in the browser." }, ct);
-                    return;
-                }
-                if (result.Status != "approved" || result.AccessToken is not { Length: 64 } token || !token.All(Uri.IsHexDigit) ||
-                    result.ExpiresAt is not { } expires || expires <= clock.GetUtcNow() || result.Account is not { } account ||
-                    account.Id == Guid.Empty)
-                    throw new ResearchFailure(502, "invalid_account_link", "The remote service returned invalid installation credentials.");
-                var verified = await remote.AccountAsync(token, ct);
-                if (verified.Id != account.Id) throw new ResearchFailure(502, "account_link_mismatch", "The installation identity did not match the approved account.");
-                CancelCycle();
-                await store.ChangeAsync(current => current with
-                {
-                    Credential = new(verified, token, expires), PendingLink = null, AccountError = null
-                }, ct);
-                RequestSync();
-            }
-            catch (ResearchFailure failure)
-            {
-                logger.LogWarning("Account link failed: {Code}. Credentials omitted.", failure.Code);
-                await store.ChangeAsync(current => current with
-                {
-                    PendingLink = failure.Status is 403 or 410 ? null : current.PendingLink, AccountError = failure.Message
-                }, ct);
-            }
+                Credential = new(verified, token, result.ExpiresAt), PendingLink = null, AccountError = null
+            }, ct);
+            RequestSync();
+        }
+        catch (ResearchFailure failure)
+        {
+            logger.LogWarning("Account sign-in failed: {Code}. Credentials omitted.", failure.Code);
+            await store.ChangeAsync(current => current with { AccountError = failure.Message }, ct);
         }
         finally { _accountGate.Release(); }
     }
@@ -129,6 +115,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         try
         {
             CancelCycle();
+            _signIn = null;
             await store.ChangeAsync(current => current with
             {
                 PendingRevocations = current.Credential is { } credential

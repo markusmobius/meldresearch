@@ -74,19 +74,14 @@ public sealed record ResearchUpdate(Guid Id, string ProjectId, string ProjectNam
 /// <summary>The remote account to which this local installation is linked.</summary>
 public sealed record MeldAccountResponse(Guid Id, string Name, string Email);
 
-/// <summary>Starts a device-link flow; the browser only receives the public verification URL.</summary>
-public sealed record CreateDeviceLinkRequest(string DeviceName, string Challenge);
+/// <summary>
+/// Redeems the one-time code that the website delivered to the local installation's loopback callback. The verifier
+/// proves that this installation started the sign-in (PKCE): the website only saw its SHA-256 challenge.
+/// </summary>
+public sealed record RedeemSignInRequest(string Code, string Verifier);
 
-/// <summary>A short-lived link request. DeviceCode is a secret retained by the local backend.</summary>
-public sealed record DeviceLinkResponse(string DeviceCode, string UserCode, string VerificationUri,
-    DateTimeOffset ExpiresAt, int PollIntervalSeconds);
-
-/// <summary>Polls for explicit approval using a private device code and its proof verifier.</summary>
-public sealed record PollDeviceLinkRequest(string DeviceCode, string Verifier);
-
-/// <summary>A pending, approved, or denied device link. Only approved responses contain a credential.</summary>
-public sealed record PollDeviceLinkResponse(string Status, string? AccessToken, DateTimeOffset? ExpiresAt,
-    MeldAccountResponse? Account);
+/// <summary>The installation credential issued for the signed-in Meld account.</summary>
+public sealed record RedeemSignInResponse(string AccessToken, DateTimeOffset ExpiresAt, MeldAccountResponse Account);
 
 /// <summary>Non-secret capabilities of the remote service.</summary>
 public sealed record RemoteStatusResponse(bool Dummy, bool GoogleConfigured, bool FoundryConfigured,

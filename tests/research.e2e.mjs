@@ -144,21 +144,43 @@ async function verifyPublicPages(local, remote) {
   }
 }
 
-async function verifyModelFlow(local, remote, localProcess, localArgs, localBase) {
-  const linkResponse = await local('/api/research/account/link', { method: 'POST', body: {}, csrf: true });
-  assert.equal(linkResponse.status, 200);
-  const link = await linkResponse.json();
-  assert.equal('deviceCode' in link, false, 'The private device code must not reach the browser API.');
-  const page = await (await remote('/connect?code=' + link.userCode)).text();
+async function signInLocal(local, remote, remoteBase, localBase) {
+  const response = await local('/api/research/account/link', { method: 'POST', body: {}, csrf: true });
+  assert.equal(response.status, 200);
+  const url = new URL((await response.json()).signInUrl);
+  assert.equal(url.origin + url.pathname, `${remoteBase}/connect`);
+  assert.equal(url.searchParams.get('redirect_uri'), `${localBase}/account/callback`);
+  assert.deepEqual([...url.searchParams.keys()].sort(), ['challenge', 'device', 'redirect_uri', 'state'],
+    'Only the PKCE challenge leaves the app; the verifier stays local.');
+  const page = await remote(url.pathname + url.search);
+  assert.equal(page.status, 200, 'Without a website session the sign-in page is shown.');
+  assert.match(page.headers.get('content-security-policy'), /form-action 'self' http:\/\/127\.0\.0\.1:\* http:\/\/localhost:\*/);
   const login = await remote('/auth/dummy', { method: 'POST', form: {
-    code: link.userCode, __RequestVerificationToken: formToken(page),
-  } });
+    ...Object.fromEntries(url.searchParams), __RequestVerificationToken: formToken(await page.text()) } });
   assert.equal(login.status, 302);
-  const approval = await (await remote('/connect?code=' + link.userCode)).text();
-  assert.equal((await remote('/connect', { method: 'POST', form: {
-    code: link.userCode, decision: 'allow', __RequestVerificationToken: formToken(approval),
-  } })).status, 200);
-  let state = await statusUntil(local, state => !!state.account, 'normal browser device approval');
+  assert.match(login.headers.get('location'), /^\/connect\?state=/);
+  const back = await remote(login.headers.get('location'));
+  assert.equal(back.status, 302, 'A signed-in account holder returns to the app without an approval step.');
+  const callback = new URL(back.headers.get('location'));
+  assert.equal(callback.origin + callback.pathname, `${localBase}/account/callback`);
+  assert.equal(callback.searchParams.get('state'), url.searchParams.get('state'));
+  const forged = await local(`/account/callback?code=${callback.searchParams.get('code')}&state=${'0'.repeat(64)}`);
+  assert.equal(forged.status, 302);
+  assert.equal((await (await local('/api/research/status')).json()).account, null, 'A callback with another state cannot sign the app in.');
+  const done = await local(callback.pathname + callback.search);
+  assert.equal(done.status, 302);
+  assert.equal(done.headers.get('location'), '/#account');
+  const state = await (await local('/api/research/status')).json();
+  assert.equal(state.account?.name, 'Demo Researcher');
+  assert.equal(state.pendingLink, null);
+  const replay = await client(remoteBase)('/api/sign-in/redeem', { method: 'POST',
+    body: { code: callback.searchParams.get('code'), verifier: 'a'.repeat(64) } });
+  assert.equal(replay.status, 410, 'Each sign-in code is single-use.');
+  return state;
+}
+
+async function verifyModelFlow(local, remote, localProcess, localArgs, localBase, remoteBase) {
+  let state = await signInLocal(local, remote, remoteBase, localBase);
   assert.equal((await local(`/api/research/projects/${projectId}`, {
     method: 'PUT', body: { enabled: true, consentVersion: null }, csrf: true,
   })).status, 400, 'Monitoring requires explicit consent.');
@@ -362,10 +384,13 @@ try {
     await verifyUpdateEndpoints(remoteBase, published);
     await verifyRemoteSession(remoteBase);
     await verifyGoogleSignIn();
-    console.log('Public pages passed: local green / remote blue themes; anonymous Docs/Privacy/Project Team; Markus Mobius only; accurate provider disclosures; public signed desktop updates; remote session survives navigation and signs out; secretless Google sign-in page and token endpoint; zero model calls.');
+    await signInLocal(local, client(remoteBase), remoteBase, localBase);
+    assert.equal((await local('/api/research/account', { method: 'DELETE', csrf: true })).status, 204);
+    assert.deepEqual(await (await remote('/api/development/inference-counts')).json(), { chatRequests: 0, embeddingRequests: 0 });
+    console.log('Public pages passed: local green / remote blue themes; anonymous Docs/Privacy/Project Team; Markus Mobius only; accurate provider disclosures; public signed desktop updates; remote session survives navigation and signs out; secretless Google sign-in page and token endpoint; local app Google sign-in round trip (loopback + PKCE); zero model calls.');
   } else {
     assert.equal(configuration.foundryConfigured, true);
-    await verifyModelFlow(local, remote, localProcess, localArgs, localBase);
+    await verifyModelFlow(local, remote, localProcess, localArgs, localBase, remoteBase);
   }
 } finally {
   for (const child of children.reverse()) {

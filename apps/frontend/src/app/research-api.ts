@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
-export interface AccountLink { verificationUri: string; userCode: string; expiresAt: string; }
+export interface AccountLink { signInUrl: string; expiresAt: string; }
 export interface ResearchProject {
   projectId: string; name: string; enabled: boolean; consentRequired: boolean;
   revision: string | null; summary: string | null; factCount: number;

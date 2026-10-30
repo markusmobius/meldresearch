@@ -12,10 +12,8 @@ internal interface IAccountService
 {
     Task<MeldAccountResponse> RegisterAsync(ClaimsPrincipal principal, CancellationToken ct);
     Task<MeldAccountResponse?> FindAsync(ClaimsPrincipal principal, CancellationToken ct);
-    Task<DeviceLinkResponse> BeginLinkAsync(CreateDeviceLinkRequest request, CancellationToken ct);
-    Task<string> DeviceNameAsync(string userCode, CancellationToken ct);
-    Task ApproveAsync(string userCode, ClaimsPrincipal principal, bool allow, CancellationToken ct);
-    Task<PollDeviceLinkResponse> PollAsync(PollDeviceLinkRequest request, CancellationToken ct);
+    Task<string> IssueSignInCodeAsync(ClaimsPrincipal principal, LocalSignIn request, CancellationToken ct);
+    Task<RedeemSignInResponse> RedeemSignInAsync(RedeemSignInRequest request, CancellationToken ct);
     Task<MeldAccountResponse> AuthenticateAsync(string authorization, CancellationToken ct);
     Task RevokeAsync(string authorization, CancellationToken ct);
 }
@@ -24,8 +22,7 @@ internal sealed class AccountService(
     IDbContextFactory<RemoteDbContext> databases, RemoteOptions options, IDataProtectionProvider protection, TimeProvider clock)
     : IAccountService
 {
-    private const int MaxPendingGrants = 100;
-    private const string Pending = "pending", Approved = "approved", Denied = "denied";
+    private const int MaxPendingCodes = 100;
     private readonly IDataProtector _protector = protection.CreateProtector("MeldResearch.Remote.Database.v1");
 
     public async Task<MeldAccountResponse> RegisterAsync(ClaimsPrincipal principal, CancellationToken ct)
@@ -56,98 +53,60 @@ internal sealed class AccountService(
         return await FindAccountAsync(database, identity.Subject, ct) is { } account ? Response(account) : null;
     }
 
-    public async Task<DeviceLinkResponse> BeginLinkAsync(CreateDeviceLinkRequest request, CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(request.DeviceName) || request.DeviceName.Length > 100 ||
-            request.Challenge is not { Length: 64 } || !request.Challenge.All(Uri.IsHexDigit))
-            throw new ResearchFailure(400, "invalid_device_link", "A device name and SHA-256 proof challenge are required.");
-        await using var database = await databases.CreateDbContextAsync(ct);
-        var now = clock.GetUtcNow();
-        await using var transaction = await database.Database.BeginTransactionAsync(ct);
-        await database.DeviceGrants.Where(grant => grant.ExpiresAt <= now).ExecuteDeleteAsync(ct);
-        if (await database.DeviceGrants.CountAsync(ct) >= MaxPendingGrants)
-            throw new ResearchFailure(429, "device_link_capacity", "Too many device links are pending. Try again shortly.");
-        string code = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
-        string userCode;
-        do { userCode = Convert.ToHexString(RandomNumberGenerator.GetBytes(6)); }
-        while (await database.DeviceGrants.AnyAsync(grant => grant.UserCode == userCode, ct));
-        var expires = now.AddMinutes(10);
-        database.DeviceGrants.Add(new()
-        {
-            DeviceCodeHash = ResearchEvidence.Hash(code), UserCode = userCode, ProtectedName = _protector.Protect(request.DeviceName),
-            Challenge = request.Challenge.ToLowerInvariant(), Status = Pending, ExpiresAt = expires, NextPollAt = now
-        });
-        await database.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
-        return new(code, userCode, new Uri(options.PublicOrigin, "connect?code=" + userCode).AbsoluteUri, expires, 5);
-    }
-
-    public async Task<string> DeviceNameAsync(string userCode, CancellationToken ct)
-    {
-        await using var database = await databases.CreateDbContextAsync(ct);
-        return _protector.Unprotect((await FindGrantAsync(database, userCode, ct)).ProtectedName);
-    }
-
-    public async Task ApproveAsync(string userCode, ClaimsPrincipal principal, bool allow, CancellationToken ct)
+    public async Task<string> IssueSignInCodeAsync(ClaimsPrincipal principal, LocalSignIn request, CancellationToken ct)
     {
         var identity = Identity(principal);
         await using var database = await databases.CreateDbContextAsync(ct);
-        await using var transaction = await database.Database.BeginTransactionAsync(ct);
-        var grant = await FindGrantAsync(database, userCode, ct);
-        if (grant.Status != Pending) throw Decided();
         var account = await FindAccountAsync(database, identity.Subject, ct) ??
-            throw new ResearchFailure(403, "meld_account_required", "Create a Meld Research account on this website before linking a device.");
+            throw new ResearchFailure(403, "meld_account_required", "Create a Meld Research account on this website before signing in to the app.");
         var now = clock.GetUtcNow();
-        if (!allow)
+        await using var transaction = await database.Database.BeginTransactionAsync(ct);
+        await database.SignInCodes.Where(code => code.ExpiresAt <= now).ExecuteDeleteAsync(ct);
+        if (await database.SignInCodes.CountAsync(ct) >= MaxPendingCodes)
+            throw new ResearchFailure(429, "sign_in_capacity", "Too many sign-ins are pending. Try again shortly.");
+        string code = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
+        database.SignInCodes.Add(new()
         {
-            if (await database.DeviceGrants.Where(item => item.DeviceCodeHash == grant.DeviceCodeHash && item.Status == Pending)
-                .ExecuteUpdateAsync(set => set.SetProperty(item => item.Status, Denied), ct) == 0) throw Decided();
+            CodeHash = ResearchEvidence.Hash(code), AccountId = account.Id, ProtectedName = _protector.Protect(request.Device),
+            Challenge = request.Challenge, ExpiresAt = now.AddMinutes(5)
+        });
+        await database.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+        return code;
+    }
+
+    public async Task<RedeemSignInResponse> RedeemSignInAsync(RedeemSignInRequest request, CancellationToken ct)
+    {
+        if (request.Code is not { Length: 64 } || request.Verifier is not { Length: 64 } ||
+            !request.Code.All(Uri.IsHexDigit) || !request.Verifier.All(Uri.IsHexDigit))
+            throw new ResearchFailure(400, "invalid_sign_in_proof", "The sign-in proof is invalid.");
+        string codeHash = ResearchEvidence.Hash(request.Code.ToLowerInvariant());
+        await using var database = await databases.CreateDbContextAsync(ct);
+        var now = clock.GetUtcNow();
+        await using var transaction = await database.Database.BeginTransactionAsync(ct);
+        var grant = await database.SignInCodes.AsNoTracking().Include(item => item.Account)
+            .FirstOrDefaultAsync(item => item.CodeHash == codeHash && item.ExpiresAt > now, ct);
+        // Each code is single-use, even when the proof is wrong; concurrent redemptions race on this delete.
+        if (grant?.Account is not { } account ||
+            await database.SignInCodes.Where(item => item.CodeHash == codeHash).ExecuteDeleteAsync(ct) != 1)
+            throw new ResearchFailure(410, "sign_in_expired", "The sign-in expired or was already used. Sign in again.");
+        if (!FixedEquals(ResearchEvidence.Hash(request.Verifier.ToLowerInvariant()), grant.Challenge))
+        {
             await transaction.CommitAsync(ct);
-            return;
+            throw new ResearchFailure(403, "invalid_sign_in_proof", "The sign-in proof is invalid.");
         }
         string token = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
-        string tokenHash = ResearchEvidence.Hash(token);
-        string protectedToken = _protector.Protect(token);
         var expires = now.AddDays(30);
-        if (await database.DeviceGrants.Where(item => item.DeviceCodeHash == grant.DeviceCodeHash && item.Status == Pending)
-            .ExecuteUpdateAsync(set => set
-                .SetProperty(item => item.Status, Approved)
-                .SetProperty(item => item.AccountId, account.Id)
-                .SetProperty(item => item.ProtectedAccessToken, protectedToken)
-                .SetProperty(item => item.AccessTokenHash, tokenHash)
-                .SetProperty(item => item.CredentialExpiresAt, expires), ct) == 0) throw Decided();
         await database.Devices.Where(device => device.ExpiresAt <= now).ExecuteDeleteAsync(ct);
         database.Devices.Add(new()
         {
-            Id = Guid.NewGuid(), AccountId = account.Id, TokenHash = tokenHash, ProtectedName = grant.ProtectedName,
+            Id = Guid.NewGuid(), AccountId = account.Id, TokenHash = ResearchEvidence.Hash(token), ProtectedName = grant.ProtectedName,
             CreatedAt = now, ExpiresAt = expires
         });
         await database.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
+        return new(token, expires, Response(account));
     }
-
-    public async Task<PollDeviceLinkResponse> PollAsync(PollDeviceLinkRequest request, CancellationToken ct)
-    {
-        if (request.DeviceCode is not { Length: 64 } || request.Verifier is not { Length: 64 } ||
-            !request.DeviceCode.All(Uri.IsHexDigit) || !request.Verifier.All(Uri.IsHexDigit))
-            throw new ResearchFailure(400, "invalid_device_proof", "The device-link proof is invalid.");
-        string codeHash = ResearchEvidence.Hash(request.DeviceCode);
-        await using var database = await databases.CreateDbContextAsync(ct);
-        var now = clock.GetUtcNow();
-        var grant = await database.DeviceGrants.AsNoTracking().Include(item => item.Account)
-            .FirstOrDefaultAsync(item => item.DeviceCodeHash == codeHash && item.ExpiresAt > now, ct) ??
-            throw new ResearchFailure(410, "device_link_expired", "The device link expired. Start a new link.");
-        if (!FixedEquals(ResearchEvidence.Hash(request.Verifier), grant.Challenge))
-            throw new ResearchFailure(403, "invalid_device_proof", "The device-link proof is invalid.");
-        var next = now.AddSeconds(5);
-        // The conditional update makes concurrent polls race-free: only one caller can claim each interval.
-        if (await database.DeviceGrants.Where(item => item.DeviceCodeHash == codeHash && item.NextPollAt <= now)
-            .ExecuteUpdateAsync(set => set.SetProperty(item => item.NextPollAt, next), ct) == 0)
-            throw new ResearchFailure(429, "device_poll_too_fast", "Wait before checking device approval again.");
-        return new(grant.Status, grant.ProtectedAccessToken is { } token ? _protector.Unprotect(token) : null,
-            grant.CredentialExpiresAt, grant.Account is { } account ? Response(account) : null);
-    }
-
     public async Task<MeldAccountResponse> AuthenticateAsync(string authorization, CancellationToken ct)
     {
         string hash = TokenHash(authorization);
@@ -165,19 +124,11 @@ internal sealed class AccountService(
         await using var database = await databases.CreateDbContextAsync(ct);
         await using var transaction = await database.Database.BeginTransactionAsync(ct);
         await database.Devices.Where(device => device.TokenHash == hash).ExecuteDeleteAsync(ct);
-        await database.DeviceGrants.Where(grant => grant.AccessTokenHash == hash).ExecuteDeleteAsync(ct);
         await transaction.CommitAsync(ct);
     }
 
     private static Task<AccountEntity?> FindAccountAsync(RemoteDbContext database, string subject, CancellationToken ct) =>
         database.Accounts.AsNoTracking().FirstOrDefaultAsync(account => account.Subject == subject, ct);
-
-    private async Task<DeviceGrantEntity> FindGrantAsync(RemoteDbContext database, string userCode, CancellationToken ct)
-    {
-        var now = clock.GetUtcNow();
-        return await database.DeviceGrants.AsNoTracking().FirstOrDefaultAsync(grant => grant.UserCode == userCode && grant.ExpiresAt > now, ct) ??
-            throw new ResearchFailure(410, "device_link_expired", "The device link expired or does not exist.");
-    }
 
     private (string Subject, string Name, string Email) Identity(ClaimsPrincipal principal)
     {
@@ -200,6 +151,5 @@ internal sealed class AccountService(
         token.All(Uri.IsHexDigit) ? ResearchEvidence.Hash(token) : throw Unauthorized();
     private static bool FixedEquals(string left, string right) =>
         CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(left), Encoding.ASCII.GetBytes(right));
-    private static ResearchFailure Decided() => new(409, "device_link_decided", "This device link has already been decided.");
     private static ResearchFailure Unauthorized() => new(401, "meld_account_required", "Link this installation to an existing Meld Research account.");
 }

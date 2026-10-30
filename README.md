@@ -52,8 +52,8 @@ See [AGENTS.md](AGENTS.md) for the persistent development instructions.
 
 ## Architecture
 
-- [Remote backend](apps/RemoteBackend): Google signup, existing-account device
-  approval, Foundry chat/embeddings, a SQLite account database, one-line
+- [Remote backend](apps/RemoteBackend): Google signup, local-app sign-in
+  (loopback redirect + PKCE), Foundry chat/embeddings, a SQLite account database, one-line
   desktop installers on the account page, and a public `/privacy.html`.
 - [Local backend](apps/LocalBackend): browser bridge, explicit project selection,
   background synchronization, encrypted research state, and an Updates feed.
@@ -115,8 +115,8 @@ Dummy uses synthetic Overleaf evidence and an explicitly labelled synthetic
 account, but **real configured Foundry inference**, which consumes quota.
 It does not access a real Overleaf profile or register the browser connector.
 
-1. Open **Account** in Meld and choose **Link the test account**.
-2. Open the approval link, use the synthetic account, and approve the device.
+1. Open **Account** in Meld and choose **Sign in with the test account**.
+2. On the blue website, choose **Use the synthetic test account**; it returns to Meld signed in.
 3. Open **About me**, expand **Select Overleaf projects**, read the model-processing
    notice, and check consent.
 4. Choose **Monitor project**. Initial ingestion produces baseline research updates
@@ -214,7 +214,7 @@ pages (the signed-out home page, `/signup`, `/login`, and `/connect` before sign
 policy allows `accounts.google.com/gsi`; the button's callback submits the token
 through the site's own antiforgery-protected form. Signing in does not silently
 register an account: signup takes place explicitly on the remote website.
-Installation credentials last 30 days and can be revoked.
+App credentials last 30 days and can be revoked.
 
 The home page is a single centered action. Signed out, it shows Google's button:
 **Sign up with Google**, or **Sign in with Google** once this browser has shown the
@@ -223,6 +223,18 @@ the install card and read by [google-sign-in.js](apps/RemoteBackend/wwwroot/goog
 Signed in, it shows **Install Meld Research**, which opens the install card at
 `/account`. Account management (name, email, Install, Sign out) is the avatar menu
 at the top right of the toolbar; static pages read it from `/api/session`.
+
+**Signing in to the local app** uses the website, like signing in to a desktop app
+with a browser (OAuth loopback redirect with PKCE). **Sign in with Google** in the
+local app's Account page opens `/connect` with a random state, the SHA-256 of a
+random verifier, and its own callback, `http://127.0.0.1:<port>/account/callback`.
+If the browser already has a website session with a Meld account, `/connect`
+immediately redirects back with a one-time code (valid five minutes). Otherwise it
+shows Google's button, or one-click account creation for a new Google account.
+The app checks the state and redeems the code with the verifier at
+`/api/sign-in/redeem`, receiving a 30-day app credential. Redirects go only to
+loopback callbacks, so a forwarded link cannot sign another computer in, and there
+is no code to compare or approval step. No Google console changes are needed.
 
 1. Create a Google OAuth **Web application** client and add
    `https://www.meldresearch.org` under **Authorized JavaScript origins**. No
@@ -297,15 +309,15 @@ bodies at the reverse proxy.
 
 ### Remote database
 
-The remote backend stores accounts, linked-device credentials, pending device-link
-approvals, and the ASP.NET Data Protection key ring in a SQLite database,
+The remote backend stores accounts, app credentials, one-time app sign-in codes,
+and the ASP.NET Data Protection key ring in a SQLite database,
 `<DataDirectory>/remote.db` (WAL mode, owner-only file permissions), through
 EF Core ([RemoteDbContext](apps/RemoteBackend/Data/RemoteDbContext.cs)). Pending
-links and sign-in sessions therefore survive restarts. Migrations in
+sign-ins and website sessions therefore survive restarts. Migrations in
 [Data/Migrations](apps/RemoteBackend/Data/Migrations) are applied automatically
-at startup. Names, email addresses, device names, and not-yet-collected access
-tokens are stored as Data Protection ciphertext; installation and device codes
-are stored only as SHA-256 hashes. The Google subject is the plain lookup key.
+at startup. Names, email addresses, and device names are stored as Data
+Protection ciphertext; app credentials and sign-in codes are stored only as
+SHA-256 hashes. The Google subject is the plain lookup key.
 
 SQLite supports one remote process per data directory (`server.lock` enforces this),
 not multiple load-balanced instances. Research text is never stored remotely.

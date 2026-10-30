@@ -145,7 +145,44 @@ public sealed class ResearchCoordinatorTests
         public Task<ResearchEmbeddingResponse> EmbedAsync(string token, ResearchEmbeddingRequest request, CancellationToken ct)
         { ModelCalls++; return Task.FromResult(new ResearchEmbeddingResponse("embedding", [[1f]])); }
         public Task RevokeAsync(string token, CancellationToken ct) => Task.CompletedTask;
-        public Task<DeviceLinkResponse> BeginAsync(CreateDeviceLinkRequest request, CancellationToken ct) => throw new NotSupportedException();
-        public Task<PollDeviceLinkResponse> PollAsync(PollDeviceLinkRequest request, CancellationToken ct) => throw new NotSupportedException();
+        public RedeemSignInRequest? Redeemed { get; private set; }
+        public Task<RedeemSignInResponse> RedeemSignInAsync(RedeemSignInRequest request, CancellationToken ct)
+        {
+            Redeemed = request;
+            return Task.FromResult(new RedeemSignInResponse(new string('b', 64), DateTimeOffset.UtcNow.AddDays(30), Account));
+        }
+    }
+
+    [Fact]
+    public async Task SignInCompletesOnlyForTheStateThisAppStartedAndProvesTheVerifier()
+    {
+        var store = new MemoryStore(new(1, null, null, null, [], []));
+        var remote = new Remote();
+        using var coordinator = Coordinator(store, remote, new Source(ResearchTests.Snapshot("Synthetic.")));
+        var link = await coordinator.BeginLinkAsync("http://127.0.0.1:6001/account/callback", CancellationToken.None);
+        var query = System.Web.HttpUtility.ParseQueryString(new Uri(link.SignInUrl).Query);
+        Assert.Equal("https://meld.example.invalid/connect", new Uri(link.SignInUrl).GetLeftPart(UriPartial.Path));
+        Assert.Equal("http://127.0.0.1:6001/account/callback", query["redirect_uri"]);
+        Assert.Equal(link.SignInUrl, (await coordinator.StatusAsync(CancellationToken.None)).PendingLink?.SignInUrl);
+        string code = new('c', 64);
+
+        // A crafted callback (wrong or missing state) cannot sign this app in, and does not consume the real sign-in.
+        await coordinator.CompleteLinkAsync(code, new string('0', 64), CancellationToken.None);
+        await coordinator.CompleteLinkAsync(code, null, CancellationToken.None);
+        Assert.Null(store.State.Credential);
+        Assert.Null(remote.Redeemed);
+        Assert.Contains("not started here", store.State.AccountError);
+
+        await coordinator.CompleteLinkAsync(code, query["state"], CancellationToken.None);
+        Assert.Equal(Account, store.State.Credential?.Account);
+        Assert.Null(store.State.AccountError);
+        Assert.Equal(code, remote.Redeemed!.Code);
+        Assert.Equal(query["challenge"], ResearchEvidence.Hash(remote.Redeemed.Verifier));
+        Assert.Null((await coordinator.StatusAsync(CancellationToken.None)).PendingLink);
+
+        // The state is single-use.
+        store.State = store.State with { Credential = null };
+        await coordinator.CompleteLinkAsync(code, query["state"], CancellationToken.None);
+        Assert.Null(store.State.Credential);
     }
 }

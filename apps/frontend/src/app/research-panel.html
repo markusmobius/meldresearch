@@ -21,7 +21,7 @@
             @if (!current.account) {
               <mat-card class="onboarding-card"><mat-card-content>
                 <h3>Connect your research</h3>
-                <p>Link your Meld account, connect Overleaf, then choose the projects you want to monitor.</p>
+                <p>Sign in with Google, connect Overleaf, then choose the projects you want to monitor.</p>
                 <a mat-flat-button href="/#account"><mat-icon>account_circle</mat-icon>Set up your account</a>
               </mat-card-content></mat-card>
             } @else if (!current.projects.length) {
@@ -64,28 +64,23 @@
     <section class="page-container account-page" aria-label="Meld account">
       <mat-card>
         <mat-card-header><mat-icon mat-card-avatar>account_circle</mat-icon>
-          <mat-card-title>{{ current.account ? 'Your Meld account' : 'Link your account' }}</mat-card-title>
+          <mat-card-title>{{ current.account ? 'Your Meld account' : 'Sign in to Meld Research' }}</mat-card-title>
         </mat-card-header>
         <mat-card-content>
           @if (current.dummy) { <p class="notice">Dummy mode: the account and Overleaf project are synthetic. Foundry processing is real and consumes model quota.</p> }
           @if (current.account; as account) {
             <p class="account-name">{{ account.name }}</p><p class="muted">{{ account.email }}</p>
-            <p>Your installation is linked. Manage your Overleaf projects in About me.</p>
+            <p>You are signed in. Manage your Overleaf projects in About me.</p>
             <div class="controls"><a mat-flat-button href="/#about-me"><mat-icon>badge</mat-icon>About me</a>
               <button mat-button (click)="unlink()" [disabled]="!!action()">Disconnect account</button></div>
           } @else {
-            <p>Link this installation to an existing Meld Research account before enabling research processing.</p>
-            <button mat-flat-button (click)="link()" [disabled]="!!action() || !!current.pendingLink">
-              <mat-icon>login</mat-icon>{{ current.dummy ? 'Link the test account' : 'Link Google account' }}
+            <p>Sign in with the Google account you use for Meld Research. Your browser opens the Meld website and returns here.</p>
+            <button mat-flat-button class="google-sign-in" (click)="link()" [disabled]="!!action()">
+              <mat-icon>login</mat-icon>{{ current.dummy ? 'Sign in with the test account' : 'Sign in with Google' }}
             </button>
           }
           @if (current.pendingLink; as link) {
-            <div class="notice" role="status"><strong>Approve this installation in your normal browser</strong>
-              <p>Verification code: <code>{{ link.userCode }}</code>. Expires {{ link.expiresAt | date:'shortTime' }}.</p>
-              <a mat-flat-button [href]="link.verificationUri" target="_blank" rel="noopener noreferrer">
-                {{ current.dummy ? 'Open test-account approval' : 'Continue with Google' }}</a>
-              <p>Return here after approval. Your account will connect automatically.</p>
-            </div>
+            <p class="muted" role="status">Sign-in did not finish? <a [href]="link.signInUrl">Continue in the browser</a>.</p>
           }
         </mat-card-content>
       </mat-card>
@@ -98,7 +93,7 @@
         <span class="about-note"><mat-icon>lock</mat-icon>Stored on your computer. Selected source text is processed through Azure AI Foundry with your permission.</span>
       </div>
       @if (!current.account) {
-        <p class="notice">Link your account before enabling project monitoring. <a href="/#account">Open Account</a>.</p>
+        <p class="notice">Sign in before enabling project monitoring. <a href="/#account">Open Account</a>.</p>
       } @else {
         <mat-expansion-panel class="monitoring" [expanded]="!current.projects.length">
           <mat-expansion-panel-header><mat-panel-title><mat-icon>playlist_add</mat-icon>Select Overleaf projects</mat-panel-title></mat-expansion-panel-header>

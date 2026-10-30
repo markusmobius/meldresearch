@@ -24,8 +24,7 @@ internal sealed record ResearchOptions(Uri RemoteOrigin, bool Dummy, int PollSec
 internal interface IResearchRemote
 {
     Task<RemoteStatusResponse> StatusAsync(CancellationToken ct);
-    Task<DeviceLinkResponse> BeginAsync(CreateDeviceLinkRequest request, CancellationToken ct);
-    Task<PollDeviceLinkResponse> PollAsync(PollDeviceLinkRequest request, CancellationToken ct);
+    Task<RedeemSignInResponse> RedeemSignInAsync(RedeemSignInRequest request, CancellationToken ct);
     Task<MeldAccountResponse> AccountAsync(string token, CancellationToken ct);
     Task RevokeAsync(string token, CancellationToken ct);
     Task<AnalyzeResearchResponse> AnalyzeAsync(string token, AnalyzeResearchRequest request, CancellationToken ct);
@@ -35,10 +34,8 @@ internal interface IResearchRemote
 internal sealed class ResearchRemote(ResearchOptions options, IHttpClientFactory clients) : IResearchRemote
 {
     public Task<RemoteStatusResponse> StatusAsync(CancellationToken ct) => CallAsync<RemoteStatusResponse>("api/status", HttpMethod.Get, null, null, ct);
-    public Task<DeviceLinkResponse> BeginAsync(CreateDeviceLinkRequest request, CancellationToken ct) =>
-        CallAsync<DeviceLinkResponse>("api/device-links", HttpMethod.Post, request, null, ct);
-    public Task<PollDeviceLinkResponse> PollAsync(PollDeviceLinkRequest request, CancellationToken ct) =>
-        CallAsync<PollDeviceLinkResponse>("api/device-links/poll", HttpMethod.Post, request, null, ct);
+    public Task<RedeemSignInResponse> RedeemSignInAsync(RedeemSignInRequest request, CancellationToken ct) =>
+        CallAsync<RedeemSignInResponse>("api/sign-in/redeem", HttpMethod.Post, request, null, ct);
     public Task<MeldAccountResponse> AccountAsync(string token, CancellationToken ct) =>
         CallAsync<MeldAccountResponse>("api/account", HttpMethod.Get, null, token, ct);
     public async Task RevokeAsync(string token, CancellationToken ct) =>

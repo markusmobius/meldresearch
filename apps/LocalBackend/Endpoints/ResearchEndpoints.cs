@@ -13,9 +13,18 @@ internal static class ResearchEndpoints
         group.MapGet("/status", async Task<Ok<ResearchStatusResponse>> (IResearchCoordinator service, CancellationToken ct) =>
             TypedResults.Ok(await service.StatusAsync(ct)))
             .WithName("GetResearchStatus").WithSummary("Read account linking, selected-project monitoring, and Updates-only feed state.");
-        group.MapPost("/account/link", async Task<Ok<AccountLinkResponse>> (IResearchCoordinator service, CancellationToken ct) =>
-            TypedResults.Ok(await service.BeginLinkAsync(ct)))
-            .WithName("LinkResearchAccount").WithSummary("Begin Google-account device approval in the normal browser.");
+        group.MapPost("/account/link", async Task<Ok<AccountLinkResponse>> (HttpContext context, IResearchCoordinator service, CancellationToken ct) =>
+            // The Host is already restricted to this app's own loopback address and port.
+            TypedResults.Ok(await service.BeginLinkAsync($"http://{context.Request.Host}/account/callback", ct)))
+            .WithName("LinkResearchAccount").WithSummary("Start signing in with Google on the Meld website; it returns to this app.");
+        // The website's redirect back to this app (a top-level navigation, so it is outside the /api same-origin checks).
+        // The one-time state proves the sign-in started here; the code is redeemed with this app's private PKCE verifier.
+        app.MapGet("/account/callback", async Task<RedirectHttpResult> (
+            string? code, string? state, IResearchCoordinator service, CancellationToken ct) =>
+        {
+            await service.CompleteLinkAsync(code, state, ct);
+            return TypedResults.Redirect("/#account");
+        }).ExcludeFromDescription();
         group.MapDelete("/account", async Task<NoContent> (IResearchCoordinator service, CancellationToken ct) =>
         {
             await service.UnlinkAsync(ct);
@@ -36,7 +45,7 @@ internal static class ResearchEndpoints
         group.MapPost("/sync", async Task<Accepted> (IResearchCoordinator service, CancellationToken ct) =>
         {
             if ((await service.StatusAsync(ct)).Account is null)
-                throw new MeldResearch.Research.ResearchFailure(401, "meld_account_required", "Link a Meld account before checking monitored projects.");
+                throw new MeldResearch.Research.ResearchFailure(401, "meld_account_required", "Sign in with Google before checking monitored projects.");
             service.RequestSync();
             return TypedResults.Accepted("/api/research/status");
         }).WithName("SyncResearchNow").WithSummary("Queue a content check; unchanged snapshots do not consume model calls.");

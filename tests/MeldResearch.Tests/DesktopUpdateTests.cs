@@ -224,7 +224,8 @@ public sealed class DesktopUpdateTests : IDisposable
     {
         public bool Busy => false;
         public Task<ResearchStatusResponse> StatusAsync(CancellationToken ct) => throw new NotSupportedException();
-        public Task<AccountLinkResponse> BeginLinkAsync(CancellationToken ct) => throw new NotSupportedException();
+        public Task<AccountLinkResponse> BeginLinkAsync(string callbackUri, CancellationToken ct) => throw new NotSupportedException();
+        public Task CompleteLinkAsync(string? code, string? state, CancellationToken ct) => throw new NotSupportedException();
         public Task UnlinkAsync(CancellationToken ct) => throw new NotSupportedException();
         public Task SetMonitoringAsync(string projectId, SetProjectMonitoringRequest request, CancellationToken ct) => throw new NotSupportedException();
         public Task ForgetAsync(string projectId, CancellationToken ct) => throw new NotSupportedException();

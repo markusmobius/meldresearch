@@ -3,6 +3,7 @@ using MeldResearch.Research;
 namespace MeldResearch.LocalBackend.Services.Research;
 
 internal sealed record LinkedCredential(MeldAccountResponse Account, string Token, DateTimeOffset ExpiresAt);
+/// <summary>Obsolete device-code link state. Kept only so research state written by earlier versions still loads.</summary>
 internal sealed record PendingDeviceLink(string DeviceCode, string Verifier, string VerificationUri, string UserCode,
     DateTimeOffset ExpiresAt, DateTimeOffset NextPollAt);
 internal sealed record MonitoredProject(Guid AccountId, string ProjectId, string Name, bool Enabled, string ConsentVersion,

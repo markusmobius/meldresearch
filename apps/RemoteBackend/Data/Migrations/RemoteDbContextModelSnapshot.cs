@@ -83,17 +83,13 @@ namespace MeldResearch.RemoteBackend.Data.Migrations
                     b.ToTable("devices", (string)null);
                 });
 
-            modelBuilder.Entity("MeldResearch.RemoteBackend.Data.DeviceGrantEntity", b =>
+            modelBuilder.Entity("MeldResearch.RemoteBackend.Data.SignInCodeEntity", b =>
                 {
-                    b.Property<string>("DeviceCodeHash")
+                    b.Property<string>("CodeHash")
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("AccessTokenHash")
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid?>("AccountId")
+                    b.Property<Guid>("AccountId")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Challenge")
@@ -101,44 +97,20 @@ namespace MeldResearch.RemoteBackend.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
-                    b.Property<long?>("CredentialExpiresAt")
-                        .HasColumnType("INTEGER");
-
                     b.Property<long>("ExpiresAt")
                         .HasColumnType("INTEGER");
-
-                    b.Property<long>("NextPollAt")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("ProtectedAccessToken")
-                        .HasColumnType("TEXT");
 
                     b.Property<string>("ProtectedName")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("UserCode")
-                        .IsRequired()
-                        .HasMaxLength(12)
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("DeviceCodeHash");
-
-                    b.HasIndex("AccessTokenHash");
+                    b.HasKey("CodeHash");
 
                     b.HasIndex("AccountId");
 
                     b.HasIndex("ExpiresAt");
 
-                    b.HasIndex("UserCode")
-                        .IsUnique();
-
-                    b.ToTable("device_grants", (string)null);
+                    b.ToTable("sign_in_codes", (string)null);
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.DataProtectionKey", b =>
@@ -169,12 +141,13 @@ namespace MeldResearch.RemoteBackend.Data.Migrations
                     b.Navigation("Account");
                 });
 
-            modelBuilder.Entity("MeldResearch.RemoteBackend.Data.DeviceGrantEntity", b =>
+            modelBuilder.Entity("MeldResearch.RemoteBackend.Data.SignInCodeEntity", b =>
                 {
                     b.HasOne("MeldResearch.RemoteBackend.Data.AccountEntity", "Account")
                         .WithMany()
                         .HasForeignKey("AccountId")
-                        .OnDelete(DeleteBehavior.Cascade);
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Account");
                 });
