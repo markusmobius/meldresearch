@@ -1,7 +1,18 @@
 import { Injectable, InjectionToken, inject } from '@angular/core';
 import { ExtensionSetup } from './overleaf-api';
 
-export type ConnectorCommand = 'status' | 'ensure' | 'connect' | 'disconnect' | 'signIn';
+export type ConnectorCommand = 'status' | 'ensure' | 'connect' | 'disconnect' | 'signIn' | 'reload';
+
+/** True when dotted version <paramref name="actual"/> is lower than <paramref name="required"/>, e.g. 0.3.0 < 0.4.0. */
+export function olderVersion(actual: string, required: string): boolean {
+  const left = actual.split('.').map(Number), right = required.split('.').map(Number);
+  for (let index = 0; index < Math.max(left.length, right.length); index++) {
+    const a = left[index] ?? 0, b = right[index] ?? 0;
+    if (Number.isNaN(a) || Number.isNaN(b)) return false;
+    if (a !== b) return a < b;
+  }
+  return false;
+}
 
 export interface ConnectorState {
   extensionVersion: string;

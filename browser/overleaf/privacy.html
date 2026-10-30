@@ -21,7 +21,7 @@
       <header class="page-header">
         <div class="page-heading">
           <h1 class="page-title"><span class="material-icons site-only" aria-hidden="true">shield</span>Privacy &amp; Controls</h1>
-          <p class="page-subtitle">Last updated: October 2026 &middot; Meld Research and its Overleaf connector, version 0.3.0</p>
+          <p class="page-subtitle">Last updated: October 2026 &middot; Meld Research and its Overleaf connector, version 0.4.0</p>
         </div>
       </header>
 
@@ -65,8 +65,11 @@
                 collaborators put in them.</li>
               <li><strong>Overleaf tab information:</strong> the connector checks matching Overleaf tab URLs and loading state to reuse a
                 tab or detect completion of sign-in. It does not record your general browsing history or inspect unrelated websites.</li>
-              <li><strong>A local preference:</strong> whether auto-connect is enabled or paused is saved in this browser profile.
-                Connection state is held in memory.</li>
+              <li><strong>Overleaf sign-in status:</strong> while the connector popup is open, it requests your Overleaf project page
+                to learn only whether Overleaf redirects to its sign-in page. The page content is discarded unread and nothing is sent
+                to Meld.</li>
+              <li><strong>A local preference:</strong> whether the connector is connected or disconnected is saved in this browser
+                profile. Connection state is held in memory.</li>
               <li><strong>Research processing:</strong> selected UTF-8 source text, file paths and hashes, before/after snapshots,
                 extracted facts, citations, and embeddings. PDF and image contents are not analyzed by this version.</li>
               <li><strong>Meld account and device information:</strong> a verified Google account identifier, name and email, approved
@@ -142,8 +145,9 @@
               stops local processing and requests remote credential revocation, retrying if the service is unavailable.
               <strong>Forget local research</strong> removes that project's indexed sources, knowledge, and update history for the
               linked account.</p>
-            <p><strong>Pause auto-connect</strong> in Meld or the connector popup stops the browser connection and remains paused after
-              browser restarts. You can also disable or remove the extension in Chrome. These actions do not delete ZIPs already
+            <p><strong>Disconnect</strong> in the connector popup, or <strong>Pause auto-connect</strong> in Meld, stops the browser
+              connection and remains in effect after browser restarts. You can also disable or remove the extension in Chrome. These
+              actions do not delete ZIPs already
               stored by the desktop companion.</p>
             <p>To delete local research data, stop Meld and remove the relevant files in the <code>downloads</code> and
               <code>incoming</code> subdirectories of its data folder. To remove all accounts' local research indexes and credentials,

@@ -24,6 +24,21 @@ public sealed class ProjectParserTests
     }
 
     [Fact]
+    public async Task ListsTheMostRecentlyUpdatedProjectsFirstLikeOverleaf()
+    {
+        using var html = Page("""
+            {"projects":[
+              {"id":"0123456789abcdef01234567","name":"A older","archived":false,"trashed":false,"lastUpdated":"2025-01-01T00:00:00Z"},
+              {"id":"1123456789abcdef01234567","name":"Z newest","archived":false,"trashed":false,"lastUpdated":"2026-10-30T09:00:00Z"},
+              {"id":"2123456789abcdef01234567","name":"B undated","archived":false,"trashed":false,"lastUpdated":null},
+              {"id":"3123456789abcdef01234567","name":"M middle","archived":false,"trashed":false,"lastUpdated":"2026-10-30T10:00:00+02:00"}
+            ]}
+            """);
+        var result = await ProjectParser.ParseAsync(html, CancellationToken.None);
+        Assert.Equal(["Z newest", "M middle", "A older", "B undated"], result.Select(project => project.Name));
+    }
+
+    [Fact]
     public async Task AcceptsAnExplicitlyEmptyProjectList()
     {
         using var html = Page("""{"projects":[]}""");

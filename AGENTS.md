@@ -155,9 +155,12 @@ Use .NET 10, Node 24/npm and PowerShell 7. Run from this repository's root, e.g.
   restore the removed application Playwright approach. Use the normal browser
   and connector; never execute downloaded TeX.
 - Current Chrome identity: `pejcljoimoeklelcfbfddnkimlkjgfhe`; extension version
-  `0.3.0`, native protocol `2`. Identity derives from the public manifest key,
+  `0.4.0`, native protocol `2`. Identity derives from the public manifest key,
   not a secret signing key. Update related identity/handshake checks together;
   compatible extension releases need not have identical version numbers.
+- Bump the connector manifest version whenever extension files change: installed
+  Meld mirrors the connector to `<install root>\connector`, asks older connectors
+  to reload, and otherwise holds the app on Account → Overleaf with update steps.
 - Browser installation needs user approval. Installer-guided store installation
   is supported; silent consumer installation/policy bypass is not.
 - Research state uses AES-GCM with Windows DPAPI/macOS Keychain protection.

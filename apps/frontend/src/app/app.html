@@ -91,7 +91,7 @@
               [attr.aria-selected]="setupTab() === 'overleaf'" (click)="chooseTab('overleaf')">
               <mat-icon>link</mat-icon>
               <span class="setup-tab-text"><strong>Overleaf</strong><small>{{ connectionLabel() }}</small></span>
-              <mat-icon class="setup-state" [class.done]="verified()">{{ verified() ? 'check_circle' : 'radio_button_unchecked' }}</mat-icon>
+              <mat-icon class="setup-state" [class.done]="verified() && !connectorStale()">{{ verified() && !connectorStale() ? 'check_circle' : 'radio_button_unchecked' }}</mat-icon>
             </button>
           </nav>
 
@@ -136,29 +136,35 @@
                 <p class="muted">Synthetic Overleaf evidence from the local backend; no browser profile or private project is used.</p>
               } @else {
                 <p class="muted">Reads Overleaf through your normal Chrome or Edge sign-in. No passwords or cookie exports.</p>
-                @if (connectorMessage()) { <p class="notice compact" role="status">{{ connectorMessage() }}</p> }
-                <div class="controls">
-                  @if (!verified()) {
-                    <button mat-flat-button class="connect-button" (click)="connect()"
-                      [disabled]="connectorBusy() || !setup() || connector()?.kind === 'unsupported'">
-                      <mat-icon>link</mat-icon>{{ connectorBusy() ? 'Connecting...' : connected() && signInRequired() ? 'Sign in to Overleaf' :
-                        browserState()?.enabled === false ? 'Resume auto-connect' : 'Connect Overleaf' }}
-                    </button>
+                @if (connectorStale()) {
+                  <p class="notice compact update-notice" role="status"><mat-icon>system_update</mat-icon>
+                    <span>Your browser connector is out of date ({{ browserState()?.extensionVersion }}; this Meld needs
+                    {{ setup()?.extensionVersion }}). Load the new copy once below; after that it updates itself.</span></p>
+                } @else {
+                  @if (connectorMessage()) { <p class="notice compact" role="status">{{ connectorMessage() }}</p> }
+                  <div class="controls">
+                    @if (!verified()) {
+                      <button mat-flat-button class="connect-button" (click)="connect()"
+                        [disabled]="connectorBusy() || !setup() || connector()?.kind === 'unsupported'">
+                        <mat-icon>link</mat-icon>{{ connectorBusy() ? 'Connecting...' : connected() && signInRequired() ? 'Sign in to Overleaf' :
+                          browserState()?.enabled === false ? 'Resume auto-connect' : 'Connect Overleaf' }}
+                      </button>
+                    }
+                    @if (browserState() && !signInRequired()) {
+                      <button mat-button (click)="connectorAction('signIn')" [disabled]="connectorBusy()">Sign in to Overleaf</button>
+                    }
+                    @if (browserState()?.enabled) {
+                      <button mat-button (click)="connectorAction('disconnect')" [disabled]="connectorBusy()">Pause auto-connect</button>
+                    }
+                  </div>
+                  @if (browserState()?.signInPending) {
+                    <p class="muted">Finish signing in in the Overleaf tab; your projects load automatically.</p>
+                  } @else if (verified()) {
+                    <p class="muted">Connected. Keep your browser running for background project reads.</p>
                   }
-                  @if (browserState() && !signInRequired()) {
-                    <button mat-button (click)="connectorAction('signIn')" [disabled]="connectorBusy()">Sign in to Overleaf</button>
-                  }
-                  @if (browserState()?.enabled) {
-                    <button mat-button (click)="connectorAction('disconnect')" [disabled]="connectorBusy()">Pause auto-connect</button>
-                  }
-                </div>
-                @if (browserState()?.signInPending) {
-                  <p class="muted">Finish signing in in the Overleaf tab; your projects load automatically.</p>
-                } @else if (verified()) {
-                  <p class="muted">Connected. Keep your browser running for background project reads.</p>
                 }
-                <mat-expansion-panel class="installation" [expanded]="setupNeeded()">
-                  <mat-expansion-panel-header><mat-panel-title>Install the browser connector (one time)</mat-panel-title></mat-expansion-panel-header>
+                <mat-expansion-panel class="installation" [expanded]="setupNeeded() || connectorStale()">
+                  <mat-expansion-panel-header><mat-panel-title>{{ connectorStale() ? 'Update the browser connector' : 'Install the browser connector (one time)' }}</mat-panel-title></mat-expansion-panel-header>
                   <ol class="setup-steps">
                     @if (setup()?.storePublished) {
                       <li><span class="step-text">Add the connector from the Chrome Web Store</span>
@@ -167,7 +173,12 @@
                       <li><span class="step-text">Open a new tab and go to <code>{{ extensionsPage }}</code></span>
                         <button mat-stroked-button class="step-action copy-address" (click)="copy(extensionsPage)">
                           <mat-icon>{{ copied() === extensionsPage ? 'check' : 'content_copy' }}</mat-icon>{{ copied() === extensionsPage ? 'Copied' : 'Copy address' }}</button></li>
-                      <li><span class="step-text">Turn on <strong>Developer mode</strong>, choose <strong>Load unpacked</strong> and paste the folder</span>
+                      <li><span class="step-text">
+                        @if (connectorStale()) {
+                          On <strong>Meld Research - Overleaf connection</strong> choose <strong>Remove</strong>, then <strong>Load unpacked</strong> and paste the folder
+                        } @else {
+                          Turn on <strong>Developer mode</strong>, choose <strong>Load unpacked</strong> and paste the folder
+                        }</span>
                         @if (setup()?.developmentDirectory; as directory) {
                           <button mat-stroked-button class="step-action copy-folder" (click)="copy(directory)" [title]="directory">
                             <mat-icon>{{ copied() === directory ? 'check' : 'content_copy' }}</mat-icon>{{ copied() === directory ? 'Copied' : 'Copy folder' }}</button>
@@ -177,8 +188,10 @@
                       <button mat-stroked-button class="step-action reload-button" (click)="reload()"><mat-icon>refresh</mat-icon>Reload</button></li>
                   </ol>
                   @if (setupNote()) { <p class="muted" role="status">{{ setupNote() }}</p> }
-                  <p class="hint">Already installed? Reload the connector on the extensions page, then reload here.
-                    @if (setup(); as info) { Connector {{ info.extensionVersion }}. }</p>
+                  @if (!connectorStale()) {
+                    <p class="hint">Already installed? Reload the connector on the extensions page, then reload here.
+                      @if (setup(); as info) { Connector {{ info.extensionVersion }}. }</p>
+                  }
                 </mat-expansion-panel>
               }
             </mat-card-content>

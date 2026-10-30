@@ -146,7 +146,7 @@ test('builds and exercises the exact Chrome draft-upload package', { timeout: 12
         encoding: 'utf8', windowsHide: true, timeout: 60000,
       });
       assert.equal(result.status, 0, result.error?.message ?? result.stdout + result.stderr);
-      assert.match(result.stdout, /pass 34/);
+      assert.match(result.stdout, /pass 38/);
       assert.match(result.stdout, /fail 0/);
     });
 

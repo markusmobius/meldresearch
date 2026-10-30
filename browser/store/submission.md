@@ -158,7 +158,9 @@ the companion download is available:
    **Sign in to Overleaf** and finish loading the project page.
 5. Select the synthetic project and choose **Download ZIP**. Verify a saved
    snapshot and **Save ZIP copy**. The original Overleaf project is unchanged.
-6. Pause auto-connect, restart Chrome, and confirm it stays paused. Resume it;
+6. Open the connector popup: signed out of Overleaf it offers only **Sign in to
+   Overleaf**; signed in it offers **Connect** or **Disconnect**. Choose
+   Disconnect, restart Chrome, and confirm it stays disconnected. Connect again;
    then restart only Meld and verify automatic reconnection without reopening
    the extension popup.
 7. With Overleaf signed out, verify that a read reports sign-in required,

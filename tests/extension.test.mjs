@@ -128,7 +128,7 @@ test('automatically connects without a popup and creates a repeating reconnect a
     assert.equal(state.connected, true);
     assert.equal(state.enabled, true);
     assert.equal(state.protocolVersion, 2);
-    assert.equal(state.extensionVersion, '0.3.0');
+    assert.equal(state.extensionVersion, '0.4.0');
     assert.equal(harness.alarms.get('meld-native-reconnect').periodInMinutes, 1);
     assert.equal(harness.requests.length, 0, 'Connecting alone must not read Overleaf.');
     assert.equal(harness.tabActions.length, 0, 'Passive startup must not steal focus.');
@@ -303,6 +303,62 @@ test('reports a closed sign-in tab and never treats it as authentication success
     assert.equal(state.errorCode, 'sign_in_closed');
     assert.equal(state.signInPending, false);
     assert.equal(messages.length, 0);
+  } finally { await harness.close(); }
+});
+
+test('the popup learns Overleaf sign-in from the final URL only, caches it, and Meld pages cannot trigger it', async () => {
+  let signedIn = false;
+  const { harness } = await connected(async () => response(''), {
+    overleafFetch: async () => signedIn ? response('<p>BODY-SENTINEL</p>')
+      : response('', { url: 'https://www.overleaf.com/login?redir=%2Fproject' }),
+  });
+  try {
+    assert.equal((await harness.send({ type: 'status' })).overleafSignedIn, null);
+    assert.equal((await harness.external({ type: 'popup' })).error, 'unauthorized_request');
+    assert.equal(harness.backgroundRequests.length, 0, 'Meld pages and status polling must not contact Overleaf.');
+    assert.equal((await harness.send({ type: 'popup', refresh: true })).overleafSignedIn, false);
+    const [request] = harness.backgroundRequests;
+    assert.equal(request.url, 'https://www.overleaf.com/project');
+    assert.equal(request.options.method, 'GET');
+    assert.equal(request.options.credentials, 'include');
+    signedIn = true;
+    assert.equal((await harness.send({ type: 'popup' })).overleafSignedIn, false, 'Polling reuses a recent result.');
+    assert.equal(harness.backgroundRequests.length, 1);
+    const state = await harness.send({ type: 'popup', refresh: true });
+    assert.equal(state.overleafSignedIn, true);
+    assert.equal(JSON.stringify(state).includes('BODY-SENTINEL'), false);
+    assert.equal(harness.requests.length, 0, 'The check does not read projects.');
+  } finally { await harness.close(); }
+});
+
+test('an unreachable Overleaf is reported as unknown, never as signed in', async () => {
+  for (const overleafFetch of [async () => { throw new TypeError('offline'); },
+    async () => response('', { status: 503 })]) {
+    const { harness } = await connected(async () => response(''), { overleafFetch });
+    try {
+      assert.equal((await harness.send({ type: 'popup', refresh: true })).overleafSignedIn, null);
+    } finally { await harness.close(); }
+  }
+});
+
+test('completed sign-in marks Overleaf as signed in for the popup', async () => {
+  const { harness } = await connected(async () => response(''));
+  try {
+    await harness.external({ type: 'signIn' });
+    assert.equal((await harness.send({ type: 'popup' })).overleafSignedIn, true);
+    assert.equal(harness.backgroundRequests.length, 0);
+  } finally { await harness.close(); }
+});
+
+test('the Meld page can ask the connector to reload into an updated copy, but untrusted pages cannot', async () => {
+  const { harness } = await connected(async () => response(''));
+  try {
+    assert.equal((await harness.external({ type: 'reload' }, { url: 'https://evil.invalid/', frameId: 0 })).error, 'unauthorized_request');
+    await new Promise(resolve => setTimeout(resolve, 200));
+    assert.equal(harness.reloads.length, 0);
+    const state = await harness.external({ type: 'reload' });
+    assert.equal(state.extensionVersion, '0.4.0', 'The reply is sent before the extension reloads.');
+    await waitUntil(() => harness.reloads.length === 1, 'extension reload');
   } finally { await harness.close(); }
 });
 

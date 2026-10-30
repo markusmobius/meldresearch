@@ -116,6 +116,39 @@ describe('Overleaf connection screen', () => {
     fixture.destroy();
   });
 
+  it('asks an older connector to reload once and otherwise shows the update steps instead of the feed', async () => {
+    const session = new Map<string, string>();
+    vi.stubGlobal('sessionStorage', {
+      getItem: (key: string) => session.get(key) ?? null, setItem: (key: string, value: string) => session.set(key, value),
+    });
+    api.extension.mockResolvedValue({ ...setup, extensionVersion: '0.4.0' });
+    browser.send.mockResolvedValue(connector(true));
+    api.status.mockResolvedValue(status(true));
+    const fixture = await screen('home');
+    const element: HTMLElement = fixture.nativeElement;
+    await vi.waitFor(() => expect(browser.send).toHaveBeenCalledWith(expect.anything(), 'reload'));
+    expect(fixture.componentInstance.connectorStale()).toBe(true);
+    expect(fixture.componentInstance.view()).toBe('account');
+    fixture.detectChanges();
+    expect(element.querySelector('.setup-tab[aria-selected="true"]')?.textContent).toContain('Connector update needed');
+    expect(element.querySelector('.update-notice')?.textContent).toContain('0.3.0; this Meld needs 0.4.0');
+    expect(element.querySelector('.installation mat-panel-title')?.textContent).toContain('Update the browser connector');
+    expect(element.querySelector('.setup-steps')?.textContent).toContain('Remove');
+    expect(element.querySelector('a[aria-label="Feed"]')).toBeNull();
+
+    vi.advanceTimersByTime(3000);
+    await vi.waitFor(() => expect(browser.send.mock.calls.filter(call => call[1] === 'ensure').length).toBeGreaterThan(1));
+    expect(browser.send.mock.calls.filter(call => call[1] === 'reload')).toHaveLength(1);
+
+    const current = connector(true);
+    current.state.extensionVersion = '0.4.0';
+    browser.send.mockResolvedValue(current);
+    vi.advanceTimersByTime(3000);
+    await vi.waitFor(() => expect(fixture.componentInstance.connectorStale()).toBe(false));
+    expect(fixture.componentInstance.view()).toBe('home');
+    fixture.destroy();
+  });
+
   it('uses the Meld Material toolbar, working tabs and More menu instead of a landing dashboard', async () => {
     const fixture = await screen('home');
     const element: HTMLElement = fixture.nativeElement;

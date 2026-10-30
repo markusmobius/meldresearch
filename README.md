@@ -156,7 +156,7 @@ available in Live mode. Listing/manual ZIP downloads remain available separately
 from account-gated model processing.
 
 The source manifest now uses the supplied Chrome draft public key:
-**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.3.0**, wire protocol **2**.
+**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.4.0**, wire protocol **2**.
 It is a public identity key, not a signing secret.
 
 Until the private listing is approved, remove the old development-ID unpacked
@@ -166,9 +166,25 @@ Meld. A published store installation still requires one browser approval.
 Native registration is automatic; silent consumer extension installation is not.
 
 Normal use does not require the extension popup. The connector reconnects on
-startup, uses a one-minute fallback alarm, respects a persistent pause preference,
-and creates background Overleaf tabs without stealing focus. Explicit sign-in
-opens a normal tab. One browser/profile can connect at a time.
+startup, uses a one-minute fallback alarm, respects a persistent Disconnect
+preference, and creates background Overleaf tabs without stealing focus. Explicit
+sign-in opens a normal tab. One browser/profile can connect at a time. The popup
+offers only **Sign in to Overleaf** until Overleaf is signed in, then **Connect** or
+**Disconnect**.
+
+### Connector updates
+
+Chrome keeps loading an unpacked extension from the folder it was given, while each
+desktop release lives in its own folder that later updates delete. An installed Meld
+therefore mirrors its connector to the stable folder `<install root>\connector`
+(Windows: `%LOCALAPPDATA%\MeldResearch\App\connector`) at startup, and setup points
+**Load unpacked** there. When the running connector reports an older version than
+the release ships, the Meld page asks it once per tab to reload itself from that
+folder. If it is still older afterwards (loaded from an old release folder, or 0.3.0,
+which cannot reload on request), Meld opens Account → Overleaf with update steps
+instead of the feed. **Bump the manifest version whenever connector files change**;
+the version is what Meld compares. A store-published connector updates through the
+Chrome Web Store instead.
 
 ## Updates-only ingestion
 

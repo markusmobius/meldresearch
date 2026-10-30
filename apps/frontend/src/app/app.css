@@ -52,6 +52,8 @@ mat-card-avatar { color: #084d42; }
 .setup-steps span.step-action { font-size: 12px; text-align: center; }
 .hint { margin: 8px 0 0; color: #94a3b8; font-size: 12px; }
 .notice.compact { padding: 6px 10px; margin: 8px 0; font-size: 12.5px; }
+.update-notice { display: flex; gap: 8px; align-items: flex-start; }
+.update-notice mat-icon { flex: none; font-size: 20px; width: 20px; height: 20px; color: #8a5a00; }
 
 .install-tip {
   position: fixed; top: 12px; right: 24px; z-index: 1100; display: flex; flex-direction: column; gap: 8px; max-width: 320px;

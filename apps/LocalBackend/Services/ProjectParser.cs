@@ -48,7 +48,10 @@ internal static partial class ProjectParser
                 if (!archived && !trashed)
                     results.Add(new(id!.ToLowerInvariant(), name, updatedAt));
             }
-            return results.OrderBy(project => project.Name, StringComparer.OrdinalIgnoreCase).ToArray();
+            // Like Overleaf's own list: most recently updated first; undated projects last, then by name.
+            return results.OrderByDescending(project => project.UpdatedAt.HasValue)
+                .ThenByDescending(project => project.UpdatedAt)
+                .ThenBy(project => project.Name, StringComparer.OrdinalIgnoreCase).ToArray();
         }
         catch (Exception exception) when (exception is JsonException or InvalidDataException or
             KeyNotFoundException or InvalidOperationException or FormatException)

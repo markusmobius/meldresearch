@@ -5,7 +5,7 @@ import { MatCardModule } from '@angular/material/card';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSidenavModule } from '@angular/material/sidenav';
-import { BrowserConnector, ConnectorResult } from './browser-connector';
+import { BrowserConnector, ConnectorResult, olderVersion } from './browser-connector';
 import { BridgeStatus, Download, ExtensionSetup, OverleafApi, OverleafProject, describeFailure, needsOverleafSignIn } from './overleaf-api';
 import { ResearchPanel } from './research-panel';
 import { ResearchApi, ResearchStatus } from './research-api';
@@ -18,6 +18,8 @@ function readOverleafConfirmed(): string | null {
   try { return localStorage.getItem(overleafConfirmedKey); } catch { return null; }
 }
 const installDismissedKey = 'meldresearch.installTipDismissed';
+/** The connector version this tab already asked an older connector to reload into, so a failed reload is not repeated. */
+const reloadRequestedKey = 'meldresearch.connectorReloadRequested';
 /** Chrome/Edge's deferred install prompt (not in the TypeScript DOM library). */
 interface InstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -62,6 +64,11 @@ export class App implements OnInit {
   readonly connected = computed(() => !!this.status()?.connected && !!this.browserState()?.connected);
   readonly verified = computed(() => this.connected() && this.loadedVersion() !== null &&
     this.loadedVersion() === this.status()?.connectionVersion);
+  /** The browser still runs an older connector than this Meld release ships. */
+  readonly connectorStale = computed(() => {
+    const state = this.browserState(), setup = this.setup();
+    return !!state && !!setup && !this.status()?.dummy && olderVersion(state.extensionVersion, setup.extensionVersion);
+  });
   readonly setupNeeded = computed(() => {
     const kind = this.connector()?.kind;
     return this.showSetup() || kind === 'missing' || kind === 'outdated' || kind === 'unsupported';
@@ -75,7 +82,7 @@ export class App implements OnInit {
     if (!this.status()) return 'Local backend unavailable';
     if (!this.connector()) return 'Checking browser connector';
     if (this.connector()?.kind === 'missing') return 'One-time setup needed';
-    if (this.connector()?.kind === 'outdated') return 'Connector update needed';
+    if (this.connector()?.kind === 'outdated' || this.connectorStale()) return 'Connector update needed';
     if (this.connector()?.kind === 'unsupported') return 'Chrome or Edge required';
     if (this.browserState()?.enabled === false) return 'Auto-connect paused';
     if (this.browserState()?.signInPending) return 'Finish signing in to Overleaf';
@@ -103,7 +110,7 @@ export class App implements OnInit {
   readonly accountLinked = computed(() => !!this.research()?.account);
   readonly overleafReady = computed(() => this.verified() ||
     (!!this.research()?.account && this.overleafConfirmedFor() === this.research()?.account?.id));
-  readonly setupComplete = computed(() => this.accountLinked() && this.overleafReady());
+  readonly setupComplete = computed(() => this.accountLinked() && this.overleafReady() && !this.connectorStale());
   readonly setupTab = computed<SetupTab>(() => this.chosenTab() ?? (this.accountLinked() ? 'overleaf' : 'meld'));
   readonly view = computed<LocalPage>(() => this.setupKnown() && this.setupComplete() ? this.page() : 'account');
 
@@ -186,6 +193,7 @@ export class App implements OnInit {
         const version = this.commandVersion;
         const result = await this.browser.send(setup, 'ensure');
         if (version === this.commandVersion) this.connector.set(result);
+        this.requestConnectorReload(setup);
       }
       this.connectionError.set('');
       const version = this.status()?.connectionVersion;
@@ -199,6 +207,19 @@ export class App implements OnInit {
     } finally {
       this.polling = false;
     }
+  }
+
+  /**
+   * A connector loaded from Meld's stable connector folder updates by reloading itself. Asked once per tab and version:
+   * if it is still older afterwards (loaded from elsewhere, or too old to reload), the Overleaf tab shows update steps.
+   */
+  private requestConnectorReload(setup: ExtensionSetup): void {
+    if (!this.connectorStale()) return;
+    try {
+      if (sessionStorage.getItem(reloadRequestedKey) === setup.extensionVersion) return;
+      sessionStorage.setItem(reloadRequestedKey, setup.extensionVersion);
+    } catch { return; }
+    void this.browser.send(setup, 'reload');
   }
 
   async connect(): Promise<void> {

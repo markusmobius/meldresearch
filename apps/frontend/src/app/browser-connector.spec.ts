@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { BrowserConnector, ConnectorState, EXTENSION_RUNTIME, ExtensionRuntime } from './browser-connector';
+import { BrowserConnector, ConnectorState, EXTENSION_RUNTIME, ExtensionRuntime, olderVersion } from './browser-connector';
 import { ExtensionSetup } from './overleaf-api';
 
 describe('Browser connector messaging', () => {
@@ -92,5 +92,13 @@ describe('Browser connector messaging', () => {
     try {
       expect((await TestBed.inject(BrowserConnector).send(setup, 'ensure')).kind).toBe('missing');
     } finally { agent.mockRestore(); }
+  });
+
+  it('compares dotted connector versions numerically', () => {
+    expect(olderVersion('0.3.0', '0.4.0')).toBe(true);
+    expect(olderVersion('0.9.0', '0.10.0')).toBe(true);
+    expect(olderVersion('0.4', '0.4.0')).toBe(false);
+    expect(olderVersion('0.5.0', '0.4.0')).toBe(false);
+    expect(olderVersion('dev', '0.4.0')).toBe(false);
   });
 });

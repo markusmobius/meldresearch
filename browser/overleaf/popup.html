@@ -8,13 +8,12 @@
 </head>
 <body>
   <h1><img class="brand-icon" src="icons/icon-48.png" width="32" height="32" alt="">Meld Research</h1>
-  <p>Your browser reconnects to Meld automatically. Requires the Meld Research desktop application.</p>
-  <p id="status" role="status">Checking connection...</p>
-  <button id="connect" type="button">Connect / resume</button>
-  <button id="open-app" type="button" disabled>Open local application</button>
-  <button id="overleaf" type="button">Sign in to Overleaf</button>
-  <button id="disconnect" type="button" disabled>Pause auto-connect</button>
-  <small>Read-only access. Cookies stay in your browser. Pausing is remembered after a browser restart.</small>
+  <p>Connects Overleaf to Meld Research. Requires the Meld Research desktop application.</p>
+  <p id="status" role="status">Checking Overleaf sign-in...</p>
+  <button id="overleaf" class="primary" type="button" hidden>Sign in to Overleaf</button>
+  <button id="connect" class="primary" type="button" hidden>Connect</button>
+  <button id="disconnect" type="button" hidden>Disconnect</button>
+  <small>Read-only access. Cookies stay in your browser. Disconnecting is remembered after a browser restart.</small>
   <p class="privacy-link"><a href="privacy.html" target="_blank" rel="noopener noreferrer">Privacy and data use</a></p>
   <script src="popup.js"></script>
 </body>

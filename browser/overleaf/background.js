@@ -15,6 +15,8 @@ let connectionTimer = null;
 let retryAfter = 0;
 let signInTabId = null;
 let openAfterConnect = false;
+let overleafSignedIn = null;
+let overleafCheckedAt = 0;
 
 const messages = {
   backend_unavailable: 'Waiting for Meld. Start or restart the local application; reconnection is automatic.',
@@ -39,6 +41,7 @@ function state() {
     connecting,
     localUrl,
     signInPending: signInTabId !== null,
+    overleafSignedIn,
     errorCode: errorCode || null,
     error: messages[errorCode] ?? '',
   };
@@ -273,7 +276,27 @@ function signInCompleted(tab) {
   if (tab.id !== signInTabId || tab.status !== 'complete' || !isProjectPage(tab.url)) return;
   signInTabId = null;
   errorCode = '';
+  overleafSignedIn = true;
+  overleafCheckedAt = Date.now();
   postNative({ type: 'overleafChanged' });
+}
+
+// Only for the popup: learns whether Overleaf redirects its project page to sign-in. The body is never read.
+async function checkOverleaf(force) {
+  if (!force && Date.now() - overleafCheckedAt < 10000) return;
+  overleafCheckedAt = Date.now();
+  try {
+    const response = await fetch(`${overleafOrigin}/project`, {
+      method: 'GET', credentials: 'include', cache: 'no-store', redirect: 'follow',
+    });
+    void response.body?.cancel().catch(() => {});
+    const url = new URL(response.url);
+    if (url.origin !== overleafOrigin || /^\/(?:login|register)(?:\/|$)/.test(url.pathname)) overleafSignedIn = false;
+    else if (response.ok) overleafSignedIn = true;
+    else overleafSignedIn = null;
+  } catch {
+    overleafSignedIn = null;
+  }
 }
 
 async function openSignIn() {
@@ -306,6 +329,10 @@ async function command(message) {
   switch (message.type) {
     case 'status': break;
     case 'ensure': await tryConnect(); break;
+    case 'popup':
+      await tryConnect();
+      await checkOverleaf(message.refresh === true);
+      break;
     case 'connect':
       if (await setEnabled(true)) await tryConnect(true);
       break;
@@ -315,7 +342,10 @@ async function command(message) {
       await tryConnect(true);
       await openSignIn();
       break;
-    case 'openApp': await openLocalApp(); break;
+    // An updated desktop app rewrites the connector's stable folder; reloading the extension picks up those files.
+    case 'reload':
+      background(async () => { await new Promise(resolve => setTimeout(resolve, 100)); chrome.runtime.reload(); });
+      break;
     default: errorCode = 'invalid_request';
   }
   return state();
@@ -338,7 +368,7 @@ function isMeldPage(sender) {
 
 chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
   if (!isMeldPage(sender) || !message || Object.keys(message).length !== 1 ||
-      !['status', 'ensure', 'connect', 'disconnect', 'signIn'].includes(message.type)) {
+      !['status', 'ensure', 'connect', 'disconnect', 'signIn', 'reload'].includes(message.type)) {
     respond({ error: 'unauthorized_request' });
     return false;
   }

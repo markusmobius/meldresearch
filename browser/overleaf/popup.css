@@ -5,7 +5,8 @@ h1 { font-size: 22px; margin: 0; }
 p { margin: 12px 0; }
 #status { padding: 10px; background: #e6efec; border-radius: 7px; overflow-wrap: anywhere; }
 button { display: block; width: 100%; margin: 8px 0; padding: 10px; cursor: pointer; border: 1px solid #97b6a9; border-radius: 7px; background: white; color: #183142; font: inherit; }
-#connect { color: white; background: var(--brand-accent); border-color: var(--brand-accent); }
+button[hidden] { display: none; }
+button.primary { color: white; background: var(--brand-accent); border-color: var(--brand-accent); }
 button:disabled { opacity: .5; cursor: default; }
 small { display: block; margin-top: 16px; }
 a { color: var(--brand-accent); }

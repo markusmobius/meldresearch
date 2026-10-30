@@ -69,6 +69,8 @@ builder.Services.AddSingleton<DesktopUpdater>();
 builder.Services.AddHostedService(services => services.GetRequiredService<DesktopUpdater>());
 
 var app = builder.Build();
+// Mirrors an installed connector to its stable folder now, so a browser restart picks up an updated connector.
+app.Services.GetRequiredService<IExtensionSetupService>().GetSetup();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.Use(async (context, next) =>

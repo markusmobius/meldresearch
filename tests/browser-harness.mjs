@@ -54,16 +54,18 @@ export function response(body, { status = 200, type = 'text/html', url = 'https:
 }
 
 export function browserHarness({
-  nativePort, fetch: fetchResponse, permitted = true, storage = {}, storageError = false,
+  nativePort, fetch: fetchResponse, overleafFetch, permitted = true, storage = {}, storageError = false,
   tabs = [{ id: 1, windowId: 1, active: true, incognito: false, status: 'complete', url: 'https://www.overleaf.com/project' }],
   now = () => Date.now(),
 }) {
   const requests = [];
+  const backgroundRequests = [];
   const warnings = [];
   const tabActions = [];
   const windowActions = [];
   const alarms = new Map();
   const nativePorts = [];
+  const reloads = [];
   const timers = new Set();
   const runtimeMessages = event();
   const externalMessages = event();
@@ -81,7 +83,7 @@ export function browserHarness({
   const chrome = {
     runtime: {
       id: extensionId, lastError: undefined, onMessage: runtimeMessages, onMessageExternal: externalMessages,
-      onStartup: event(), onInstalled: event(), getManifest: () => manifest,
+      onStartup: event(), onInstalled: event(), getManifest: () => manifest, reload: () => { reloads.push(Date.now()); },
       connectNative: name => { const port = nativePort(name); nativePorts.push(port); return port; },
     },
     permissions: {
@@ -144,6 +146,11 @@ export function browserHarness({
   };
   vm.runInNewContext(backgroundSource, {
     chrome, URL, clearTimeout,
+    fetch: async (url, options) => {
+      backgroundRequests.push({ url, options });
+      if (!overleafFetch) throw new Error('Synthetic background fetch is not configured.');
+      return overleafFetch(url, options);
+    },
     Date: class extends Date { static now() { return now(); } },
     setTimeout: (callback, delay) => {
       const timer = setTimeout(callback, delay);
@@ -164,7 +171,7 @@ export function browserHarness({
     chrome.tabs.onUpdated.emit(id, changes, { ...tab });
   }
   return {
-    send, external, requests, warnings, chrome, tabs, tabActions, windowActions, alarms, storage, updateTab,
+    send, external, requests, backgroundRequests, reloads, warnings, chrome, tabs, tabActions, windowActions, alarms, storage, updateTab,
     close: () => send({ type: 'disconnect' }),
     dispose: () => { for (const port of nativePorts) port.disconnect(); for (const timer of timers) clearTimeout(timer); },
   };
