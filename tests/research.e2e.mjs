@@ -245,6 +245,29 @@ async function verifyGoogleSignIn() {
   await new Promise(resolve => server.once('exit', resolve));
 }
 
+async function verifyRemoteSession(base) {
+  const browser = client(base);
+  const login = await browser('/auth/dummy', { method: 'POST', form: {
+    __RequestVerificationToken: formToken(await (await browser('/')).text()) } });
+  assert.equal(login.status, 302);
+  assert.equal((await browser('/docs.html')).status, 200);
+  const home = await (await browser('/')).text();
+  assert.match(home, /Signed in as Demo Researcher/, 'Home must reflect the existing session after visiting Docs.');
+  assert.doesNotMatch(home, /Use the synthetic test account/);
+  const account = await browser('/account');
+  assert.equal(account.status, 200);
+  const accountHtml = await account.text();
+  assert.match(accountHtml, /<app-meld-install>/, 'The account page offers the install card.');
+  assert.ok(accountHtml.includes(`irm -useb ${base}/api/install/windows | iex`), 'Without JavaScript the install command remains visible.');
+  assert.doesNotMatch(accountHtml, /href="\/downloads\//);
+  const signOut = await browser('/auth/signout', { method: 'POST', form: { __RequestVerificationToken: formToken(accountHtml) } });
+  assert.equal(signOut.status, 302);
+  assert.equal(signOut.headers.get('location'), '/');
+  assert.equal((await browser('/account')).status, 401, 'Signing out ends the session.');
+  assert.match(await (await browser('/')).text(), /Use the synthetic test account/);
+  assert.equal((await client(base)('/auth/signout', { method: 'POST', form: {} })).status, 403, 'Sign-out keeps antiforgery protection.');
+}
+
 async function publishSyntheticUpdate(directory) {
   await mkdir(directory, { recursive: true });
   const pkg = Buffer.from('synthetic desktop package bytes');
@@ -274,6 +297,17 @@ async function verifyUpdateEndpoints(base, published) {
   assert.equal((await anonymous(`/api/updates/win-x64/package/${'c'.repeat(64)}`)).status, 404,
     'Only the release named by the current manifest is served.');
   assert.equal((await anonymous('/downloads/win-x64')).status, 401, 'Website downloads still require an account.');
+  for (const [platform, file, command] of [['windows', 'meldresearch-install.ps1', 'Install-Meld.ps1'], ['macos', 'meldresearch-install.sh', 'Install-Meld.command']]) {
+    const installer = await anonymous(`/api/install/${platform}`);
+    assert.equal(installer.status, 200, 'The one-line installer is fetched without a browser session.');
+    assert.match(installer.headers.get('content-type'), /text\/plain/);
+    assert.match(installer.headers.get('content-disposition'), new RegExp(`filename=${file.replace('.', '\\.')}`));
+    const script = await installer.text();
+    assert.ok(script.includes(`'${base}'`) || script.includes(`"${base}"`), 'The script is bound to this server.');
+    assert.ok(!script.includes('{{') && script.includes('/api/updates/') && script.includes(command));
+    if (platform === 'macos') assert.ok(!script.includes('\r'), 'bash rejects CRLF line endings.');
+  }
+  assert.equal((await anonymous('/api/install/linux')).status, 404);
 }
 
 try {
@@ -300,8 +334,9 @@ try {
   if (publicPagesOnly) {
     assert.deepEqual(await (await remote('/api/development/inference-counts')).json(), { chatRequests: 0, embeddingRequests: 0 });
     await verifyUpdateEndpoints(remoteBase, published);
+    await verifyRemoteSession(remoteBase);
     await verifyGoogleSignIn();
-    console.log('Public pages passed: local green / remote blue themes; anonymous Docs/Privacy/Project Team; Markus Mobius only; accurate provider disclosures; public signed desktop updates; secretless Google sign-in page and token endpoint; zero model calls.');
+    console.log('Public pages passed: local green / remote blue themes; anonymous Docs/Privacy/Project Team; Markus Mobius only; accurate provider disclosures; public signed desktop updates; remote session survives navigation and signs out; secretless Google sign-in page and token endpoint; zero model calls.');
   } else {
     assert.equal(configuration.foundryConfigured, true);
     await verifyModelFlow(local, remote, localProcess, localArgs, localBase);

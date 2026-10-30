@@ -1,14 +1,22 @@
 import { provideHttpClient } from '@angular/common/http';
-import { provideBrowserGlobalErrorListeners } from '@angular/core';
-import { bootstrapApplication } from '@angular/platform-browser';
+import { ApplicationConfig, provideBrowserGlobalErrorListeners } from '@angular/core';
+import { bootstrapApplication, createApplication } from '@angular/platform-browser';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { MeldToolbar } from './app/meld-toolbar';
 
+const config: ApplicationConfig = {
+  providers: [provideHttpClient(), provideBrowserGlobalErrorListeners(), provideAnimationsAsync()],
+};
+
 async function start(): Promise<void> {
-  const component = document.querySelector('app-root') ? (await import('./app/app')).App : MeldToolbar;
-  await bootstrapApplication(component, {
-    providers: [provideHttpClient(), provideBrowserGlobalErrorListeners(), provideAnimationsAsync()],
-  });
+  if (document.querySelector('app-root')) {
+    await bootstrapApplication((await import('./app/app')).App, config);
+    return;
+  }
+  // Server-rendered and public pages: the shared toolbar, plus the install card where the page provides one.
+  const application = await createApplication(config);
+  application.bootstrap(MeldToolbar);
+  if (document.querySelector('app-meld-install')) application.bootstrap((await import('./app/meld-install')).MeldInstall);
 }
 
 void start().catch(() => {

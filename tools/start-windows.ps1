@@ -2,13 +2,38 @@
 # Stable Meld Research launcher. It lives in the application root next to current.json and starts the version
 # that file names. When the application exits with code 75 it has installed a verified update and repointed
 # current.json, so the launcher starts the new version. A version that fails to start is rolled back.
-param([switch]$NoBrowser)
+#   -Background  started by the sign-in task: no browser, output in launcher.log, quiet if already running.
+#   -Open        Start menu: open the running app, or start it in the background first.
+param([switch]$NoBrowser, [switch]$Background, [switch]$Open)
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $pointerPath = Join-Path $root 'current.json'
 $updateExitCode = 75
 $port = 6001
 if (-not (Test-Path -LiteralPath $pointerPath)) { throw 'Meld Research is not installed here. Run Install-Meld.ps1 from the downloaded package.' }
+
+function Test-Running {
+    try { $null = Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/status" -UseBasicParsing -TimeoutSec 2; $true } catch { $false }
+}
+
+if ($Open) {
+    if (-not (Test-Running)) {
+        if (Get-ScheduledTask -TaskName 'MeldResearch' -ErrorAction SilentlyContinue) { Start-ScheduledTask -TaskName 'MeldResearch' }
+        else {
+            Start-Process -FilePath "$env:SystemRoot\System32\conhost.exe" -ArgumentList @('--headless',
+                "`"$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe`"", '-NoProfile', '-ExecutionPolicy', 'Bypass',
+                '-File', "`"$PSCommandPath`"", '-Background')
+        }
+        for ($attempt = 0; $attempt -lt 120 -and -not (Test-Running); $attempt++) { Start-Sleep -Milliseconds 500 }
+    }
+    Start-Process "http://127.0.0.1:$port"
+    return
+}
+if ($Background) {
+    $NoBrowser = $true
+    if (Test-Running) { return }
+    $null = Start-Transcript -LiteralPath (Join-Path $root 'launcher.log') -Force
+}
 
 function Write-Pointer([string]$Current, [string]$Previous, [string[]]$Rejected) {
     $json = ConvertTo-Json -InputObject ([ordered]@{ current = $Current; previous = $Previous; rejected = @($Rejected) })
@@ -65,7 +90,7 @@ while ($true) {
                 Start-Process "http://127.0.0.1:$port"
             }
             Write-Host 'Link your existing Google-based Meld account, install/approve the connector, then select projects and consent to Foundry processing.'
-            Write-Host 'Keep this terminal open. Ctrl+C stops this owned application instance. Updates install automatically.'
+            if (-not $Background) { Write-Host 'Keep this terminal open. Ctrl+C stops this owned application instance. Updates install automatically.' }
         }
         $process.WaitForExit()
         if ($process.ExitCode -eq $updateExitCode) {

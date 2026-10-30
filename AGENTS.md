@@ -28,7 +28,7 @@ instruction file. Start with the [README](README.md) for setup and release detai
 | --- | --- |
 | [Angular frontend](apps/frontend) | Local UI, account/connector setup, consent, monitoring and cited Updates. |
 | [Local backend](apps/LocalBackend) | Serves the built UI; owns the browser bridge, snapshots and encrypted research state. |
-| [Remote backend](apps/RemoteBackend) | Google accounts, existing-account device approval, gated downloads and authenticated Foundry requests. |
+| [Remote backend](apps/RemoteBackend) | Google accounts, existing-account device approval, one-line desktop installers and authenticated Foundry requests. |
 | [Research library](libraries/Research) | Shared contracts, evidence validation, content revisions and state reduction. |
 | [Overleaf extension](browser/overleaf) / [native host](apps/BrowserHost) | Read-only access through the user's normal signed-in Chrome/Edge session. |
 
@@ -214,7 +214,12 @@ node .\tests\research.e2e.mjs --public-pages-only
   only. Follow [store submission guidance](browser/store/submission.md).
   Do not upload, publish, deploy or change native registrations without approval.
 - Desktop packages are self-contained test distributions, not signed MSI/PKG
-  installers; automatic signed updates exist, autostart is not implemented.
+  installers. The account page installs them with one-line scripts
+  ([apps/RemoteBackend/Install](apps/RemoteBackend/Install)) that verify the signed
+  release, install per user without administrator rights, and start Meld at sign-in
+  (scheduled task `MeldResearch` / LaunchAgent `org.meldresearch.desktop`). Installers
+  stop only their own installation's processes. Validate the Windows flow with
+  `tests\desktop-update.e2e.ps1`; the macOS flow is not yet execution-tested.
 - At this handoff, no public deployment or store submission has been performed
   from this work. Real Google login, a post-store-identity live Overleaf read,
   macOS execution/Keychain/registration, signing/notarization, and remaining

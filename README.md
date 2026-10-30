@@ -53,8 +53,8 @@ See [AGENTS.md](AGENTS.md) for the persistent development instructions.
 ## Architecture
 
 - [Remote backend](apps/RemoteBackend): Google signup, existing-account device
-  approval, Foundry chat/embeddings, a SQLite account database, gated
-  desktop downloads, and a public `/privacy.html`.
+  approval, Foundry chat/embeddings, a SQLite account database, one-line
+  desktop installers on the account page, and a public `/privacy.html`.
 - [Local backend](apps/LocalBackend): browser bridge, explicit project selection,
   background synchronization, encrypted research state, and an Updates feed.
 - [Angular frontend](apps/frontend): account/connector onboarding, processing
@@ -362,7 +362,8 @@ cd ~/meldresearch
 bash deploy/deploy.sh --prerequisites        # curl, sqlite3, ICU, PowerShell 7 (asks first)
 sudo install -m 0644 deploy/meldresearch-remote.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable meldresearch-remote
-pwsh tools/update-signing-key.ps1 -Install ~/update-signing-key.pem && rm ~/update-signing-key.pem   # see below
+pwsh tools/update-signing-key.ps1 -Create    # update signing key; choose a passphrase (see below)
+git add apps/LocalBackend/update-signing-public-key.txt && git commit -m "Update signing key" && git push
 bash deploy/deploy.sh -FoundrySmokeTest      # first release; also creates ~/meldresearch-data
 ```
 
@@ -393,18 +394,17 @@ user, a compromise of the web service could read the encrypted file, but not use
 it without the passphrase.
 
 ```bash
-# One-time move of the existing key (created on Windows) to the server:
-#   Windows:  .\tools\update-signing-key.ps1 -ConvertWindowsKey .\update-signing-key.pem
-#             scp .\update-signing-key.pem you@www.meldresearch.org:
-#   then delete %APPDATA%\MeldResearch\update-signing-key.dpapi.
-cd ~/meldresearch
-pwsh tools/update-signing-key.ps1 -Install ~/update-signing-key.pem && rm ~/update-signing-key.pem
-pwsh tools/update-signing-key.ps1          # verify key + passphrase
+pwsh tools/update-signing-key.ps1 -Create                 # new key; then commit the public key file
+pwsh tools/update-signing-key.ps1                         # verify key + passphrase
+pwsh tools/update-signing-key.ps1 -Install <file.pem>     # move an existing encrypted key to this server
 ```
 
-Keep one offline copy of the encrypted PEM and its passphrase. Without the key,
-installed clients can no longer be updated automatically; `-Create` makes a new
-key, but only fresh installs trust it. Never commit the private key.
+`-Create` writes the public key to `apps/LocalBackend/update-signing-public-key.txt`.
+Commit it before deploying: it is part of the desktop client, so the deploy refuses
+to build while it is uncommitted. Keep one offline copy of the encrypted PEM and its
+passphrase. Without the key, installed clients can no longer be updated
+automatically; a new key is trusted only by installs made after it. Never commit
+the private key.
 
 ### Releases
 
@@ -435,7 +435,9 @@ the Ubuntu server). If `./deploy/deploy.sh` reports "Permission denied", run
   `-ForceDesktopBuild` rebuilds anyway; `-DesktopRuntimes` limits platforms.
 - Packages are served publicly at `/api/updates/{runtime}` and
   `/api/updates/{runtime}/package/{version}` from `~/meldresearch-data/downloads`.
-  The same ZIPs remain account-gated website downloads at `/downloads/{runtime}`.
+  The one-line installers at `/api/install/windows` and `/api/install/macos`
+  (shown on the account page) install that same signed release. The ZIPs also
+  remain account-gated downloads at `/downloads/{runtime}`, no longer linked.
 
 **Back up:** `~/meldresearch-data` (database, `dataprotection.pfx` and
 `dataprotection.env` together), and separately the encrypted update signing key
@@ -452,14 +454,44 @@ encrypted account columns would become unreadable. Logs: `journalctl -u meldrese
 .\browser\prepare-chrome.ps1
 ```
 
-Desktop ZIPs in `artifacts\desktop` are self-contained **test distributions**.
-They include per-user installation/start scripts, native-host registration, the
-Angular UI, and a development connector folder. They do not require a separate
-.NET installation. Windows uses `Install-Meld.ps1` under the machine's normal
-PowerShell policy; macOS uses `Install-Meld.command`. Each release installs side
-by side in `MeldResearch\App\<first 12 characters of the release>`, and a stable
-`App\Start-Meld.ps1` / `Start-Meld.command` launcher starts the version named in
-`App\current.json`. The terminal remains the owned launcher; autostart is not implemented.
+Desktop ZIPs in `artifacts\desktop` are self-contained **test distributions**
+(not signed MSI/PKG installers). They include per-user installation/start scripts,
+native-host registration, the Angular UI, and a development connector folder, and
+need no separate .NET installation.
+
+**Installing.** After signing up, the website's account page shows an install
+card: Windows/macOS, *Automatic* (a one-liner) or *Manual* (download the script):
+
+```text
+Windows (PowerShell):  irm -useb https://www.meldresearch.org/api/install/windows | iex
+macOS (Terminal):      curl -fsSL https://www.meldresearch.org/api/install/macos | bash
+```
+
+The script is served by [RemoteEndpoints](apps/RemoteBackend/Endpoints/RemoteEndpoints.cs)
+from [apps/RemoteBackend/Install](apps/RemoteBackend/Install) with the server's
+address filled in. It downloads the published release from the update endpoints,
+checks its length and SHA-256 against the manifest, and runs the package's
+`Install-Meld.ps1` / `Install-Meld.command`. No administrator rights are needed.
+That installer:
+
+1. stops this installation's running launcher and app (never other programs; an
+   occupied port 6001 is reported),
+2. installs the release side by side in `MeldResearch\App\<first 12 characters of
+   the release>` (Windows `%LOCALAPPDATA%`, macOS `~/Library/Application Support`),
+   or reuses it if already installed, and registers the native browser host,
+3. points `App\current.json` and the stable `Start-Meld.ps1` / `Start-Meld.command`
+   launcher at it (re-running keeps the previous version as the rollback target),
+4. registers a start-at-sign-in entry: the per-user scheduled task `MeldResearch`
+   (hidden through `conhost --headless`; log `App\launcher.log`) or the LaunchAgent
+   `org.meldresearch.desktop` (log `~/Library/Logs/MeldResearch/launcher.log`),
+5. starts it in the background, waits for `/api/version`, and opens the local app.
+
+Re-running the command repairs or updates an installation and keeps research data.
+On Windows the Start menu entry **Meld Research** opens the app, starting it first
+if needed. To stop autostart: `Unregister-ScheduledTask MeldResearch` or
+`launchctl bootout gui/$(id -u)/org.meldresearch.desktop` and delete
+`~/Library/LaunchAgents/org.meldresearch.desktop.plist`. Isolated tests set
+`MELDRESEARCH_Install__Autostart=false`, which runs the launcher in the terminal instead.
 
 **Automatic updates.** An installed client checks `/api/updates/{runtime}` after
 45 seconds and then every two minutes. It installs a release only if the manifest

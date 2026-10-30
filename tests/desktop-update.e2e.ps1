@@ -1,14 +1,15 @@
 #requires -Version 7.0
 <#
 .SYNOPSIS
-Real Windows install -> automatic signed update -> launcher restart check for the desktop package.
+Real Windows one-line install -> automatic signed update -> launcher restart -> repair check for the desktop package.
 
 .DESCRIPTION
-Builds two real win-x64 packages with synthetic release versions, installs the older one with Install-Meld.ps1
-under Windows PowerShell 5.1, publishes the newer one through a local remote backend, and waits for the
-installed application to update and restart itself. Then it publishes an older signed release and confirms it
-is ignored. Everything is isolated: temporary LOCALAPPDATA/APPDATA/data directories, a throwaway signing key,
-no browser windows, and no native-host (registry) registration. Takes several minutes; makes no model calls.
+Builds two real win-x64 packages with synthetic release versions, publishes the older one through a local remote
+backend, and installs it with the account page's "irm ... | iex" command under Windows PowerShell 5.1. Then it
+publishes the newer one and waits for the installed application to update and restart itself, publishes an older
+signed release and confirms it is ignored, and re-runs the command to confirm a repair keeps the rollback target.
+Everything is isolated: temporary LOCALAPPDATA/APPDATA/data directories, a throwaway signing key, no browser
+windows, no scheduled task and no native-host (registry) registration. Takes several minutes; makes no model calls.
 #>
 param([switch]$KeepTemporary)
 $ErrorActionPreference = 'Stop'
@@ -26,6 +27,8 @@ function Start-Owned([string]$File, [string[]]$Arguments, [hashtable]$Environmen
     $info.RedirectStandardOutput = $true
     $info.RedirectStandardError = $true
     foreach ($name in $Environment.Keys) { $info.Environment[$name] = $Environment[$name] }
+    # Like a normal console: Windows PowerShell must not inherit this PowerShell 7 session's module path.
+    if ($File -like '*WindowsPowerShell*') { $null = $info.Environment.Remove('PSModulePath') }
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $info
     $writer = [IO.StreamWriter]::new($Log, $true)
@@ -83,34 +86,36 @@ try {
         New-SignedUpdate -Key $key -Runtime win-x64 -Version $Release.Version -VersionDate $Release.Date -PackagePath $Release.Package `
             -Destination ([IO.Path]::Combine($downloads, 'meldresearch-win-x64.update.json'))
     }
-    Publish $newer
+    Publish $older
     $remoteExe = [IO.Path]::Combine($root, 'apps', 'RemoteBackend', 'bin', 'Debug', 'net10.0', 'MeldResearch.RemoteBackend.exe')
     $null = Start-Owned $remoteExe @('--Port', $remotePort, '--PublicOrigin', $remoteUrl, '--Dummy', 'true', '--environment', 'Development',
         '--DataDirectory', ([IO.Path]::Combine($temp, 'remote')), '--DownloadDirectory', $downloads) @{} ([IO.Path]::Combine($temp, 'remote.log'))
     $null = Wait-Until { (Invoke-WebRequest "$remoteUrl/api/updates/win-x64" -TimeoutSec 2).StatusCode -eq 200 } 'remote update manifest' 60
 
-    Write-Host '==> Installing the older release with Install-Meld.ps1 (Windows PowerShell 5.1)'
-    $package = [IO.Path]::Combine($temp, 'package-older')
-    Expand-Archive -LiteralPath $older.Package -DestinationPath $package
+    Write-Host '==> Installing the published older release with the one-line command (Windows PowerShell 5.1)'
     $environment = @{
         LOCALAPPDATA = [IO.Path]::Combine($temp, 'localappdata'); APPDATA = [IO.Path]::Combine($temp, 'appdata')
         MELDRESEARCH_DATA_DIR = [IO.Path]::Combine($temp, 'data'); ASPNETCORE_ENVIRONMENT = 'Development'
-        MELDRESEARCH_Updates__RegisterNativeHost = 'false'; MELDRESEARCH_NO_BROWSER = 'true'
+        MELDRESEARCH_Updates__RegisterNativeHost = 'false'; MELDRESEARCH_NO_BROWSER = 'true'; MELDRESEARCH_Install__Autostart = 'false'
         MELDRESEARCH_Updates__InitialDelaySeconds = '3'; MELDRESEARCH_Updates__IntervalSeconds = '5'
     }
     foreach ($directory in @($environment.LOCALAPPDATA, [IO.Path]::Combine($environment.APPDATA, 'Microsoft', 'Windows', 'Start Menu', 'Programs'))) {
         $null = [IO.Directory]::CreateDirectory($directory)
     }
     $launcherLog = [IO.Path]::Combine($temp, 'launcher.log')
-    $null = Start-Owned "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
-        @('-NoProfile', '-File', ([IO.Path]::Combine($package, 'Install-Meld.ps1'))) $environment $launcherLog
+    $oneLiner = "irm -useb $remoteUrl/api/install/windows | iex"
+    $null = Start-Owned "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" @('-NoProfile', '-Command', $oneLiner) $environment $launcherLog
     $app = [IO.Path]::Combine($environment.LOCALAPPDATA, 'MeldResearch', 'App')
 
-    $first = Wait-Until { Get-InstalledVersion } 'the installed application' 120
+    $first = Wait-Until { $v = Get-InstalledVersion; if ($v.version -eq $older.Version) { $v } } 'the installed application' 180
     Write-Host "    started $($first.version.Substring(0, 12)) (updates enabled: $($first.updatesEnabled))"
-    if ($first.version -eq $older.Version -and -not $first.updatesEnabled) { throw "Automatic updates are disabled: $($first.updatesDisabledReason)" }
+    if (-not $first.updatesEnabled) { throw "Automatic updates are disabled: $($first.updatesDisabledReason)" }
+    foreach ($step in @('STEP 2 / 3', 'length and SHA-256 match the release manifest', "Installing release $($older.Version.Substring(0, 12))")) {
+        if (-not (Select-String -LiteralPath $launcherLog -SimpleMatch $step -Quiet)) { throw "The installer output lacks: $step" }
+    }
 
-    Write-Host '==> Waiting for the automatic update and launcher restart'
+    Write-Host '==> Publishing the newer release; waiting for the automatic update and launcher restart'
+    Publish $newer
     $updated = Wait-Until { $v = Get-InstalledVersion; if ($v.version -eq $newer.Version) { $v } } 'the updated application' 240
     $pointer = Get-Content -LiteralPath ([IO.Path]::Combine($app, 'current.json')) -Raw | ConvertFrom-Json
     if ($pointer.current -ne $newer.Version.Substring(0, 12) -or $pointer.previous -ne $older.Version.Substring(0, 12)) {
@@ -133,7 +138,19 @@ try {
     if ($after.version -ne $newer.Version) { throw 'An older signed release was installed (downgrade).' }
     if (-not (Test-Path -LiteralPath ([IO.Path]::Combine($app, $older.Version.Substring(0, 12))))) { throw 'The previous version folder was removed too early.' }
     Write-Host "    still $($after.version.Substring(0, 12)); update status: $($after.updateStatus)"
-    Write-Host 'Desktop update E2E passed: install, signed automatic update, launcher restart, stable launcher refresh, downgrade refused.' -ForegroundColor Green
+
+    Write-Host '==> Re-running the one-line command for the installed release (repair)'
+    Publish $newer
+    $repairLog = [IO.Path]::Combine($temp, 'repair.log')
+    $null = Start-Owned "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" @('-NoProfile', '-Command', $oneLiner) $environment $repairLog
+    $null = Wait-Until { Select-String -LiteralPath $repairLog -SimpleMatch 'already installed; reusing its files' -Quiet } 'the repair install' 120
+    $repaired = Wait-Until { $v = Get-InstalledVersion; if ($v.version -eq $newer.Version) { $v } } 'the repaired application' 120
+    $pointer = Get-Content -LiteralPath ([IO.Path]::Combine($app, 'current.json')) -Raw | ConvertFrom-Json
+    if ($pointer.current -ne $newer.Version.Substring(0, 12) -or $pointer.previous -ne $older.Version.Substring(0, 12)) {
+        throw "The repair changed the rollback target: $($pointer | ConvertTo-Json -Compress)"
+    }
+    Write-Host "    running $($repaired.version.Substring(0, 12)) again; previous version still $($pointer.previous)"
+    Write-Host 'Desktop update E2E passed: one-line install, signed automatic update, launcher restart, stable launcher refresh, downgrade refused, repair re-run.' -ForegroundColor Green
 }
 finally {
     $listening = Get-NetTCPConnection -State Listen -LocalPort $localPort -ErrorAction SilentlyContinue

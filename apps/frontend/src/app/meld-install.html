@@ -1,0 +1,94 @@
+<header class="install-header">
+  <h2 class="install-title"><mat-icon>get_app</mat-icon>Install Meld Research</h2>
+  <p class="install-subtitle">Bring the Meld Research assistant to your computer</p>
+</header>
+
+<div class="privacy-reminder">
+  <mat-icon>privacy_tip</mat-icon>
+  <span>Your projects and research index stay on your computer. Selected text is sent to Azure AI Foundry only for
+    projects you consent to. See <a href="/privacy.html">Privacy</a> for what is stored and how to remove it.</span>
+</div>
+
+<div class="os-selector" role="tablist" aria-label="Operating system">
+  <button type="button" role="tab" class="os-button windows" [class.selected]="os() === 'windows'"
+    [attr.aria-selected]="os() === 'windows'" (click)="os.set('windows')">
+    <mat-icon>laptop_windows</mat-icon>Windows
+  </button>
+  <button type="button" role="tab" class="os-button mac" [class.selected]="os() === 'mac'"
+    [attr.aria-selected]="os() === 'mac'" (click)="os.set('mac')">
+    <mat-icon>desktop_mac</mat-icon>macOS
+  </button>
+</div>
+
+<mat-card class="install-card" appearance="outlined">
+  <div class="card-header" [class.mac]="os() === 'mac'">
+    <mat-icon class="card-icon">{{ os() === 'mac' ? 'desktop_mac' : 'laptop_windows' }}</mat-icon>
+    <div class="card-heading">
+      <h3>Meld Research for {{ os() === 'mac' ? 'macOS' : 'Windows' }}</h3>
+      <p>
+        Downloads the signed, self-contained desktop package, installs it for your user account, and
+        {{ os() === 'mac' ? 'starts it at login with a LaunchAgent.' : 'starts it at sign-in with a scheduled task.' }}
+      </p>
+    </div>
+  </div>
+
+  <mat-card-content class="card-content">
+    <div class="pill-tabs" role="tablist" aria-label="Installation method">
+      <button type="button" role="tab" class="pill-tab automatic" [class.selected]="tab() === 'automatic'"
+        [attr.aria-selected]="tab() === 'automatic'" (click)="tab.set('automatic')">
+        <mat-icon>flash_on</mat-icon>Automatic <span class="recommended">(recommended)</span>
+      </button>
+      <button type="button" role="tab" class="pill-tab" [class.selected]="tab() === 'manual'"
+        [attr.aria-selected]="tab() === 'manual'" (click)="tab.set('manual')">
+        <mat-icon>build</mat-icon>Manual
+      </button>
+    </div>
+
+    @if (tab() === 'automatic') {
+      <p class="instructions">
+        Open {{ os() === 'mac' ? 'a Terminal window' : 'PowerShell' }} and paste this one-liner to download and install
+        Meld Research automatically:
+      </p>
+      <ng-container *ngTemplateOutlet="command; context: { $implicit: os() === 'mac' ? macCommand : windowsCommand, wrap: true }" />
+      <p class="hint">Directly fetches and executes the installation script from this server. No administrator rights are needed.</p>
+    } @else {
+      <ol class="instructions">
+        <li>Download the installation script below.</li>
+        @if (os() === 'mac') {
+          <li>Open Terminal in the download folder and run:</li>
+        } @else {
+          <li>Open PowerShell in the download folder and run:</li>
+        }
+      </ol>
+      <ng-container *ngTemplateOutlet="command; context: { $implicit: os() === 'mac' ? macManualCommand : windowsManualCommand, wrap: false }" />
+      <div class="download">
+        @if (os() === 'mac') {
+          <a mat-flat-button class="download-button mac" href="/api/install/macos" download="meldresearch-install.sh">
+            <mat-icon>download</mat-icon><span>Download macOS Script</span>
+          </a>
+          <span class="compatibility">Apple Silicon and Intel Macs</span>
+        } @else {
+          <a mat-flat-button class="download-button" href="/api/install/windows" download="meldresearch-install.ps1">
+            <mat-icon>download</mat-icon><span>Download Windows Script</span>
+          </a>
+          <span class="compatibility">Compatible with Windows 10 &amp; 11 (x64)</span>
+        }
+      </div>
+    }
+  </mat-card-content>
+</mat-card>
+
+<p class="footnote">
+  Re-running the command repairs or updates an existing installation and keeps your research data. These are test
+  distributions, not yet signed or notarized installers.
+</p>
+
+<ng-template #command let-text let-wrap="wrap">
+  <div class="command-box">
+    <code [class.wrap]="wrap">{{ text }}</code>
+    <button type="button" mat-icon-button class="copy-button" (click)="copy(text)"
+      [attr.aria-label]="copied() === text ? 'Copied' : 'Copy command'" [title]="copied() === text ? 'Copied' : 'Copy command'">
+      <mat-icon>{{ copied() === text ? 'check' : 'content_copy' }}</mat-icon>
+    </button>
+  </div>
+</ng-template>

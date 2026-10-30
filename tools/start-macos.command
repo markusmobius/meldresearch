@@ -2,15 +2,21 @@
 # Stable Meld Research launcher. It lives in the application root next to current.json and starts the version
 # that file names. Exit code 75 means the application installed a verified update and repointed current.json,
 # so the launcher starts the new version. A version that fails to start is rolled back to the previous one.
+#   --background  started by the LaunchAgent at login: no browser, quiet if Meld Research is already running.
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 pointer="$root/current.json"
 port=6001
 opened=false
+background=false
+if [ "${1:-}" = --background ]; then background=true; fi
 pid=
 if [ ! -f "$pointer" ]; then
   echo "Meld Research is not installed here. Run Install-Meld.command from the downloaded package." >&2
   exit 1
+fi
+if [ "$background" = true ] && /usr/bin/curl --silent --fail --max-time 2 "http://127.0.0.1:$port/api/status" >/dev/null 2>&1; then
+  exit 0
 fi
 trap 'if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; fi' EXIT
 trap 'exit 130' INT TERM
@@ -57,7 +63,7 @@ while :; do
   fi
   if [ "$opened" = false ]; then
     opened=true
-    if [ "${MELDRESEARCH_NO_BROWSER:-false}" != true ]; then
+    if [ "$background" != true ] && [ "${MELDRESEARCH_NO_BROWSER:-false}" != true ]; then
       published=$(field StorePublished "$directory/installation.json")
       if [ "$published" = true ]; then
         id=$(field ExtensionId "$directory/installation.json")
@@ -67,7 +73,9 @@ while :; do
       /usr/bin/open "http://127.0.0.1:$port"
     fi
     echo "Link your existing Meld account and approve selected-project processing."
-    echo "Keep this terminal open. Ctrl+C stops this owned instance. Updates install automatically."
+    if [ "$background" != true ]; then
+      echo "Keep this terminal open. Ctrl+C stops this owned instance. Updates install automatically."
+    fi
   fi
   status=0
   wait "$pid" || status=$?

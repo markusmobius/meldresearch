@@ -20,6 +20,11 @@ internal static class RemoteEndpoints
             throw new InvalidOperationException("Build the Angular frontend before building the remote backend; shared Material assets are missing.");
         string assets = File.ReadAllText(assetsPath);
         ContentHttpResult Page(string title, string body, RemoteOptions options) => RenderPage(title, body, options, assets);
+        var origin = app.Services.GetRequiredService<RemoteOptions>().PublicOrigin.GetLeftPart(UriPartial.Authority);
+        var installers = new Dictionary<string, (string FileName, byte[] Script)>();
+        foreach (var (platform, fileName) in new[] { ("windows", "meldresearch-install.ps1"), ("macos", "meldresearch-install.sh") })
+            installers[platform] = (fileName, System.Text.Encoding.UTF8.GetBytes(
+                File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Install", fileName)).Replace("\r\n", "\n").Replace("{{REMOTEURL}}", origin)));
 
         app.MapGet("/api/status", (RemoteOptions options, IFoundryService foundry, CancellationToken ct) =>
         {
@@ -59,12 +64,19 @@ internal static class RemoteEndpoints
             return TypedResults.Ok(await foundry.EmbedAsync(request, ct));
         }).WithName("EmbedResearch").WithSummary("Embed bounded research text using the configured Foundry deployment.");
 
-        app.MapGet("/", (HttpContext context, IAntiforgery antiforgery, RemoteOptions options, CancellationToken ct) =>
+        app.MapGet("/", async Task<ContentHttpResult> (HttpContext context, IAntiforgery antiforgery, IAccountService accounts,
+            RemoteOptions options, CancellationToken ct) =>
         {
-            ct.ThrowIfCancellationRequested();
             string message = context.Request.Query.ContainsKey("signInFailed")
                 ? "<p class=\"notice\">Google sign-in failed. Try again.</p>" : "";
-            string auth = options.Dummy
+            var account = context.User.Identity?.IsAuthenticated == true ? await accounts.FindAsync(context.User, ct) : null;
+            string auth = account is not null
+                ? $"<p>Signed in as {E(account.Name)}.</p><p><a class=\"button\" href=\"/account\">Your account and downloads</a></p>" +
+                    SignOutForm(context, antiforgery)
+                : context.User.Identity?.IsAuthenticated == true
+                ? "<p>This Google identity has no Meld Research account.</p><p><a class=\"button\" href=\"/signup\">Sign up with Google</a></p>" +
+                    SignOutForm(context, antiforgery)
+                : options.Dummy
                 ? $"<form method=\"post\" action=\"/auth/dummy\">{Token(context, antiforgery)}<button>Use the synthetic test account</button></form>"
                 : options.GoogleConfigured
                     ? "<p><a class=\"button\" href=\"/signup\">Sign up with Google</a> <a href=\"/login\">Sign in</a></p>"
@@ -130,16 +142,22 @@ internal static class RemoteEndpoints
             return TypedResults.Redirect(code is null ? "/account" : "/connect?code=" + code);
         }).ExcludeFromDescription();
 
+        app.MapPost("/auth/signout", async Task<RedirectHttpResult> (HttpContext context, IAntiforgery antiforgery) =>
+        {
+            await ValidateFormAsync(context, antiforgery);
+            await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            return TypedResults.Redirect("/");
+        }).ExcludeFromDescription();
+
         app.MapGet("/account", async Task<ContentHttpResult> (
-            HttpContext context, IAccountService accounts, RemoteOptions options, CancellationToken ct) =>
+            HttpContext context, IAccountService accounts, IAntiforgery antiforgery, RemoteOptions options, CancellationToken ct) =>
         {
             var account = await accounts.FindAsync(context.User, ct);
             return account is null
                 ? Page("An existing Meld account is required", "<p>Signing in does not automatically create an account.</p><p><a href=\"/signup\">Create a Meld account with Google</a></p>", options)
-                : Page("Your Meld Research account", $"<p>Signed in as {E(account.Name)}.</p><p>Install the desktop companion, then link it to this account.</p>" +
-                    "<p><a class=\"button\" href=\"/downloads/win-x64\">Windows test package</a></p>" +
-                    "<p><a href=\"/downloads/osx-arm64\">macOS Apple Silicon test package</a> &middot; <a href=\"/downloads/osx-x64\">macOS Intel test package</a></p>" +
-                    "<p>Test packages are not yet signed/notarized production installers.</p>", options);
+                : Page("Your Meld Research account", $"<p>Signed in as {E(account.Name)}.</p>" + InstallPanel(origin) +
+                    "<p>After installation, open <strong>Account</strong> in the local app and link it to this account.</p>" +
+                    SignOutForm(context, antiforgery), options);
         }).ExcludeFromDescription();
 
         app.MapGet("/connect", async Task<ContentHttpResult> (
@@ -222,6 +240,13 @@ internal static class RemoteEndpoints
                 throw new ResearchFailure(404, "update_not_published", "No desktop update is published for this platform.");
             return TypedResults.PhysicalFile(path, "application/zip", DesktopUpdates.PackageFileName(runtime));
         }).WithName("DownloadDesktopUpdate").WithSummary("Download the published desktop package named by the signed manifest.");
+        // Public by design: "irm ... | iex" and "curl ... | bash" run without a browser session. The scripts install the
+        // public signed release above and check its length and SHA-256 against the manifest.
+        app.MapGet("/api/install/{platform}", (string platform) =>
+            installers.TryGetValue(platform, out var installer)
+                ? TypedResults.File(installer.Script, "text/plain; charset=utf-8", installer.FileName)
+                : throw new ResearchFailure(404, "installer_not_found", "Use windows or macos."))
+            .WithName("GetDesktopInstaller").WithSummary("Download the desktop install script for Windows or macOS, bound to this server.");
     }
 
     private static async Task<(DesktopUpdateManifest Manifest, string Envelope)> PublishedUpdateAsync(
@@ -279,6 +304,19 @@ internal static class RemoteEndpoints
             "<noscript><p class=\"notice\">Sign in with Google needs JavaScript from accounts.google.com.</p></noscript>" +
             "<script src=\"https://accounts.google.com/gsi/client\" async></script><script src=\"/google-sign-in.js\"></script>";
     }
+
+    private static string SignOutForm(HttpContext context, IAntiforgery antiforgery) =>
+        $"<form method=\"post\" action=\"/auth/signout\">{Token(context, antiforgery)}<button>Sign out</button></form>";
+
+    /// <summary>The Angular install card replaces this content; without JavaScript the commands remain usable.</summary>
+    private static string InstallPanel(string origin) =>
+        "<app-meld-install><h2>Install Meld Research</h2>" +
+        "<p><strong>Windows:</strong> open PowerShell and run</p>" +
+        $"<pre><code>irm -useb {E(origin)}/api/install/windows | iex</code></pre>" +
+        "<p><strong>macOS:</strong> open Terminal and run</p>" +
+        $"<pre><code>curl -fsSL {E(origin)}/api/install/macos | bash</code></pre>" +
+        "<p>Or download the <a href=\"/api/install/windows\">Windows script</a> or the <a href=\"/api/install/macos\">macOS script</a>.</p>" +
+        "</app-meld-install>";
 
     private static string? OptionalCode(HttpContext context) =>
         context.Request.Query["code"].ToString() is { Length: > 0 } code ? Code(code) : null;

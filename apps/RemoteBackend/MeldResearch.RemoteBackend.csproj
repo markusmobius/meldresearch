@@ -22,6 +22,7 @@
     <ProjectReference Include="..\..\libraries\BrowserProtocol\MeldResearch.BrowserProtocol.csproj" />
     <InternalsVisibleTo Include="MeldResearch.Tests" />
     <Content Update="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Update="Install\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\frontend\dist\frontend\browser\**\*"
              Exclude="..\frontend\dist\frontend\browser\index.html;..\frontend\dist\frontend\browser\theme.css;..\frontend\dist\frontend\browser\favicon.png"
              Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)"

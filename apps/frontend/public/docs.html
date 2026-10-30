@@ -51,8 +51,10 @@
         <ol>
           <li><strong>Create a Meld account on the remote website using Google.</strong> Google sign-in must be configured by the
             service operator. Signing in while linking an installation does not silently create a new Meld account.</li>
-          <li><strong>Install and start the local companion.</strong> Use a package actually supplied by the operator.
-            The current packages are self-contained test distributions, not signed consumer installers.</li>
+          <li><strong>Install the local companion.</strong> Your account page on the remote website shows a one-line command
+            for Windows (PowerShell) or macOS (Terminal). It downloads the signed release, checks it, installs it for your user
+            account without administrator rights, starts it whenever you sign in, and opens the green local app. Running it again
+            repairs or updates the installation. The current packages are self-contained test distributions, not signed consumer installers.</li>
           <li><strong>Add the Overleaf connector to your normal Chrome profile.</strong> The companion registers the native host;
             you still approve the extension installation in the browser. A private store release also requires tester access.
             While the store release is pending, use the source launcher's documented unpacked-extension setup.</li>
@@ -67,7 +69,7 @@
         <p>Google authentication for Meld and the browser's Overleaf session are separate. Keep the local app and normal browser
           running for fresh Overleaf reads. You do not need to open the extension popup every day.</p>
         <p class="role-remote"><a class="button" href="/signup">Create a Google-based Meld account</a>
-          <a href="/account">Existing account and available packages</a></p>
+          <a href="/account">Existing account and installation</a></p>
         <p class="role-local"><a class="button" href="/">Return to the Local Assistant</a></p>
       </section>
 

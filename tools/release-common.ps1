@@ -85,7 +85,7 @@ function Open-UpdateSigningKey {
     param([Parameter(Mandatory)][string]$Root)
     $path = Get-UpdateSigningKeyPath
     if (-not (Test-Path -LiteralPath $path)) {
-        throw "No update signing key at $path. Install it with tools/update-signing-key.ps1 -Install <encrypted PEM>, or create one with -Create."
+        throw "No update signing key at $path. Create one on this machine with 'pwsh tools/update-signing-key.ps1 -Create' (then commit apps/LocalBackend/update-signing-public-key.txt), or install an existing encrypted key with 'pwsh tools/update-signing-key.ps1 -Install <file.pem>'."
     }
     if (-not $IsWindows -and ([IO.File]::GetUnixFileMode($path) -band [IO.UnixFileMode]'GroupRead, GroupWrite, OtherRead, OtherWrite')) {
         throw "$path is readable by other users. Run: chmod 600 '$path'"
