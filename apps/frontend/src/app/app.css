@@ -8,6 +8,28 @@
 .operation-status { display: flex; align-items: center; gap: 8px; padding: 8px 16px; margin: 0; font-size: 13px; color: #475569; }
 .connection-settings { margin-top: 24px; }
 .connection-settings > mat-card { max-width: 720px; }
+.setup-layout { display: flex; align-items: flex-start; gap: 24px; margin-top: 24px; }
+.setup-tabs {
+  display: flex; flex-direction: column; gap: 6px; flex: 0 0 260px; padding: 12px; background: #ffffff;
+  border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
+.setup-tab {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: 0; border-radius: 8px;
+  background: transparent; color: #475569; font: 500 0.9rem/1.3 'Outfit', sans-serif; text-align: left; cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+.setup-tab:hover { background: #f1f5f9; color: #084d42; }
+.setup-tab.active { background: linear-gradient(135deg, #084d42 0%, #0a6655 100%); color: #ffffff; box-shadow: 0 4px 12px rgba(8, 77, 66, 0.18); }
+.setup-tab-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.setup-tab-text small { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; opacity: 0.75; font-size: 0.75rem; }
+.setup-state { flex-shrink: 0; font-size: 20px; width: 20px; height: 20px; opacity: 0.6; }
+.setup-state.done { color: #16a34a; opacity: 1; }
+.setup-tab.active .setup-state.done { color: #bbf7d0; }
+.setup-panel { flex: 1; min-width: 0; }
+.setup-panel > mat-card, .setup-panel .connection-settings > mat-card { max-width: 720px; }
+.setup-panel .connection-settings { margin-top: 0; }
+.account-name { font-size: 18px; font-weight: 600; margin-bottom: 0; }
+.meld-account .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 mat-card { border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 2px 6px #00000008; }
 mat-card-title { font-size: 18px; font-weight: 600; }
 mat-card-content { font-family: 'Outfit', sans-serif; font-size: 14px; line-height: 1.6; padding-top: 12px; }
@@ -33,6 +55,8 @@ summary { cursor: pointer; }
 .file-list code { overflow-wrap: anywhere; }
 @media (max-width: 700px) {
   .content-area { padding: 24px 16px; }
+  .setup-layout { flex-direction: column; align-items: stretch; }
+  .setup-tabs { flex: none; }
   .source-tools mat-expansion-panel-header { padding: 0 12px; }
   mat-panel-description { display: none; }
 }

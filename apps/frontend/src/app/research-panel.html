@@ -60,33 +60,6 @@
     </div>
   }
 
-  @if (page() === 'account') {
-    <section class="page-container account-page" aria-label="Meld account">
-      <mat-card>
-        <mat-card-header><mat-icon mat-card-avatar>account_circle</mat-icon>
-          <mat-card-title>{{ current.account ? 'Your Meld account' : 'Sign in to Meld Research' }}</mat-card-title>
-        </mat-card-header>
-        <mat-card-content>
-          @if (current.dummy) { <p class="notice">Dummy mode: the account and Overleaf project are synthetic. Foundry processing is real and consumes model quota.</p> }
-          @if (current.account; as account) {
-            <p class="account-name">{{ account.name }}</p><p class="muted">{{ account.email }}</p>
-            <p>You are signed in. Manage your Overleaf projects in About me.</p>
-            <div class="controls"><a mat-flat-button href="/#about-me"><mat-icon>badge</mat-icon>About me</a>
-              <button mat-button (click)="unlink()" [disabled]="!!action()">Disconnect account</button></div>
-          } @else {
-            <p>Sign in with the Google account you use for Meld Research. Your browser opens the Meld website and returns here.</p>
-            <button mat-flat-button class="google-sign-in" (click)="link()" [disabled]="!!action()">
-              <mat-icon>login</mat-icon>{{ current.dummy ? 'Sign in with the test account' : 'Sign in with Google' }}
-            </button>
-          }
-          @if (current.pendingLink; as link) {
-            <p class="muted" role="status">Sign-in did not finish? <a [href]="link.signInUrl">Continue in the browser</a>.</p>
-          }
-        </mat-card-content>
-      </mat-card>
-    </section>
-  }
-
   @if (page() === 'about-me') {
     <section class="page-container projects-page" aria-label="Private research projects">
       <div class="about-head"><h2>My projects</h2>

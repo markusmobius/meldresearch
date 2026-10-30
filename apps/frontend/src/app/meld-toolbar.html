@@ -15,15 +15,17 @@
     </span>
   </a>
   <nav class="nav-links" aria-label="Main navigation">
-    <a mat-button class="nav-link-btn role-local" [class.active-link]="page() === 'home'"
-      href="/#feed" aria-label="Feed" title="Feed" [attr.aria-current]="page() === 'home' ? 'page' : null">
-      <mat-icon>dynamic_feed</mat-icon><span class="nav-label">Feed</span>
-      @if (updateCount()) { <span class="turn-badge">{{ updateCount() }}</span> }
-    </a>
-    <a mat-button class="nav-link-btn role-local" [class.active-link]="page() === 'about-me'"
-      href="/#about-me" aria-label="About me" title="About me" [attr.aria-current]="page() === 'about-me' ? 'page' : null">
-      <mat-icon>badge</mat-icon><span class="nav-label">About me</span>
-    </a>
+    @if (setupComplete()) {
+      <a mat-button class="nav-link-btn role-local" [class.active-link]="page() === 'home'"
+        href="/#feed" aria-label="Feed" title="Feed" [attr.aria-current]="page() === 'home' ? 'page' : null">
+        <mat-icon>dynamic_feed</mat-icon><span class="nav-label">Feed</span>
+        @if (updateCount()) { <span class="turn-badge">{{ updateCount() }}</span> }
+      </a>
+      <a mat-button class="nav-link-btn role-local" [class.active-link]="page() === 'about-me'"
+        href="/#about-me" aria-label="About me" title="About me" [attr.aria-current]="page() === 'about-me' ? 'page' : null">
+        <mat-icon>badge</mat-icon><span class="nav-label">About me</span>
+      </a>
+    }
     <a mat-button class="nav-link-btn role-remote" [class.active-link]="page() === '/'"
       href="/" aria-label="Home" title="Home"><mat-icon>home</mat-icon><span class="nav-label">Home</span></a>
     <button mat-button class="nav-link-btn nav-more-btn" [matMenuTriggerFor]="moreMenu"

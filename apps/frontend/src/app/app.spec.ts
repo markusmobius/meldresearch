@@ -32,31 +32,89 @@ describe('Overleaf connection screen', () => {
     await vi.waitFor(() => {
       expect(fixture.componentInstance.connector()).not.toBeNull();
       expect(fixture.componentInstance.busy()).toBe('');
+      expect(fixture.componentInstance.research()).not.toBeNull();
     });
     await fixture.whenStable();
     fixture.detectChanges();
     return fixture;
   }
+  const account = { id: 'account-one', name: 'Synthetic researcher', email: 'researcher@example.invalid' };
+  const researchStatus = (signedIn = true) => ({
+    account: signedIn ? account : null, pendingLink: null, accountError: null, busy: false, dummy: false,
+    privacyUrl: 'https://www.meldresearch.org/privacy.html', projects: [], updates: [], totalUpdates: 0, pendingRevocations: 0,
+  });
+  const researchApi = { status: vi.fn(), link: vi.fn(), unlink: vi.fn() };
 
   beforeEach(() => {
     vi.resetAllMocks();
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    const stored = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => stored.set(key, value),
+      removeItem: (key: string) => stored.delete(key), clear: () => stored.clear(),
+    });
+    // By default the account is signed in and Overleaf was connected before, so the working pages are available.
+    localStorage.setItem('meldresearch.overleafConnectedFor', account.id);
     api.status.mockResolvedValue(status());
     api.extension.mockResolvedValue(setup);
     api.downloads.mockResolvedValue([]);
     api.refresh.mockResolvedValue([]);
     browser.send.mockResolvedValue(connector());
+    researchApi.status.mockResolvedValue(researchStatus());
     TestBed.configureTestingModule({ imports: [App], providers: [
       provideNoopAnimations(),
       { provide: OverleafApi, useValue: api }, { provide: BrowserConnector, useValue: browser },
-      { provide: ResearchApi, useValue: { status: vi.fn().mockResolvedValue({
-        account: null, pendingLink: null, accountError: null, busy: false, dummy: false,
-        privacyUrl: 'https://www.meldresearch.org/privacy.html', projects: [], updates: [], totalUpdates: 0, pendingRevocations: 0,
-      }) } },
+      { provide: ResearchApi, useValue: researchApi },
     ] });
   });
 
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); location.hash = ''; });
+
+  it('shows only the Account view with the Google step until the Meld account is signed in', async () => {
+    researchApi.status.mockResolvedValue(researchStatus(false));
+    const fixture = await screen('home');
+    const element: HTMLElement = fixture.nativeElement;
+    expect(fixture.componentInstance.view()).toBe('account');
+    expect(element.querySelector('a[aria-label="Feed"]')).toBeNull();
+    expect(element.querySelector('a[aria-label="About me"]')).toBeNull();
+    expect(element.querySelector('.feed-column')).toBeNull();
+    const tabs = [...element.querySelectorAll('.setup-tab')];
+    expect(tabs.map(tab => tab.textContent)).toEqual([expect.stringContaining('Meld account'), expect.stringContaining('Overleaf')]);
+    expect(tabs[0].getAttribute('aria-selected')).toBe('true');
+    const signInUrl = 'https://www.meldresearch.org/connect?state=a&challenge=b&redirect_uri=c&device=d';
+    researchApi.link.mockResolvedValue({ signInUrl, expiresAt: '2026-10-30T00:00:00Z' });
+    const navigate = vi.spyOn(fixture.componentInstance, 'navigate').mockImplementation(() => undefined);
+    const button = element.querySelector<HTMLButtonElement>('button.google-sign-in')!;
+    expect(button.textContent).toContain('Sign in with Google');
+    button.click();
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(signInUrl));
+    fixture.destroy();
+  });
+
+  it('presses for Overleaf after signing in and opens the feed once Overleaf is connected', async () => {
+    localStorage.clear();
+    const fixture = await screen('home');
+    const element: HTMLElement = fixture.nativeElement;
+    expect(fixture.componentInstance.view()).toBe('account');
+    expect(element.querySelector('.setup-tab[aria-selected="true"]')?.textContent).toContain('Overleaf');
+    expect(element.querySelector('.connection-settings')).not.toBeNull();
+    expect(element.querySelector('a[aria-label="Feed"]')).toBeNull();
+    fixture.componentInstance.page.set('account');
+
+    api.status.mockResolvedValue(status(true));
+    browser.send.mockResolvedValue(connector(true));
+    vi.advanceTimersByTime(3000);
+    await vi.waitFor(() => expect(fixture.componentInstance.verified()).toBe(true));
+    fixture.detectChanges();
+    await vi.waitFor(() => expect(location.hash).toBe('#feed'));
+    expect(localStorage.getItem('meldresearch.overleafConnectedFor')).toBe(account.id);
+    fixture.componentInstance.locationChanged();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.view()).toBe('home');
+    expect(element.querySelector('a[aria-label="Feed"]')).not.toBeNull();
+    expect(element.querySelector('a[aria-label="About me"]')).not.toBeNull();
+    fixture.destroy();
+  });
 
   it('uses the Meld Material toolbar, working tabs and More menu instead of a landing dashboard', async () => {
     const fixture = await screen('home');

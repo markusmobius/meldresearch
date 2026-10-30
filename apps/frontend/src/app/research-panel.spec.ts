@@ -51,20 +51,6 @@ describe('Research Updates onboarding', () => {
     fixture.destroy();
   });
 
-  it('signs in with Google by opening the website sign-in page in this tab', async () => {
-    api.status.mockResolvedValue({ ...base, account: null });
-    const fixture = await screen('account');
-    const signInUrl = 'https://www.meldresearch.org/connect?state=a&challenge=b&redirect_uri=c&device=d';
-    api.link.mockResolvedValue({ signInUrl, expiresAt: '2026-10-30T00:00:00Z' });
-    const navigate = vi.spyOn(fixture.componentInstance, 'navigate').mockImplementation(() => undefined);
-    const button = fixture.nativeElement.querySelector('button.google-sign-in') as HTMLButtonElement;
-    expect(button.textContent).toContain('Sign in with Google');
-    expect(fixture.nativeElement.textContent).not.toContain('Verification code');
-    button.click();
-    await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(signInUrl));
-    fixture.destroy();
-  });
-
   it('clears a previous consent checkbox when the linked account changes', async () => {
     const fixture = await screen();
     fixture.componentInstance.consent.set(true);
@@ -85,9 +71,9 @@ describe('Research Updates onboarding', () => {
 
   it('does not promise an extension or private-data source in Dummy mode', async () => {
     api.status.mockResolvedValue({ ...base, dummy: true });
-    const fixture = await screen('account');
+    const fixture = await screen('home');
     expect(fixture.nativeElement.textContent).toContain('Foundry processing is real');
-    expect(fixture.nativeElement.textContent).toContain('synthetic');
+    expect(fixture.nativeElement.textContent).toContain('Synthetic Overleaf evidence');
     fixture.destroy();
   });
 

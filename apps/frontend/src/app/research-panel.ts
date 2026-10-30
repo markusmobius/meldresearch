@@ -83,15 +83,6 @@ export class ResearchPanel implements OnInit {
       }
     });
   }
-  /** Signs in on the Meld website in this tab; the website returns to /account/callback, which lands on Account. */
-  async link(): Promise<void> {
-    await this.run('Opening Google sign-in...', async () => {
-      const link = await this.api.link();
-      this.navigate(link.signInUrl);
-    });
-  }
-  navigate(url: string): void { window.location.assign(url); }
-  async unlink(): Promise<void> { await this.run('Disconnecting...', () => this.api.unlink()); }
   async monitor(id: string, enabled: boolean): Promise<void> {
     if (enabled && !this.consent()) {
       this.error.set('Approve processing of selected project text before enabling monitoring.');

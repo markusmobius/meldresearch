@@ -23,7 +23,7 @@ internal static class ResearchEndpoints
             string? code, string? state, IResearchCoordinator service, CancellationToken ct) =>
         {
             await service.CompleteLinkAsync(code, state, ct);
-            return TypedResults.Redirect("/#account");
+            return TypedResults.Redirect("/");
         }).ExcludeFromDescription();
         group.MapDelete("/account", async Task<NoContent> (IResearchCoordinator service, CancellationToken ct) =>
         {

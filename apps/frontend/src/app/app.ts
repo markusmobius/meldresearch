@@ -1,5 +1,5 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { Component, DestroyRef, HostListener, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, HostListener, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatExpansionModule } from '@angular/material/expansion';
@@ -10,8 +10,15 @@ import { MatSidenavModule } from '@angular/material/sidenav';
 import { BrowserConnector, ConnectorResult } from './browser-connector';
 import { BridgeStatus, Download, ExtensionSetup, OverleafApi, OverleafProject, describeFailure, needsOverleafSignIn } from './overleaf-api';
 import { ResearchPanel } from './research-panel';
-import { ResearchStatus } from './research-api';
+import { ResearchApi, ResearchStatus } from './research-api';
 import { LocalPage, MeldToolbar } from './meld-toolbar';
+
+export type SetupTab = 'meld' | 'overleaf';
+/** The account ID for which this browser has connected Overleaf at least once; later Overleaf outages keep the feed. */
+const overleafConfirmedKey = 'meldresearch.overleafConnectedFor';
+function readOverleafConfirmed(): string | null {
+  try { return localStorage.getItem(overleafConfirmedKey); } catch { return null; }
+}
 
 @Component({
   selector: 'app-root',
@@ -82,6 +89,64 @@ export class App implements OnInit {
 
   private pageFromHash(): LocalPage {
     return location.hash === '#about-me' ? 'about-me' : location.hash === '#account' ? 'account' : 'home';
+  }
+
+  // Setup: the Meld account (Google) first, then Overleaf. Until both are done, only the Account view exists.
+  private readonly researchApi = inject(ResearchApi);
+  readonly accountAction = signal('');
+  private readonly chosenTab = signal<SetupTab | null>(null);
+  private readonly overleafConfirmedFor = signal(readOverleafConfirmed());
+  readonly setupKnown = computed(() => this.research() !== null);
+  readonly accountLinked = computed(() => !!this.research()?.account);
+  readonly overleafReady = computed(() => this.verified() ||
+    (!!this.research()?.account && this.overleafConfirmedFor() === this.research()?.account?.id));
+  readonly setupComplete = computed(() => this.accountLinked() && this.overleafReady());
+  readonly setupTab = computed<SetupTab>(() => this.chosenTab() ?? (this.accountLinked() ? 'overleaf' : 'meld'));
+  readonly view = computed<LocalPage>(() => this.setupKnown() && this.setupComplete() ? this.page() : 'account');
+
+  constructor() {
+    effect(() => {
+      const account = this.research()?.account?.id;
+      if (account && this.verified() && this.overleafConfirmedFor() !== account) {
+        try { localStorage.setItem(overleafConfirmedKey, account); } catch { /* storage disabled: setup is re-checked next time */ }
+        this.overleafConfirmedFor.set(account);
+      }
+    });
+    // Finishing setup opens the feed.
+    let wasComplete: boolean | null = null;
+    effect(() => {
+      if (!this.setupKnown()) return;
+      const complete = this.setupComplete();
+      if (wasComplete === false && complete && this.page() === 'account') location.hash = '#feed';
+      wasComplete = complete;
+    });
+  }
+
+  chooseTab(tab: SetupTab): void { this.chosenTab.set(tab); }
+
+  /** Signs in on the Meld website in this tab; the website returns to /account/callback and then to this app. */
+  async signIn(): Promise<void> {
+    this.accountAction.set('Opening Google sign-in...');
+    try {
+      this.navigate((await this.researchApi.link()).signInUrl);
+    } catch (error: unknown) {
+      this.error.set(describeFailure(error));
+      this.accountAction.set('');
+    }
+  }
+  navigate(url: string): void { window.location.assign(url); }
+
+  async disconnect(): Promise<void> {
+    this.accountAction.set('Disconnecting...');
+    try {
+      await this.researchApi.unlink();
+      this.research.update(state => state ? { ...state, account: null } : state);
+      this.chosenTab.set(null);
+    } catch (error: unknown) {
+      this.error.set(describeFailure(error));
+    } finally {
+      this.accountAction.set('');
+    }
   }
 
   ngOnInit(): void {

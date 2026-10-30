@@ -169,7 +169,7 @@ async function signInLocal(local, remote, remoteBase, localBase) {
   assert.equal((await (await local('/api/research/status')).json()).account, null, 'A callback with another state cannot sign the app in.');
   const done = await local(callback.pathname + callback.search);
   assert.equal(done.status, 302);
-  assert.equal(done.headers.get('location'), '/#account');
+  assert.equal(done.headers.get('location'), '/');
   const state = await (await local('/api/research/status')).json();
   assert.equal(state.account?.name, 'Demo Researcher');
   assert.equal(state.pendingLink, null);

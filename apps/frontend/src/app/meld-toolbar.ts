@@ -45,6 +45,8 @@ export class MeldToolbar {
   readonly accountName = input<string | null>(null);
   readonly dummy = input(false);
   readonly updateCount = input(0);
+  /** Local app: Feed and About me appear only after the Meld account and Overleaf are connected. */
+  readonly setupComplete = input(true);
   readonly remoteAccount = signal(readRemoteAccount());
   readonly remoteInitial = computed(() => {
     const account = this.remoteAccount();

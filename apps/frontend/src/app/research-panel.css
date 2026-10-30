@@ -32,9 +32,6 @@
 .onboarding-card { box-shadow: none; border: 1px solid #e2e8f0; }
 .onboarding-card h3 { margin-top: 4px; }
 .onboarding-card p { font-size: 14px; line-height: 1.6; }
-.account-page > mat-card { max-width: 520px; border: 1px solid #e2e8f0; border-radius: 8px; }
-.account-page mat-card-content { padding-top: 12px; font-family: 'Outfit', sans-serif; font-size: 14px; line-height: 1.6; }
-.account-name { font-size: 18px; font-weight: 600; margin-bottom: 0; }
 .about-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
 .about-head h2 { font-size: 18px; margin: 0; }
 .about-note { display: flex; align-items: flex-start; gap: 6px; color: #64748b; font-size: 12px; line-height: 1.5; }

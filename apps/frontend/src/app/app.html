@@ -1,27 +1,32 @@
 <div class="app-layout">
-  <app-meld-toolbar [page]="page()" [accountName]="research()?.account?.name ?? null"
+  <app-meld-toolbar [page]="view()" [accountName]="research()?.account?.name ?? null" [setupComplete]="setupKnown() && setupComplete()"
     [dummy]="!!status()?.dummy" [updateCount]="research()?.totalUpdates ?? 0"></app-meld-toolbar>
 
   <mat-sidenav-container class="sidenav-container">
-    <mat-sidenav-content class="content-area" [class.feed-content]="page() === 'home'">
+    <mat-sidenav-content class="content-area" [class.feed-content]="view() === 'home'">
       @if (connectionError()) { <p class="alert" role="alert">{{ connectionError() }}</p> }
       @if (error()) { <p class="alert" role="alert">{{ error() }}</p> }
       @if (busy()) { <p class="operation-status" role="status"><mat-icon>sync</mat-icon>{{ busy() }}</p> }
-      @if (page() === 'about-me') {
+      @if (view() === 'about-me') {
         <header class="page-header page-container">
           <div><h1 class="page-title"><mat-icon>badge</mat-icon>About me</h1>
             <p class="page-subtitle">Your projects and private research knowledge.</p></div>
           <a mat-button href="/#account"><mat-icon>settings</mat-icon>Account &amp; Overleaf</a>
         </header>
       }
-      @if (page() === 'account') {
-        <header class="page-header page-container"><h1 class="page-title"><mat-icon>account_circle</mat-icon>Account</h1></header>
+      @if (view() === 'account' && setupKnown()) {
+        <header class="page-header page-container">
+          <div><h1 class="page-title"><mat-icon>account_circle</mat-icon>{{ setupComplete() ? 'Account' : 'Set up Meld Research' }}</h1>
+            @if (!setupComplete()) {
+              <p class="page-subtitle">Sign in with Google, then connect Overleaf. Your feed opens when both are connected.</p>
+            }</div>
+        </header>
       }
 
-      <app-research-panel [page]="page()" [projects]="projects()" [sourceReady]="verified()"
+      <app-research-panel [page]="view()" [projects]="projects()" [sourceReady]="verified()"
         (statusChange)="research.set($event)"></app-research-panel>
 
-      @if (page() === 'about-me') {
+      @if (view() === 'about-me') {
         <div class="page-container source-tools">
           <mat-expansion-panel class="source-browser">
             <mat-expansion-panel-header>
@@ -72,12 +77,59 @@
         </div>
       }
 
-      @if (page() === 'account') {
-        <section class="page-container connection-settings" aria-label="Overleaf connection">
+      @if (view() === 'account' && setupKnown()) {
+        <div class="page-container setup-layout">
+          <nav class="setup-tabs" role="tablist" aria-label="Connections">
+            <button type="button" role="tab" class="setup-tab" [class.active]="setupTab() === 'meld'"
+              [attr.aria-selected]="setupTab() === 'meld'" (click)="chooseTab('meld')">
+              <mat-icon>account_circle</mat-icon>
+              <span class="setup-tab-text"><strong>Meld account</strong>
+                <small>{{ research()?.account?.email ?? 'Sign in with Google' }}</small></span>
+              <mat-icon class="setup-state" [class.done]="accountLinked()">{{ accountLinked() ? 'check_circle' : 'radio_button_unchecked' }}</mat-icon>
+            </button>
+            <button type="button" role="tab" class="setup-tab" [class.active]="setupTab() === 'overleaf'"
+              [attr.aria-selected]="setupTab() === 'overleaf'" (click)="chooseTab('overleaf')">
+              <mat-icon>link</mat-icon>
+              <span class="setup-tab-text"><strong>Overleaf</strong><small>{{ connectionLabel() }}</small></span>
+              <mat-icon class="setup-state" [class.done]="verified()">{{ verified() ? 'check_circle' : 'radio_button_unchecked' }}</mat-icon>
+            </button>
+          </nav>
+
+          <div class="setup-panel" role="tabpanel">
+            @if (setupTab() === 'meld') {
+              <mat-card class="meld-account" aria-label="Meld account">
+                <mat-card-header><mat-icon mat-card-avatar>account_circle</mat-icon>
+                  <mat-card-title>{{ accountLinked() ? 'Your Meld account' : 'Sign in to Meld Research' }}</mat-card-title>
+                  <mat-card-subtitle>Step 1 of 2</mat-card-subtitle>
+                </mat-card-header>
+                <mat-card-content>
+                  @if (research()?.dummy) { <p class="notice">Dummy mode: the account and Overleaf project are synthetic. Foundry processing is real and consumes model quota.</p> }
+                  @if (research()?.account; as account) {
+                    <p class="account-name">{{ account.name }}</p><p class="muted">{{ account.email }}</p>
+                    <div class="controls">
+                      @if (!verified()) {
+                        <button mat-flat-button class="next-step" (click)="chooseTab('overleaf')"><mat-icon>arrow_forward</mat-icon>Next: connect Overleaf</button>
+                      }
+                      <button mat-button (click)="disconnect()" [disabled]="!!accountAction()">Disconnect account</button>
+                    </div>
+                  } @else {
+                    <p>Sign in with the Google account you use for Meld Research. Your browser opens the Meld website and returns here.</p>
+                    <button mat-flat-button class="google-sign-in" (click)="signIn()" [disabled]="!!accountAction()">
+                      <mat-icon>login</mat-icon>{{ research()?.dummy ? 'Sign in with the test account' : 'Sign in with Google' }}
+                    </button>
+                  }
+                  @if (accountAction()) { <p class="muted" role="status">{{ accountAction() }}</p> }
+                  @if (research()?.pendingLink; as link) {
+                    <p class="muted" role="status">Sign-in did not finish? <a [href]="link.signInUrl">Continue in the browser</a>.</p>
+                  }
+                </mat-card-content>
+              </mat-card>
+            } @else {
+        <section class="connection-settings" aria-label="Overleaf connection">
           <mat-card>
             <mat-card-header><mat-icon mat-card-avatar>link</mat-icon>
               <mat-card-title>Overleaf connection</mat-card-title>
-              <mat-card-subtitle class="connection" [class.online]="verified()">{{ connectionLabel() }}</mat-card-subtitle>
+              <mat-card-subtitle class="connection" [class.online]="verified()">Step 2 of 2 &middot; {{ connectionLabel() }}</mat-card-subtitle>
             </mat-card-header>
             <mat-card-content>
               <p>{{ status()?.dummy ? 'The local backend supplies synthetic Overleaf evidence. No real browser profile, account, or private project is used.' :
@@ -138,6 +190,9 @@
             </mat-card-content>
           </mat-card>
         </section>
+            }
+          </div>
+        </div>
       }
     </mat-sidenav-content>
   </mat-sidenav-container>
