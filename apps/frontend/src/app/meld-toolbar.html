@@ -38,4 +38,20 @@
       @if (accountName()) { <small>{{ dummy() ? 'Synthetic test account' : 'Meld Research' }}</small> }
     </span>
   </a>
+  @if (remoteAccount(); as account) {
+    <button mat-button class="nav-link-btn remote-account-btn role-remote" [matMenuTriggerFor]="accountMenu"
+      [attr.aria-label]="'Account: ' + account.name" [title]="account.name + ' (' + account.email + ')'">
+      <span class="avatar" aria-hidden="true">{{ remoteInitial() }}</span>
+      <span class="nav-label remote-account-name">{{ account.name }}</span>
+    </button>
+    <mat-menu #accountMenu="matMenu" xPosition="before" class="remote-account-menu">
+      <div class="account-menu-header">
+        <span class="avatar large" aria-hidden="true">{{ remoteInitial() }}</span>
+        <strong>{{ account.name }}</strong>
+        <small>{{ account.email }}</small>
+      </div>
+      <a mat-menu-item href="/account"><mat-icon>download</mat-icon><span>Install Meld Research</span></a>
+      <button mat-menu-item (click)="signOut()"><mat-icon>logout</mat-icon><span>Sign out</span></button>
+    </mat-menu>
+  }
 </mat-toolbar>

@@ -11,6 +11,8 @@ using MeldResearch.Research;
 
 namespace MeldResearch.RemoteBackend.Endpoints;
 
+internal sealed record BrowserSession(string Name, string Email, string SignOutToken);
+
 internal static class RemoteEndpoints
 {
     public static void MapRemoteEndpoints(this WebApplication app)
@@ -19,7 +21,8 @@ internal static class RemoteEndpoints
         if (!File.Exists(assetsPath))
             throw new InvalidOperationException("Build the Angular frontend before building the remote backend; shared Material assets are missing.");
         string assets = File.ReadAllText(assetsPath);
-        ContentHttpResult Page(string title, string body, RemoteOptions options) => RenderPage(title, body, options, assets);
+        ContentHttpResult Page(HttpContext context, string title, string body, RemoteOptions options, bool heading = true) =>
+            RenderPage(context, title, body, options, assets, heading);
         var origin = app.Services.GetRequiredService<RemoteOptions>().PublicOrigin.GetLeftPart(UriPartial.Authority);
         var installers = new Dictionary<string, (string FileName, byte[] Script)>();
         foreach (var (platform, fileName) in new[] { ("windows", "meldresearch-install.ps1"), ("macos", "meldresearch-install.sh") })
@@ -64,44 +67,26 @@ internal static class RemoteEndpoints
             return TypedResults.Ok(await foundry.EmbedAsync(request, ct));
         }).WithName("EmbedResearch").WithSummary("Embed bounded research text using the configured Foundry deployment.");
 
+        // Home is a single centered action: sign up / sign in with Google, or install once signed up.
         app.MapGet("/", async Task<ContentHttpResult> (HttpContext context, IAntiforgery antiforgery, IAccountService accounts,
             RemoteOptions options, CancellationToken ct) =>
         {
             string message = context.Request.Query.ContainsKey("signInFailed")
                 ? "<p class=\"notice\">Google sign-in failed. Try again.</p>" : "";
-            var account = context.User.Identity?.IsAuthenticated == true ? await accounts.FindAsync(context.User, ct) : null;
-            string auth = account is not null
-                ? $"<p>Signed in as {E(account.Name)}.</p><p><a class=\"button\" href=\"/account\">Your account and downloads</a></p>" +
-                    SignOutForm(context, antiforgery)
-                : context.User.Identity?.IsAuthenticated == true
-                ? "<p>This Google identity has no Meld Research account.</p><p><a class=\"button\" href=\"/signup\">Sign up with Google</a></p>" +
-                    SignOutForm(context, antiforgery)
-                : options.Dummy
-                ? $"<form method=\"post\" action=\"/auth/dummy\">{Token(context, antiforgery)}<button>Use the synthetic test account</button></form>"
-                : options.GoogleConfigured
-                    ? "<p><a class=\"button\" href=\"/signup\">Sign up with Google</a> <a href=\"/login\">Sign in</a></p>"
-                    : "<p class=\"notice\">Google signup is not configured on this server yet. Configure the OAuth client before accepting real accounts.</p>";
-            return Page("Meld Research", message + """
-                <p class="page-subtitle">Accounts, installation approval, and Foundry processing for your local research assistant.</p>
-                <div class="stats-grid">
-                  <section class="stat-card"><h2>Private source</h2><p class="stat-value">Overleaf</p>
-                    <p class="stat-desc">Read through your normal browser</p></section>
-                  <section class="stat-card"><h2>Research feed</h2><p class="stat-value">Updates</p>
-                    <p class="stat-desc">Grounded in your selected projects</p></section>
-                  <section class="stat-card"><h2>Model provider</h2><p class="stat-value">Foundry</p>
-                    <p class="stat-desc">Selected text, with your consent</p></section>
-                </div>
-                <p>Your project files and research index stay on your computer. With your permission, selected text is sent
-                through this service to Azure AI Foundry to identify meaningful research updates.</p>
-                """ + (options.Dummy ? "<p class=\"callout\">Both backends are running on this computer for development. This blue page is not a deployed public website.</p>" : "") +
-                auth + "<p><a href=\"/docs.html\">Read the setup guide</a> &middot; <a href=\"/privacy.html\">Privacy and data use</a></p>", options);
+            bool signedIn = context.User.Identity?.IsAuthenticated == true;
+            var account = signedIn ? await accounts.FindAsync(context.User, ct) : null;
+            string action = account is not null
+                ? "<a class=\"install-button\" href=\"/account\"><span class=\"material-icons\" aria-hidden=\"true\">download</span>Install Meld Research</a>"
+                // A Google identity without a Meld account can only sign up; otherwise the browser chooses (see google-sign-in.js).
+                : SignInControls(context, antiforgery, options, signup: signedIn ? true : null, code: null);
+            return Page(context, "Meld Research", message + $"<div class=\"home-action\">{action}</div>", options, heading: false);
         }).ExcludeFromDescription();
 
         app.MapGet("/login", (HttpContext context, IAntiforgery antiforgery, RemoteOptions options, CancellationToken ct) =>
         {
             ct.ThrowIfCancellationRequested();
             string? code = OptionalCode(context);
-            return Page("Sign in to Meld Research", "<p>Sign in with the Google account you used to create your Meld account. " +
+            return Page(context, "Sign in to Meld Research", "<p>Sign in with the Google account you used to create your Meld account. " +
                 "Signing in does not create an account.</p>" + SignInControls(context, antiforgery, options, signup: false, code) +
                 $"<p>No account yet? <a href=\"/signup{(code is null ? "" : "?code=" + code)}\">Sign up with Google</a></p>", options);
         }).ExcludeFromDescription();
@@ -109,7 +94,7 @@ internal static class RemoteEndpoints
         {
             ct.ThrowIfCancellationRequested();
             string? code = OptionalCode(context);
-            return Page("Create your Meld Research account", "<p>Your Google account identifies you; Meld stores its identifier, " +
+            return Page(context, "Create your Meld Research account", "<p>Your Google account identifies you; Meld stores its identifier, " +
                 "name and verified email address. Google does not share your password with Meld.</p>" +
                 SignInControls(context, antiforgery, options, signup: true, code), options);
         }).ExcludeFromDescription();
@@ -148,16 +133,23 @@ internal static class RemoteEndpoints
             await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
             return TypedResults.Redirect("/");
         }).ExcludeFromDescription();
+        // The toolbar's account menu on static pages (Docs, Privacy, Team). Same-origin only: the global Origin check and
+        // the browser's same-origin policy keep the sign-out token from other sites.
+        app.MapGet("/api/session", Results<Ok<BrowserSession>, NoContent> (HttpContext context, IAntiforgery antiforgery) =>
+            context.User.Identity?.IsAuthenticated == true
+                ? TypedResults.Ok(new BrowserSession(context.User.FindFirstValue(ClaimTypes.Name) ?? "",
+                    context.User.FindFirstValue(ClaimTypes.Email) ?? "", antiforgery.GetAndStoreTokens(context).RequestToken!))
+                : TypedResults.NoContent()).ExcludeFromDescription();
 
         app.MapGet("/account", async Task<ContentHttpResult> (
-            HttpContext context, IAccountService accounts, IAntiforgery antiforgery, RemoteOptions options, CancellationToken ct) =>
+            HttpContext context, IAccountService accounts, RemoteOptions options, CancellationToken ct) =>
         {
             var account = await accounts.FindAsync(context.User, ct);
             return account is null
-                ? Page("An existing Meld account is required", "<p>Signing in does not automatically create an account.</p><p><a href=\"/signup\">Create a Meld account with Google</a></p>", options)
-                : Page("Your Meld Research account", $"<p>Signed in as {E(account.Name)}.</p>" + InstallPanel(origin) +
-                    "<p>After installation, open <strong>Account</strong> in the local app and link it to this account.</p>" +
-                    SignOutForm(context, antiforgery), options);
+                ? Page(context, "An existing Meld account is required", "<p>Signing in does not automatically create an account.</p><p><a href=\"/signup\">Create a Meld account with Google</a></p>", options)
+                : Page(context, "Install Meld Research", InstallPanel(origin) +
+                    "<p class=\"after-install\">After installation, open <strong>Account</strong> in the local app and link it to this account.</p>",
+                    options, heading: false);
         }).ExcludeFromDescription();
 
         app.MapGet("/connect", async Task<ContentHttpResult> (
@@ -166,12 +158,12 @@ internal static class RemoteEndpoints
             string code = Code(context.Request.Query["code"].ToString());
             string name = await accounts.DeviceNameAsync(code, ct);
             if (context.User.Identity?.IsAuthenticated != true)
-                return Page("Link your Meld installation", "<p>Sign in with the same Google account used for your existing Meld account.</p>" +
+                return Page(context, "Link your Meld installation", "<p>Sign in with the same Google account used for your existing Meld account.</p>" +
                     SignInControls(context, antiforgery, options, signup: false, code), options);
             var account = await accounts.FindAsync(context.User, ct);
             if (account is null)
-                return Page("Create a remote account first", $"<p>This Google identity has no Meld Research account.</p><p><a href=\"/signup?code={code}\">Sign up on this website</a></p>", options);
-            return Page("Approve this installation",
+                return Page(context, "Create a remote account first", $"<p>This Google identity has no Meld Research account.</p><p><a href=\"/signup?code={code}\">Sign up on this website</a></p>", options);
+            return Page(context, "Approve this installation",
                 $"<p>Account: {E(account.Name)}. Device: {E(name)}.</p><p>Only approve a device-link request you just started in your local Meld application.</p>" +
                 $"<form method=\"post\" action=\"/connect\">{Token(context, antiforgery)}<input type=\"hidden\" name=\"code\" value=\"{code}\">" +
                 "<button name=\"decision\" value=\"allow\">Allow this installation</button> <button name=\"decision\" value=\"deny\">Deny</button></form>", options);
@@ -184,7 +176,7 @@ internal static class RemoteEndpoints
             string decision = form["decision"].ToString();
             if (decision is not ("allow" or "deny")) throw new ResearchFailure(400, "invalid_decision", "Choose Allow or Deny.");
             await accounts.ApproveAsync(Code(form["code"].ToString()), context.User, decision == "allow", ct);
-            return Page(decision == "allow" ? "Installation linked" : "Installation denied",
+            return Page(context, decision == "allow" ? "Installation linked" : "Installation denied",
                 "<p>Return to the local Meld application. You can close this page.</p>", options);
         }).ExcludeFromDescription();
 
@@ -279,11 +271,12 @@ internal static class RemoteEndpoints
     /// Renders Sign in with Google for this page only: Google's script, a per-page nonce cookie, and a hidden
     /// same-origin form that our callback fills with the ID token. Other pages keep the strict default policy.
     /// </summary>
-    private static string SignInControls(HttpContext context, IAntiforgery antiforgery, RemoteOptions options, bool signup, string? code)
+    private static string SignInControls(HttpContext context, IAntiforgery antiforgery, RemoteOptions options, bool? signup, string? code)
     {
         string codeInput = code is null ? "" : $"<input type=\"hidden\" name=\"code\" value=\"{code}\">";
         if (options.Dummy)
-            return $"<form method=\"post\" action=\"/auth/dummy\">{Token(context, antiforgery)}{codeInput}<button>Use the synthetic test account</button></form>";
+            return $"<form method=\"post\" action=\"/auth/dummy\">{Token(context, antiforgery)}{codeInput}" +
+                "<button class=\"dummy-sign-in\"><span class=\"material-icons\" aria-hidden=\"true\">science</span>Use the synthetic test account</button></form>";
         if (!options.GoogleConfigured)
             return "<p class=\"notice\">Google sign-in is not configured on this server yet.</p>";
         string nonce = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
@@ -295,18 +288,19 @@ internal static class RemoteEndpoints
         context.Response.Headers.ContentSecurityPolicy = GoogleContentSecurityPolicy;
         // Google's button validates the page origin from the Referer; same-origin would send none to accounts.google.com.
         context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+        bool up = signup ?? true;
+        // signup == null: google-sign-in.js switches to "Sign in" when this browser has seen a Meld account before.
         return $"<form id=\"google-sign-in\" method=\"post\" action=\"/auth/google\">{Token(context, antiforgery)}{codeInput}" +
-            $"<input type=\"hidden\" name=\"mode\" value=\"{(signup ? "signup" : "login")}\"><input type=\"hidden\" name=\"credential\" value=\"\"></form>" +
+            $"<input type=\"hidden\" name=\"mode\" value=\"{(up ? "signup" : "login")}\"><input type=\"hidden\" name=\"credential\" value=\"\"></form>" +
             $"<div id=\"g_id_onload\" data-client_id=\"{E(options.GoogleClientId!)}\" data-callback=\"meldGoogleCredential\" " +
-            $"data-nonce=\"{nonce}\" data-auto_prompt=\"false\" data-context=\"{(signup ? "signup" : "signin")}\" data-itp_support=\"true\"></div>" +
-            $"<div class=\"g_id_signin\" data-type=\"standard\" data-theme=\"outline\" data-size=\"large\" data-shape=\"pill\" " +
-            $"data-text=\"{(signup ? "signup_with" : "signin_with")}\" data-logo_alignment=\"left\"></div>" +
+            $"data-nonce=\"{nonce}\" data-auto_prompt=\"false\" data-context=\"{(up ? "signup" : "signin")}\" data-itp_support=\"true\"></div>" +
+            $"<div class=\"google-button\"><div class=\"g_id_signin\" data-type=\"standard\" data-theme=\"filled_blue\" data-size=\"large\" " +
+            $"data-shape=\"pill\" data-width=\"300\" data-text=\"{(up ? "signup_with" : "signin_with")}\" data-logo_alignment=\"left\"" +
+            $"{(signup is null ? " data-meld-auto-mode=\"true\"" : "")}></div></div>" +
             "<noscript><p class=\"notice\">Sign in with Google needs JavaScript from accounts.google.com.</p></noscript>" +
-            "<script src=\"https://accounts.google.com/gsi/client\" async></script><script src=\"/google-sign-in.js\"></script>";
+            // Ours first: it must adjust the button before Google's script reads it.
+            "<script src=\"/google-sign-in.js\"></script><script src=\"https://accounts.google.com/gsi/client\" async></script>";
     }
-
-    private static string SignOutForm(HttpContext context, IAntiforgery antiforgery) =>
-        $"<form method=\"post\" action=\"/auth/signout\">{Token(context, antiforgery)}<button>Sign out</button></form>";
 
     /// <summary>The Angular install card replaces this content; without JavaScript the commands remain usable.</summary>
     private static string InstallPanel(string origin) =>
@@ -331,23 +325,37 @@ internal static class RemoteEndpoints
     }
     private static string E(string value) => HtmlEncoder.Default.Encode(value);
     private static string StoreUrl => "https://chromewebstore.google.com/detail/" + ExtensionIdentity.Id;
-    private static ContentHttpResult RenderPage(string title, string body, RemoteOptions options, string assets) =>
-        TypedResults.Content("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">" +
-            $"<title>{E(title)} - Meld Research</title><link rel=\"stylesheet\" href=\"/site.css\">{assets}</head><body class=\"information\">" +
+    /// <summary>
+    /// Server-rendered page inside the shared Material toolbar. When signed in, the toolbar's account menu (name, email,
+    /// Install, Sign out) reads the meld-account meta tag and submits the hidden sign-out form; the no-JavaScript header
+    /// fallback submits the same form.
+    /// </summary>
+    private static ContentHttpResult RenderPage(HttpContext context, string title, string body, RemoteOptions options, string assets, bool heading)
+    {
+        string meta = "", signOutForm = "", fallbackAccount = "";
+        if (context.User.Identity?.IsAuthenticated == true)
+        {
+            string name = context.User.FindFirstValue(ClaimTypes.Name) ?? "", email = context.User.FindFirstValue(ClaimTypes.Email) ?? "";
+            meta = $"<meta name=\"meld-account\" content=\"{E(name)}\" data-email=\"{E(email)}\">";
+            signOutForm = "<form id=\"meld-sign-out\" method=\"post\" action=\"/auth/signout\" hidden>" +
+                Token(context, context.RequestServices.GetRequiredService<IAntiforgery>()) + "</form>";
+            fallbackAccount = $"<span class=\"site-account\">{E(name)} <button form=\"meld-sign-out\">Sign out</button></span>";
+        }
+        return TypedResults.Content("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">" +
+            $"<title>{E(title)} - Meld Research</title>{meta}<link rel=\"stylesheet\" href=\"/site.css\">{assets}</head><body class=\"information\">" +
             """
             <app-meld-toolbar><header class="site-header">
               <a class="site-brand" href="/"><span class="brand-mark" aria-hidden="true">m</span>
                 <span class="brand-text">Meld Research<span class="brand-role">Remote Backend</span></span></a>
               <nav class="site-nav" aria-label="Main navigation"><a href="/">Home</a><a href="/docs.html">Docs</a>
                 <a href="/privacy.html">Privacy</a><a href="/team.html">Project Team</a></nav>
-            </header></app-meld-toolbar><main class="site-main"><article class="site-card">
-            """ +
+            """ + fallbackAccount + "</header></app-meld-toolbar>" + signOutForm +
+            "<main class=\"site-main\"><article class=\"site-card\">" +
             (options.Dummy ? "<p class=\"notice\">DUMMY DEVELOPMENT MODE: synthetic account and evidence; configured Foundry inference is real.</p>" : "") +
-            $"<h1>{E(title)}</h1>{body}</article></main>" +
+            $"<h1{(heading ? "" : " class=\"visually-hidden\"")}>{E(title)}</h1>{body}</article></main>" +
             """
-            <footer class="meld-footer"><span>Meld Research &middot; Independent research software</span>
-              <nav aria-label="Footer"><a href="/team.html">Project Team</a><a href="/privacy.html">Privacy</a>
-                <a href="mailto:markusmobius@gmail.com">Contact</a></nav>
-            </footer></body></html>
+            <footer class="meld-footer"><nav aria-label="Footer"><a href="mailto:markusmobius@gmail.com">Contact</a>
+              <a href="/privacy.html">Privacy</a></nav></footer></body></html>
             """, "text/html; charset=utf-8");
+    }
 }

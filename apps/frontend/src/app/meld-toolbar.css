@@ -34,6 +34,19 @@
 .account-label strong { font-size: 0.9rem; }
 .account-label small { font-size: 0.7rem; opacity: 0.75; }
 .account-compact-icon { display: none; }
+.remote-account-btn { height: 44px !important; padding: 0 12px 0 6px !important; }
+.avatar {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 32px; height: 32px;
+  border-radius: 50%; background: #e8f0fe; color: #1a73e8; font-weight: 700; font-size: 0.95rem;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.6);
+}
+.remote-account-name { margin-left: 8px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-menu-header {
+  display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 240px; padding: 16px 24px 12px;
+  border-bottom: 1px solid #e2e8f0; margin-bottom: 4px; color: #1e293b; text-align: center;
+}
+.account-menu-header small { color: #64748b; font-size: 0.8rem; }
+.avatar.large { width: 56px; height: 56px; margin-bottom: 8px; font-size: 1.5rem; box-shadow: none; }
 @media (max-width: 700px) {
   .main-toolbar { gap: 4px; padding: 0 8px; }
   .brand { flex: 1; min-width: 0; gap: 5px; }

@@ -215,8 +215,19 @@ async function verifyGoogleSignIn() {
     '--DataDirectory', path.join(temporary, 'remote-google'), '--Google:ClientId', clientId]);
   await ready(server, base);
   const browser = client(base);
+  assert.doesNotMatch((await browser('/docs.html')).headers.get('content-security-policy'), /accounts\.google\.com/,
+    'Only sign-in pages allow Google scripts.');
   const home = await browser('/');
-  assert.doesNotMatch(home.headers.get('content-security-policy'), /accounts\.google\.com/, 'Only sign-in pages allow Google scripts.');
+  assert.match(home.headers.get('content-security-policy'), /accounts\.google\.com\/gsi\/client/, 'Home is the sign-up page.');
+  const homeHtml = await home.text();
+  assert.match(homeHtml, /class="g_id_signin"[^>]*data-text="signup_with"[^>]*data-meld-auto-mode="true"/,
+    'Home says Sign up unless this browser has seen a Meld account.');
+  assert.ok(homeHtml.indexOf('src="/google-sign-in.js"') < homeHtml.indexOf('src="https://accounts.google.com/gsi/client"'),
+    'The page script adjusts the button before Google renders it.');
+  const homeScript = await (await browser('/google-sign-in.js')).text();
+  assert.match(homeScript, /meldresearch\.account/);
+  assert.match(homeScript, /signin_with/);
+  assert.equal((await browser('/api/session')).status, 204);
   const signup = await browser('/signup');
   assert.equal(signup.status, 200);
   const csp = signup.headers.get('content-security-policy');
@@ -252,19 +263,32 @@ async function verifyRemoteSession(base) {
   assert.equal(login.status, 302);
   assert.equal((await browser('/docs.html')).status, 200);
   const home = await (await browser('/')).text();
-  assert.match(home, /Signed in as Demo Researcher/, 'Home must reflect the existing session after visiting Docs.');
-  assert.doesNotMatch(home, /Use the synthetic test account/);
+  assert.match(home, /<a class="install-button" href="\/account">/, 'After signing up, Home offers only the install button.');
+  assert.match(home, /<meta name="meld-account" content="Demo Researcher" data-email="researcher@example.invalid">/,
+    'The toolbar account menu reflects the existing session after visiting Docs.');
+  assert.doesNotMatch(home, /Use the synthetic test account|stat-card|Read the setup guide/);
+  assert.match(home, /<footer class="meld-footer"><nav aria-label="Footer"><a href="mailto:[^"]+">Contact<\/a>\s*<a href="\/privacy.html">Privacy<\/a><\/nav><\/footer>/);
+  const session = await browser('/api/session');
+  assert.equal(session.status, 200, 'Static pages read the session for the account menu.');
+  const sessionBody = await session.json();
+  assert.equal(sessionBody.name, 'Demo Researcher');
+  assert.ok(sessionBody.signOutToken);
   const account = await browser('/account');
   assert.equal(account.status, 200);
   const accountHtml = await account.text();
   assert.match(accountHtml, /<app-meld-install>/, 'The account page offers the install card.');
   assert.ok(accountHtml.includes(`irm -useb ${base}/api/install/windows | iex`), 'Without JavaScript the install command remains visible.');
   assert.doesNotMatch(accountHtml, /href="\/downloads\//);
-  const signOut = await browser('/auth/signout', { method: 'POST', form: { __RequestVerificationToken: formToken(accountHtml) } });
+  assert.match(accountHtml, /<form id="meld-sign-out" method="post" action="\/auth\/signout" hidden>/);
+  assert.match(accountHtml, /<button form="meld-sign-out">Sign out<\/button>/, 'Without JavaScript the header can still sign out.');
+  const signOut = await browser('/auth/signout', { method: 'POST', form: { __RequestVerificationToken: sessionBody.signOutToken } });
   assert.equal(signOut.status, 302);
   assert.equal(signOut.headers.get('location'), '/');
   assert.equal((await browser('/account')).status, 401, 'Signing out ends the session.');
-  assert.match(await (await browser('/')).text(), /Use the synthetic test account/);
+  assert.equal((await browser('/api/session')).status, 204);
+  const anonymous = await (await browser('/')).text();
+  assert.match(anonymous, /class="dummy-sign-in"/);
+  assert.doesNotMatch(anonymous, /meld-account|meld-sign-out/);
   assert.equal((await client(base)('/auth/signout', { method: 'POST', form: {} })).status, 403, 'Sign-out keeps antiforgery protection.');
 }
 

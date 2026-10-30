@@ -7,3 +7,4 @@
   --page-background: #f4f7fb;
 }
 .role-local { display: none !important; }
+:root { --meld-role: remote; }

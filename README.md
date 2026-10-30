@@ -210,11 +210,19 @@ Google-signed ID token, and the remote backend verifies its signature against
 Google's published keys, the issuer, this site's client ID as audience, its
 expiry, a verified email address, and a one-time nonce bound to the browser
 session. **No client secret is used.** Google's script loads only on the sign-in
-pages (`/signup`, `/login`, and `/connect` before sign-in), whose content-security
+pages (the signed-out home page, `/signup`, `/login`, and `/connect` before sign-in), whose content-security
 policy allows `accounts.google.com/gsi`; the button's callback submits the token
 through the site's own antiforgery-protected form. Signing in does not silently
 register an account: signup takes place explicitly on the remote website.
 Installation credentials last 30 days and can be revoked.
+
+The home page is a single centered action. Signed out, it shows Google's button:
+**Sign up with Google**, or **Sign in with Google** once this browser has shown the
+install page to an account holder (`localStorage` key `meldresearch.account`, set by
+the install card and read by [google-sign-in.js](apps/RemoteBackend/wwwroot/google-sign-in.js)).
+Signed in, it shows **Install Meld Research**, which opens the install card at
+`/account`. Account management (name, email, Install, Sign out) is the avatar menu
+at the top right of the toolbar; static pages read it from `/api/session`.
 
 1. Create a Google OAuth **Web application** client and add
    `https://www.meldresearch.org` under **Authorized JavaScript origins**. No

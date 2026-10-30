@@ -22,6 +22,11 @@ export class MeldInstall {
   readonly windowsManualCommand = 'powershell -ExecutionPolicy Bypass -File .\\meldresearch-install.ps1';
   readonly macManualCommand = 'bash meldresearch-install.sh';
 
+  constructor() {
+    // Only account holders see this card; the home page then offers "Sign in" instead of "Sign up" (google-sign-in.js).
+    try { localStorage.setItem('meldresearch.account', '1'); } catch { /* storage disabled */ }
+  }
+
   async copy(text: string): Promise<void> {
     try {
       await navigator.clipboard.writeText(text);
