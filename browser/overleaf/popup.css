@@ -15,16 +15,14 @@ a { color: var(--brand-accent); }
 .policy .site-brand { display: flex; align-items: center; gap: 8px; }
 .policy .brand-text { display: flex; flex-direction: column; line-height: 1.4; }
 .policy .brand-role { font-size: 11px; font-weight: 400; }
-.policy header { border-bottom: 1px solid var(--brand-border); padding-bottom: 20px; color: var(--brand-accent); font-weight: 650; }
-.policy h1 { font-size: 32px; line-height: 1.2; margin: 28px 0 12px; color: var(--brand-accent); }
-.policy h2 { font-size: 19px; margin: 28px 0 10px; color: var(--brand-accent); }
-.policy .lede { font-size: 17px; color: #526b61; }
-.policy .summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 24px 0; }
-.policy .summary section { padding: 18px; border: 1px solid var(--brand-border); border-radius: 10px; background: white; }
-.policy .summary h2 { margin: 0 0 8px; font-size: 16px; }
-.policy .summary p { margin: 0; }
-.policy .notice { background: var(--brand-soft); border-radius: 10px; padding: 16px 20px; }
+.policy .site-header { border-bottom: 1px solid var(--brand-border); padding-bottom: 20px; color: var(--brand-accent); font-weight: 650; }
+.policy .page-title { font-size: 28px; line-height: 1.2; margin: 28px 0 4px; color: var(--brand-accent); }
+.policy .page-subtitle { margin: 0 0 20px; color: #526b61; font-size: 13px; }
+.policy .privacy-card { padding: 8px 28px; border: 1px solid var(--brand-border); border-radius: 10px; background: white; }
+.policy .privacy-section { padding: 18px 0; border-bottom: 1px solid #e6efec; }
+.policy .privacy-section:last-child { border-bottom: 0; }
+.policy h2 { font-size: 17px; margin: 0 0 10px; color: var(--brand-accent); }
 .policy li { margin: 8px 0; }
 .policy code { overflow-wrap: anywhere; }
 .policy footer { margin-top: 32px; border-top: 1px solid #d6e3dd; padding-top: 18px; font-size: 13px; }
-@media (max-width: 640px) { .policy { padding: 20px; } .policy .summary { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .policy { padding: 20px; } .policy .privacy-card { padding: 4px 16px; } }

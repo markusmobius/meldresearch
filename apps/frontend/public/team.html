@@ -15,28 +15,32 @@
     </nav>
   </header>
   <main class="site-main">
-    <article class="site-card">
-      <p class="eyebrow">AN INDEPENDENT PROJECT</p>
-      <h1>Project Team</h1>
-      <p class="lede">Meld Research helps researchers follow their Overleaf projects and keep an evidence-linked record of meaningful changes.</p>
-      <section class="team-card" data-team-member>
-        <div class="avatar" aria-hidden="true">MM</div>
-        <div>
-          <h2>Markus Mobius</h2>
-          <p>Project creator and maintainer.</p>
-          <p><a href="mailto:markusmobius@gmail.com">markusmobius@gmail.com</a></p>
-        </div>
-      </section>
-      <p>Meld Research is currently maintained by Markus Mobius as an independent project.
-        For product questions, feedback, privacy requests, or account-deletion requests, use the contact address above.
-        Do not send passwords, authentication tokens, or confidential project files in a support message.</p>
-      <div class="callout">The application combines an Overleaf browser connector, a local research assistant,
-        and a separate account/inference service. Learn how they work in <a href="docs.html">Docs</a>
-        and review <a href="privacy.html">Privacy &amp; controls</a> before enabling project processing.</div>
-    </article>
+    <div class="page-container">
+      <header class="page-header">
+        <h1 class="page-title"><span class="material-icons" aria-hidden="true">people</span>Meet Our Team</h1>
+      </header>
+
+      <div class="team-grid">
+        <article class="team-card" data-team-member>
+          <div class="team-card-content">
+            <img class="team-avatar" src="assets/markusmobius.png" alt="Markus Mobius" width="110" height="110">
+            <div class="team-info">
+              <h2 class="team-name">Markus Mobius</h2>
+              <p class="team-title">Developer</p>
+              <p class="team-location"><span class="material-icons" aria-hidden="true">place</span><span>Cambridge, MA</span></p>
+            </div>
+            <a class="team-profile-btn" href="https://www.markusmobius.org" target="_blank" rel="noopener noreferrer">
+              <span class="material-icons" aria-hidden="true">open_in_new</span><span>View Profile</span>
+            </a>
+          </div>
+        </article>
+      </div>
+
+      <p class="team-contact">Meld Research is developed by Markus Mobius. For product questions, feedback, privacy requests,
+        or account deletion, contact <a href="mailto:markusmobius@gmail.com">markusmobius@gmail.com</a>. Do not send
+        passwords, authentication tokens, or confidential project files in a support message.</p>
+    </div>
   </main>
-  <footer class="site-footer"><span>Meld Research &middot; Independent research software</span>
-    <nav aria-label="Footer"><a href="docs.html">Docs</a><a href="privacy.html">Privacy</a><a href="mailto:markusmobius@gmail.com">Contact</a></nav>
-  </footer>
+  <footer class="site-footer"><nav aria-label="Footer"><a href="mailto:markusmobius@gmail.com">Contact</a><a href="privacy.html">Privacy</a></nav></footer>
 </body>
 </html>

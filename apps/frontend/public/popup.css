@@ -1,20 +1,15 @@
 @import url("info.css");
 @import url("theme.css");
 
+/* Website wrapper for the canonical connector privacy notice; the card design comes from info.css. */
 body.policy { width: 100%; max-width: none; padding: 0; margin: 0; background: #f8fafc; }
 .policy .site-only { display: initial; }
 .policy .site-nav { display: flex; }
 .policy .connector-only { display: none; }
 .policy main { flex: 1; width: 100%; max-width: 1250px; margin: 0 auto; padding: 40px 30px 30px; }
-.policy h1 { margin: 0 0 16px; color: #1e293b; font-size: 24px; line-height: 32px; }
-.policy h2 { margin: 28px 0 10px; color: var(--brand-accent); font-size: 20px; }
-.policy .summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 24px 0; }
-.policy .summary section { padding: 18px; border: 1px solid #e2e8f0; border-radius: 8px; background: white; }
-.policy .summary h2 { margin: 0 0 8px; font-size: 16px; }
-.policy .summary p { margin: 0; }
-.policy li { margin: 8px 0; }
+.policy .privacy-card { margin: 0 auto; }
+.policy .page-header { max-width: 800px; width: 100%; margin: 0 auto; }
 .policy .meld-footer { margin: 0; }
 @media (max-width: 640px) {
   .policy main { padding: 24px 16px; }
-  .policy .summary { grid-template-columns: 1fr; }
 }

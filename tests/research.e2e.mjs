@@ -103,7 +103,9 @@ async function verifyPublicPages(local, remote) {
       for (const destination of ['docs', 'team', 'privacy']) assert.ok(html.includes(`href="${destination}.html"`));
       if (page === 'team') {
         assert.equal((html.match(/data-team-member/g) ?? []).length, 1);
-        assert.match(html, /<h2>Markus Mobius<\/h2>/);
+        assert.match(html, /<h2 class="team-name">Markus Mobius<\/h2>/);
+        assert.match(html, /src="assets\/markusmobius\.png"/);
+        assert.equal((await request('/assets/markusmobius.png')).status, 200, `${site} team photo must be served.`);
       } else if (page === 'docs') {
         assert.match(html, /both backends run on your computer/i);
         assert.match(html, /AGENTS\.md/);

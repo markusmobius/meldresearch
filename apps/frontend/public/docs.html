@@ -15,133 +15,319 @@
     </nav>
   </header>
   <main class="site-main">
-    <article class="site-card">
-      <p class="eyebrow">OVERLEAF &middot; UPDATES &middot; FOUNDRY</p>
-      <h1>Docs</h1>
-      <p class="lede">Follow selected Overleaf projects and turn meaningful changes into a research Updates feed.
-        Meld Research is an independent project maintained by Markus Mobius.</p>
-      <nav class="doc-nav" aria-label="Documentation topics">
-        <a href="#two-parts">Local and remote</a><a href="#get-started">Get started</a><a href="#updates">How updates work</a>
-        <a href="#controls">Your controls</a><a href="#development">Development</a><a href="#limitations">Current limitations</a>
-      </nav>
-
-      <section id="two-parts">
-        <h2>Two parts, clearly identified</h2>
-        <div class="columns">
-          <div class="feature local-color"><h3>Green: your Local Assistant</h3><p>Runs on your computer. Connects to your normal browser,
-            reads selected Overleaf projects, and stores the research index, citations, embeddings, and Updates feed locally.</p></div>
-          <div class="feature remote-color"><h3>Blue: the Remote Backend</h3><p>Handles Meld accounts, installation approval,
-            and authenticated Foundry requests. It is intended to run as an HTTPS service; it does not keep a project-archive repository.</p></div>
+    <div class="page-container documentation-page">
+      <header class="page-header">
+        <div class="page-heading">
+          <h1 class="page-title"><span class="material-icons" aria-hidden="true">description</span>System Documentation</h1>
+          <p class="page-subtitle">Overleaf projects, research Updates, cited evidence, and data controls.</p>
         </div>
-        <p class="callout"><strong>In local development, both backends run on your computer.</strong>
-          The colors identify their roles, not their physical location. Foundry inference still uses the configured model service.</p>
-        <table>
-          <thead><tr><th>Service</th><th>Development address</th><th>Installed or hosted use</th></tr></thead>
-          <tbody>
-            <tr><td>Local app and API</td><td><code>http://127.0.0.1:6010</code></td><td>Loopback port <code>6001</code> on your computer</td></tr>
-            <tr><td>Remote service</td><td><code>http://127.0.0.1:6050</code></td><td>Your configured HTTPS server</td></tr>
-          </tbody>
-        </table>
-        <p>The intended public site is <code>https://www.meldresearch.org</code>. Running the development launcher
-          does not deploy that site or configure its DNS, HTTPS, or Google credentials.</p>
-      </section>
+      </header>
 
-      <section id="get-started">
-        <h2>Get started</h2>
-        <ol>
-          <li><strong>Create a Meld account on the remote website using Google.</strong> Google sign-in must be configured by the
-            service operator. Signing in while linking an installation does not silently create a new Meld account.</li>
-          <li><strong>Install the local companion.</strong> Your account page on the remote website shows a one-line command
-            for Windows (PowerShell) or macOS (Terminal). It downloads the signed release, checks it, installs it for your user
-            account without administrator rights, starts it whenever you sign in, and opens the green local app. Running it again
-            repairs or updates the installation. The current packages are self-contained test distributions, not signed consumer installers.</li>
-          <li><strong>Add the Overleaf connector to your normal Chrome profile.</strong> The companion registers the native host;
-            you still approve the extension installation in the browser. A private store release also requires tester access.
-            While the store release is pending, use the source launcher's documented unpacked-extension setup.</li>
-          <li><strong>Link the installation.</strong> Open <strong>Account</strong> in the green local app and choose <strong>Link Google account</strong>.
-            Open the approval page, check the device and verification code, and approve only the request you just initiated.</li>
-          <li><strong>Sign in to Overleaf in the normal browser.</strong> Use the Overleaf sign-in control in <strong>Account</strong> if necessary.
-            Meld does not request your Overleaf password or extract your browser's cookie database.</li>
-          <li><strong>Select projects and explicitly consent to processing.</strong> Open <strong>About me</strong> and expand <strong>Select Overleaf projects</strong>.
-            Review <a href="privacy.html">Privacy &amp; controls</a>, then enable monitoring for the projects you want in <strong>Feed</strong>.
-            Choose <strong>Review</strong> on an Update to inspect its complete source evidence. Only process research you are authorized to send to these services.</li>
-        </ol>
-        <p>Google authentication for Meld and the browser's Overleaf session are separate. Keep the local app and normal browser
-          running for fresh Overleaf reads. You do not need to open the extension popup every day.</p>
-        <p class="role-remote"><a class="button" href="/signup">Create a Google-based Meld account</a>
-          <a href="/account">Existing account and installation</a></p>
-        <p class="role-local"><a class="button" href="/">Return to the Local Assistant</a></p>
-      </section>
+      <div class="doc-layout">
+        <nav class="doc-sidebar" aria-label="Documentation topics">
+          <div class="doc-nav-section">
+            <span class="doc-nav-section-title">Getting Started</span>
+            <a class="doc-nav-btn" href="#overview"><span class="material-icons" aria-hidden="true">info</span><span>System Overview</span></a>
+            <a class="doc-nav-btn" href="#install"><span class="material-icons" aria-hidden="true">get_app</span><span>Installation Guide</span></a>
+          </div>
+          <div class="doc-nav-section">
+            <span class="doc-nav-section-title">Using Meld</span>
+            <a class="doc-nav-btn" href="#feed"><span class="material-icons" aria-hidden="true">newspaper</span><span>Reading Your Updates</span></a>
+            <a class="doc-nav-btn" href="#projects"><span class="material-icons" aria-hidden="true">badge</span><span>Projects &amp; Consent</span></a>
+            <a class="doc-nav-btn" href="#account"><span class="material-icons" aria-hidden="true">account_circle</span><span>Account &amp; Connector</span></a>
+          </div>
+          <div class="doc-nav-section">
+            <span class="doc-nav-section-title">How It Works</span>
+            <a class="doc-nav-btn" href="#localbackend"><span class="material-icons" aria-hidden="true">computer</span><span>Local Backend</span></a>
+            <a class="doc-nav-btn" href="#remotebackend"><span class="material-icons" aria-hidden="true">cloud</span><span>Remote Backend</span></a>
+            <a class="doc-nav-btn" href="#under-the-hood"><span class="material-icons" aria-hidden="true">settings_suggest</span><span>Background Processing</span></a>
+            <a class="doc-nav-btn" href="#novelty-citations"><span class="material-icons" aria-hidden="true">query_stats</span><span>Novelty &amp; Citations</span></a>
+            <a class="doc-nav-btn" href="#development"><span class="material-icons" aria-hidden="true">code</span><span>Development &amp; Dummy Mode</span></a>
+            <a class="doc-nav-btn" href="#limitations"><span class="material-icons" aria-hidden="true">flag</span><span>Limitations &amp; Status</span></a>
+          </div>
+          <div class="doc-nav-section">
+            <span class="doc-nav-section-title">Privacy</span>
+            <a class="doc-nav-btn" href="privacy.html"><span class="material-icons" aria-hidden="true">shield</span><span>Privacy &amp; Controls</span></a>
+          </div>
+        </nav>
 
-      <section id="updates">
-        <h2>How research becomes an update</h2>
-        <p>The first import establishes existing project knowledge. Later checks compare file content, not ZIP timestamps.
-          Foundry decides whether changes add, revise, or remove knowledge, or do not warrant a new update.
-          Embeddings help match changes to existing facts; local scoring does not replace the model's decision.</p>
-        <p>The model selects source line ranges and the server copies their exact text into citations.
-          Invalid references or model failures do not overwrite the last successfully processed research.
-          Citations make claims inspectable; they are not a guarantee that every model interpretation is correct.</p>
-        <p>Checks normally run every five minutes, with periodic content verification and a manual <strong>Check for changes</strong>
-          action. Identical supported text makes no additional model calls, including after a restart.
-          Formatting-only changes can require analysis without producing a new update.</p>
-        <p>Initial imports are labelled as imports, not research that happened today. Update timestamps indicate when Meld observed
-          the evidence. Overleaf is the only private-data source; this release has no WorkIQ integration, other news feed,
-          automatic colleague sharing, or alternative inference provider.</p>
-      </section>
+        <div class="doc-content-panel">
+          <section class="doc-section" id="overview">
+            <h2>System Overview</h2>
+            <p><strong>Meld Research</strong> follows the Overleaf projects you choose and turns meaningful changes into a
+              research <strong>Updates</strong> feed. Each Update is grounded in cited lines from your own sources. Your
+              private research comes only from Overleaf, read through your normal signed-in browser. Meld Research is
+              developed by Markus Mobius.</p>
+            <p>A local assistant and a remote service work together:</p>
+            <div class="doc-card-grid">
+              <div class="doc-card local-card">
+                <div class="doc-card-header"><span class="material-icons" aria-hidden="true">computer</span>
+                  <h3>Local Backend (Meld Research Assistant)</h3></div>
+                <p>Runs on your computer and serves the green local app. It reads the projects you select through the
+                  Overleaf connector in Chrome or Edge, keeps an encrypted research index, and sends bounded source text
+                  through the Meld service to Azure AI Foundry for analysis.</p>
+                <p>Your project files, extracted knowledge, embeddings, and Updates stay on your computer.</p>
+              </div>
+              <div class="doc-card">
+                <div class="doc-card-header"><span class="material-icons" aria-hidden="true">cloud</span>
+                  <h3>Remote Backend (www.meldresearch.org)</h3></div>
+                <p>The blue website handles Google sign-up, installation approval, signed desktop releases, and
+                  authenticated requests to Azure AI Foundry. It keeps account and device records, not project archives
+                  or research payloads.</p>
+              </div>
+            </div>
+            <h3>Your Daily Workflow</h3>
+            <ul>
+              <li><strong>Feed:</strong> read new Updates from your monitored projects and review their cited evidence.</li>
+              <li><strong>About me:</strong> choose which Overleaf projects to monitor, give consent, pause, or forget local research.</li>
+              <li><strong>Account:</strong> link your Meld account and connect the Overleaf browser connector.</li>
+            </ul>
+            <h3>Azure AI Foundry Processing</h3>
+            <p>Analysis is not on-device-only. After you link an account and consent for a project, selected text, prior
+              knowledge, and relevant changes are sent through the Meld service to the configured Azure AI Foundry chat and
+              embedding deployments. The service does not persist project archives or log research payloads. Provider-side
+              handling is governed by Azure AI Foundry and applicable Microsoft terms.</p>
+            <div class="doc-note"><strong>Green and blue identify roles, not locations.</strong> The local app is green and the
+              remote website is blue. In local development, both backends run on your computer; Foundry inference still uses
+              the configured model service.
+              <table>
+                <thead><tr><th>Service</th><th>Development</th><th>Installed or hosted</th></tr></thead>
+                <tbody>
+                  <tr><td>Local app and API</td><td><code>http://127.0.0.1:6010</code></td><td><code>http://127.0.0.1:6001</code> on your computer</td></tr>
+                  <tr><td>Remote website</td><td><code>http://127.0.0.1:6050</code></td><td><code>https://www.meldresearch.org</code></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
 
-      <section id="controls">
-        <h2>Your controls</h2>
-        <ul>
-          <li><strong>Pause monitoring:</strong> stop processing one selected project without deleting its existing knowledge.</li>
-          <li><strong>Pause auto-connect:</strong> stop the browser connector; the pause persists across browser restarts.</li>
-          <li><strong>Disconnect account:</strong> stop local processing and request credential revocation. If the remote service
-            is unavailable, revocation is queued and shown as pending.</li>
-          <li><strong>Forget local research:</strong> remove the selected account's local index and update history for that project.
-            Overleaf originals and manual ZIP copies are unchanged.</li>
-          <li><strong>Account deletion:</strong> contact <a href="mailto:markusmobius@gmail.com">Markus Mobius</a>.
-            There is not yet a self-service remote account-deletion screen.</li>
-        </ul>
-        <p>Removing the extension does not delete the companion's stored research. A model request already dispatched cannot
-          be recalled. See the privacy notice for storage locations, manual deletion, backups, and protection limitations.</p>
-      </section>
+          <section class="doc-section" id="install">
+            <h2>Installation Guide</h2>
+            <p>Meld Research is split into a local assistant that runs on your computer and a remote website. Sign up with
+              Google on <code>https://www.meldresearch.org</code>; the home page then shows <strong>Install Meld Research</strong>,
+              which opens the installation card. The account menu at the top right also links to it.</p>
+            <h3>Windows Installation</h3>
+            <ul>
+              <li><strong>Option 1: Quick Install (Recommended)</strong>: open PowerShell (no administrator rights needed) and
+                run the one-liner shown on the page:
+                <pre><code>irm -useb https://www.meldresearch.org/api/install/windows | iex</code></pre>
+                It downloads the signed release, checks its length and SHA-256, installs it under
+                <code>%LOCALAPPDATA%\MeldResearch\App</code>, registers a scheduled task that starts Meld Research in the
+                background when you sign in, and opens the local app.</li>
+              <li><strong>Option 2: Manual Script Execution</strong>: download <code>meldresearch-install.ps1</code> from the
+                Manual tab, open PowerShell in the download folder, and run:
+                <pre><code>powershell -ExecutionPolicy Bypass -File .\meldresearch-install.ps1</code></pre></li>
+            </ul>
+            <h3>macOS Installation</h3>
+            <ul>
+              <li><strong>Option 1: Quick Install (Recommended)</strong>: open Terminal and paste:
+                <pre><code>curl -fsSL https://www.meldresearch.org/api/install/macos | bash</code></pre>
+                It installs under <code>~/Library/Application Support/MeldResearch/App</code> and adds a LaunchAgent that
+                starts Meld Research at login.</li>
+              <li><strong>Option 2: Manual Script Execution</strong>: download <code>meldresearch-install.sh</code>, open
+                Terminal in the download folder, and run:
+                <pre><code>bash meldresearch-install.sh</code></pre></li>
+            </ul>
+            <p>The packages are self-contained, so no separate .NET installation is needed. Running the command again repairs
+              or updates an installation and keeps your research data. Installed copies update themselves from signed releases.
+              On Windows, the Start menu entry <strong>Meld Research</strong> opens the app. These are test distributions,
+              not yet signed or notarized installers.</p>
+            <h3>After Installing</h3>
+            <div class="doc-timeline">
+              <div class="doc-timeline-step"><span class="step-number">1</span><div class="step-content">
+                <h4>Add the Overleaf connector</h4>
+                <p>The assistant registers its browser bridge; you still approve the extension in Chrome or Edge.
+                  While the store release is pending, use the documented unpacked-extension setup.</p></div></div>
+              <div class="doc-timeline-step"><span class="step-number">2</span><div class="step-content">
+                <h4>Link your installation</h4>
+                <p>Open <strong>Account</strong> in the local app and choose <strong>Link Google account</strong>. Check the device
+                  and verification code on the website and approve only the request you just started.</p></div></div>
+              <div class="doc-timeline-step"><span class="step-number">3</span><div class="step-content">
+                <h4>Sign in to Overleaf in your normal browser</h4>
+                <p>Meld never asks for your Overleaf password or reads your browser's cookie database.</p></div></div>
+              <div class="doc-timeline-step"><span class="step-number">4</span><div class="step-content">
+                <h4>Select projects and consent</h4>
+                <p>In <strong>About me</strong>, review <a href="privacy.html">Privacy &amp; Controls</a>, give consent, and choose
+                  <strong>Monitor project</strong>. Only process research you are authorized to send to these services.</p></div></div>
+            </div>
+            <p class="doc-actions role-remote"><a class="team-profile-btn" href="/">Sign up or install</a></p>
+          </section>
 
-      <section id="development">
-        <h2>Development and Dummy mode</h2>
-        <p>From the repository root, use the full-stack launcher with .NET 10, Node 24/npm, and PowerShell 7:</p>
-        <pre><code>.\run-dev.ps1 -Mode Dummy
+          <section class="doc-section" id="feed">
+            <h2>Reading Your Updates</h2>
+            <p>The <strong>Feed</strong> shows research Updates from the projects you monitor, newest first. There are no other
+              feed types: no workplace news, colleague sharing, or other sources.</p>
+            <h3>What an Update Contains</h3>
+            <ul>
+              <li><strong>Initial import:</strong> the first analysis of a project describes knowledge that already existed. It is
+                labelled as an import, not as work that happened today.</li>
+              <li><strong>Update:</strong> a meaningful addition or revision found in changed source content.</li>
+              <li><strong>Knowledge removed:</strong> deleted or rewritten source that invalidates an earlier fact.</li>
+            </ul>
+            <p>Choose <strong>Review</strong> to inspect the complete cited evidence: the exact source lines behind each claim.
+              Dates show when Meld observed the evidence. Check the cited lines before relying on an Update; a citation is not a
+              guarantee that a model's interpretation is correct.</p>
+            <h3>Checking for Changes</h3>
+            <p>Monitored projects are checked automatically, normally every five minutes, while Meld and your browser are running.
+              The refresh button in the Feed requests a content check now. Unchanged content makes no model calls, and
+              formatting-only edits can be analyzed without producing a new Update.</p>
+          </section>
+
+          <section class="doc-section" id="projects">
+            <h2>Projects &amp; Consent</h2>
+            <p><strong>About me</strong> is where you control which research Meld processes. Nothing is monitored until you link
+              your account, give explicit consent, and select a project.</p>
+            <ul>
+              <li><strong>Select Overleaf projects:</strong> the list comes from your signed-in Overleaf account through the connector.
+                Archived and deleted projects are not included.</li>
+              <li><strong>Consent:</strong> allow selected project text to be sent through Meld's remote service to Azure AI Foundry for
+                update extraction and embeddings. If the notice changes, Meld asks for consent again before continuing.</li>
+              <li><strong>Pause:</strong> stop processing a project without deleting the knowledge already collected.</li>
+              <li><strong>Forget local research:</strong> delete that project's local index and Updates for your account. Overleaf
+                originals and manual ZIP downloads are unchanged.</li>
+              <li><strong>Download ZIP:</strong> save a local snapshot of a project. ZIP files are ordinary, unencrypted files.</li>
+            </ul>
+            <p>Only UTF-8 <code>.tex</code>, <code>.bib</code>, <code>.md</code>, and <code>.txt</code> sources are analyzed. PDFs
+              and images are tracked by hash but not sent to the model.</p>
+          </section>
+
+          <section class="doc-section" id="account">
+            <h2>Account &amp; Connector</h2>
+            <h3>Your Meld Account</h3>
+            <p>Your Google account identifies you; Meld stores its identifier, name, and verified email address. Signing in to
+              link an installation never silently creates a new account. On the website, the account menu at the top right
+              shows who is signed in and offers Install and Sign out.</p>
+            <p>To link the local app, open <strong>Account</strong> and choose <strong>Link Google account</strong>, then approve the
+              installation on the website. <strong>Disconnect account</strong> stops local processing and asks the website to
+              revoke the installation's credential, retrying if it is unreachable. Installation credentials expire after 30 days.</p>
+            <h3>The Overleaf Connector</h3>
+            <p>The connector is a browser extension that reads Overleaf through your normal signed-in session and passes the
+              project list and selected project ZIPs to the local assistant through the browser's native messaging. You do not
+              need to open its popup every day. <strong>Pause auto-connect</strong> stops the connection and remains paused after
+              browser restarts. Google authentication for Meld and your Overleaf session are separate.</p>
+          </section>
+
+          <section class="doc-section" id="localbackend">
+            <h2>Local Backend (Meld Research Assistant)</h2>
+            <p>The <strong>local assistant</strong> runs on your computer and serves the Meld Research app at
+              <code>http://127.0.0.1:6001</code>. It coordinates AI processing; it does not run the models on your computer.</p>
+            <h3>Core Responsibilities</h3>
+            <ul>
+              <li><strong>Read Overleaf:</strong> request project lists and snapshots of selected projects from the connector,
+                validate ZIP contents, and read supported source text without extracting or executing archive files.</li>
+              <li><strong>Detect change:</strong> compare supported source content, not ZIP order or timestamps.</li>
+              <li><strong>Build knowledge:</strong> send changes with relevant prior facts to Azure AI Foundry and keep the resulting
+                facts, embeddings, and Updates.</li>
+              <li><strong>Keep itself current:</strong> install signed releases side by side and restart into them, returning to
+                the previous version if a new one does not start.</li>
+            </ul>
+            <h3>Three Different Data Boundaries</h3>
+            <p><strong>Your computer</strong> holds project snapshots, the research index, and Updates. <strong>Azure AI Foundry</strong>
+              receives bounded source text through the Meld service for analysis. <strong>The Meld website</strong> stores your
+              account and approved installations, not your research.</p>
+            <h3>State Storage</h3>
+            <p>The research store is encrypted with AES-GCM using a key protected by Windows DPAPI or the macOS Keychain. Default
+              data folders are <code>%LOCALAPPDATA%\MeldResearch\OverleafPrototype</code> on Windows and
+              <code>~/Library/Application Support/MeldResearch/OverleafPrototype</code> on macOS. Manual ZIP downloads and
+              temporary transfers in that folder are not encrypted by Meld; treat them as sensitive.</p>
+          </section>
+
+          <section class="doc-section" id="remotebackend">
+            <h2>Remote Backend (www.meldresearch.org)</h2>
+            <p>The <strong>remote website</strong> at <code>https://www.meldresearch.org</code> handles accounts and authenticated
+              model requests. It does not keep a repository of project archives.</p>
+            <h3>What the Website Stores</h3>
+            <ul>
+              <li><strong>Accounts:</strong> your Google account identifier, name, and verified email. Names, emails, and device
+                names are encrypted in its database.</li>
+              <li><strong>Installations:</strong> approved device names and credential records; credentials are stored only as
+                one-way hashes and expire after 30 days unless revoked earlier.</li>
+              <li><strong>Desktop releases:</strong> signed packages and manifests for the one-line installers and automatic updates.</li>
+            </ul>
+            <h3>Processing</h3>
+            <p>The local assistant sends research requests with its installation credential. The website checks the credential and
+              forwards bounded requests to the configured Azure AI Foundry deployments using the service's own Azure credentials, then returns
+              the results. Foundry credentials never reach your computer or browser, and research payloads are not logged.</p>
+            <h3>Remote Website</h3>
+            <p>Home shows a single action: sign up or sign in with Google, then <strong>Install Meld Research</strong>. The website is
+              not a copy of your private local Feed or About me.</p>
+          </section>
+
+          <section class="doc-section" id="under-the-hood">
+            <h2>Background Processing</h2>
+            <p>The local assistant runs a monitoring loop for the projects you selected. Processing waits for account linking and
+              consent; pausing or disconnecting stops it.</p>
+            <h3>1. Read Selected Projects</h3>
+            <p>While the app and browser are running, the assistant checks selected projects, normally every five minutes, and
+              requests snapshots through the connector when needed. It periodically verifies unchanged timestamps and supports an
+              explicit content check.</p>
+            <h3>2. Compare Source Content</h3>
+            <p>Supported source files are hashed. When nothing supported changed, the check ends with <strong>zero model calls</strong>,
+              including after a restart.</p>
+            <h3>3. Analyze Changes</h3>
+            <p>For the first import or a changed project, embeddings select relevant prior facts and Azure AI Foundry decides whether
+              changes add, revise, or remove knowledge, or do not warrant an Update.</p>
+            <h3>4. Commit Atomically</h3>
+            <p>The new revision, facts, and Updates are saved together. A failed analysis does not advance the stored revision, so
+              the next check retries. Pausing, forgetting, or disconnecting during processing prevents an in-flight result from
+              restoring removed data.</p>
+            <h3>Failures, Offline Use, and Visibility</h3>
+            <p>Failures are shown on the project in About me rather than replaced by invented results. Previously collected Updates
+              remain readable when Overleaf or the network is unavailable.</p>
+          </section>
+
+          <section class="doc-section" id="novelty-citations">
+            <h2>Novelty &amp; Citations</h2>
+            <p>Foundry decides what is new; embeddings decide which earlier knowledge it sees. No local heuristic replaces the
+              model's decision.</p>
+            <div class="doc-card-grid">
+              <div class="doc-card"><div class="doc-card-header"><span class="material-icons" aria-hidden="true">auto_awesome</span>
+                <h3>Novelty</h3></div>
+                <p>Initial imports summarize existing knowledge. Later analyses compare changes with relevant prior facts and report
+                  additions, revisions, or removals, or nothing at all.</p></div>
+              <div class="doc-card"><div class="doc-card-header"><span class="material-icons" aria-hidden="true">format_quote</span>
+                <h3>Grounded citations</h3></div>
+                <p>The model selects source line ranges; the service copies their exact text into citations and validates them.
+                  Invalid references are rejected visibly.</p></div>
+            </div>
+            <p>Evidence limits keep requests bounded: currently 128 KiB per file and 256 KiB per project. Citations make each claim
+              inspectable; they do not guarantee that an interpretation is correct.</p>
+          </section>
+
+          <section class="doc-section" id="development">
+            <h2>Development &amp; Dummy Mode</h2>
+            <p>From the repository root, use the full-stack launcher with .NET 10, Node 24/npm, and PowerShell 7:</p>
+            <pre><code>.\run-dev.ps1 -Mode Dummy
 .\run-dev.ps1 -Mode Dummy -SkipBuild
 .\run-dev.ps1 -Mode Live
 .\run-dev.ps1 -Check</code></pre>
-        <p><strong>Dummy:</strong> an explicitly synthetic account and Overleaf source, but real configured Foundry chat and embeddings.
-          It consumes model quota and does not use a real Overleaf profile. Use the test-account approval flow and explicit project consent.</p>
-        <p><strong>Live:</strong> real Overleaf through the normal browser and real Google-based Meld account linking.
-          Missing credentials are errors, not simulated production success.</p>
-        <p>Keep the launcher terminal open. Ctrl+C stops its owned processes. An occupied port is a conflict,
-          not permission to terminate another application. Dummy data and logs persist under <code>.local-test\Dummy</code>.</p>
-        <p>The repository's <code>README.md</code> documents independent Foundry/Google configuration and release procedures;
-          <code>AGENTS.md</code> records the project direction and instructions for future development.
-          Never put tokens, Google secrets, or private Overleaf evidence into source control.</p>
-      </section>
+            <p><strong>Dummy:</strong> a clearly synthetic account and Overleaf source, but real configured Foundry chat and embeddings.
+              It consumes model quota and does not use a real Overleaf profile.</p>
+            <p><strong>Live:</strong> real Overleaf through your normal browser and real Google-based account linking. Missing
+              credentials are errors, not simulated success.</p>
+            <p>Keep the launcher terminal open; Ctrl+C stops its own processes. An occupied port is a conflict, not permission to stop
+              another application. Dummy data and logs persist under <code>.local-test\Dummy</code>.</p>
+            <p>The repository's <code>README.md</code> documents Foundry and Google configuration, deployment, and releases;
+              <code>AGENTS.md</code> records the project direction for future development. Never put tokens, Google secrets, or
+              private Overleaf evidence into source control.</p>
+          </section>
 
-      <section id="limitations">
-        <h2>Current limitations and release status</h2>
-        <ul>
-          <li>Supported research text: UTF-8 <code>.tex</code>, <code>.bib</code>, <code>.md</code>, and <code>.txt</code>.
-            PDFs and images are not analyzed. Current text limits are 128 KiB per file and 256 KiB per project.</li>
-          <li>Hosted <code>www.overleaf.com</code>, normal Chrome/Edge profiles, and one connected profile at a time.
-            Safari, Firefox, self-hosted Overleaf, editing, and live collaboration are not supported.</li>
-          <li>The Windows package has been execution-tested. macOS packaging and registration code still need live Mac validation;
-            signing/notarization and store approval remain separate release gates.</li>
-          <li>Real Google configuration, public HTTPS deployment, and live connector verification must be completed for a production rollout.
-            A local demo or passing synthetic test does not establish those outcomes.</li>
-          <li>Indexed research is encrypted, but manual exports and temporary transfers are not all encrypted by Meld.
-            Loopback transport is HTTP/WS. See <a href="privacy.html">the complete disclosure</a>.</li>
-        </ul>
-      </section>
-    </article>
+          <section class="doc-section" id="limitations">
+            <h2>Limitations &amp; Status</h2>
+            <ul>
+              <li>Supported research text: UTF-8 <code>.tex</code>, <code>.bib</code>, <code>.md</code>, and <code>.txt</code>.
+                PDFs and images are not analyzed.</li>
+              <li>Hosted <code>www.overleaf.com</code>, normal Chrome or Edge profiles, and one connected profile at a time. Safari,
+                Firefox, self-hosted Overleaf, editing, and live collaboration are not supported.</li>
+              <li>The Windows installation has been execution-tested. macOS installation still needs live Mac validation; signing,
+                notarization, and store approval are separate release steps.</li>
+              <li>Indexed research is encrypted, but manual exports and temporary transfers are not all encrypted by Meld. Loopback
+                transport is HTTP/WS. See <a href="privacy.html">Privacy &amp; Controls</a> for the complete disclosure.</li>
+            </ul>
+          </section>
+        </div>
+      </div>
+    </div>
   </main>
-  <footer class="site-footer"><span>Meld Research &middot; Independent research software</span>
-    <nav aria-label="Footer"><a href="team.html">Project Team</a><a href="privacy.html">Privacy</a><a href="mailto:markusmobius@gmail.com">Contact</a></nav>
-  </footer>
+  <footer class="site-footer"><nav aria-label="Footer"><a href="mailto:markusmobius@gmail.com">Contact</a><a href="privacy.html">Privacy</a></nav></footer>
 </body>
 </html>
