@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Http.HttpResults;
 using MeldResearch.LocalBackend.Contracts;
 using MeldResearch.LocalBackend.Services;
+using MeldResearch.LocalBackend.Services.Research;
 using MeldResearch.LocalBackend.Services.Updates;
 
 namespace MeldResearch.LocalBackend.Endpoints;
@@ -30,6 +31,10 @@ internal static class OverleafEndpoints
             cancellationToken.ThrowIfCancellationRequested();
             return TypedResults.Ok(updater.Status);
         }).WithName("GetDesktopVersion").WithSummary("Read the installed desktop release and automatic-update state.");
+
+        app.MapGet("/api/remote-ping", async Task<Ok<RemotePingResponse>> (RemoteConnectivity remote, CancellationToken ct) =>
+            TypedResults.Ok(await remote.CheckAsync(ct)))
+            .WithName("PingRemoteService").WithSummary("Report whether the Meld Research remote service is reachable (no credentials are sent).");
 
         var overleaf = app.MapGroup("/api/overleaf").WithTags("Overleaf");
         overleaf.MapPost("/projects/refresh", async Task<Ok<ProjectListResponse>> (

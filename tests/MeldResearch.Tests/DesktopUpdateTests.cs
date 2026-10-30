@@ -139,6 +139,50 @@ public sealed class DesktopUpdateTests : IDisposable
     }
 
     [Fact]
+    public async Task ReportsWhyAnUpdateFailedAndRetriesItLater()
+    {
+        byte[] package = Package(Newer);
+        byte[] truncated = package[..(package.Length / 2)];
+        var server = new FlakyServer(Sign(Manifest(Newer, CurrentDate.AddDays(1), package)), truncated, package);
+        var updater = Updater(server, new Registrar());
+        await updater.StartAsync(CancellationToken.None);
+        try
+        {
+            await WaitAsync(() => updater.Status.UpdateStatus == "failed");
+            Assert.Contains("InvalidDataException", updater.Status.LastUpdateError);
+            Assert.Contains("signed manifest", updater.Status.LastUpdateError);
+            Assert.Equal(Newer, updater.Status.PendingVersion);
+            await WaitAsync(() => updater.Status.UpdateStatus == "ready", TimeSpan.FromSeconds(20));
+            Assert.Null(updater.Status.LastUpdateError);
+            Assert.Equal(Newer[..12], InstallationPointer.Read(Root).Current);
+        }
+        finally { await updater.StopAsync(CancellationToken.None); }
+    }
+
+    private static async Task WaitAsync(Func<bool> condition, TimeSpan? limit = null)
+    {
+        var deadline = DateTime.UtcNow + (limit ?? TimeSpan.FromSeconds(10));
+        while (!condition())
+        {
+            if (DateTime.UtcNow > deadline) throw new TimeoutException("The updater did not reach the expected state.");
+            await Task.Delay(50);
+        }
+    }
+
+    /// <summary>Serves a broken package first (as during an interrupted transfer), then the intact one.</summary>
+    private sealed class FlakyServer(SignedDesktopUpdate envelope, byte[] first, byte[] later) : HttpMessageHandler
+    {
+        private int _packages;
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            HttpContent content = request.RequestUri!.AbsolutePath.Contains("/package/", StringComparison.Ordinal)
+                ? new ByteArrayContent(Interlocked.Increment(ref _packages) == 1 ? first : later)
+                : new StringContent(JsonSerializer.Serialize(envelope, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = content });
+        }
+    }
+
+    [Fact]
     public void PruningKeepsOnlyTheCurrentAndPreviousReleases()
     {
         string previous = new string('9', 12), old = new string('8', 12);
@@ -150,7 +194,7 @@ public sealed class DesktopUpdateTests : IDisposable
             Directory.EnumerateDirectories(Root).Select(Path.GetFileName).Order());
     }
 
-    private DesktopUpdater Updater(Server server, Registrar registrar) => new(
+    private DesktopUpdater Updater(HttpMessageHandler server, Registrar registrar) => new(
         new UpdateOptions(true, null, Current, CurrentDate, Runtime, Root, PublicKey, new Uri("https://updates.example.invalid/"),
             true, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5)),
         new Clients(new HttpClient(server)), new IdleResearch(), new IdleBrowser(), new Lifetime(), registrar,

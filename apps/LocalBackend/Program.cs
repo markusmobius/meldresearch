@@ -54,6 +54,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ILocalVault, LocalVault>();
 builder.Services.AddSingleton<IResearchStore, ResearchStore>();
 builder.Services.AddSingleton<IResearchRemote, ResearchRemote>();
+builder.Services.AddSingleton<RemoteConnectivity>();
 builder.Services.AddSingleton<IOverleafEvidenceSource, OverleafEvidenceSource>();
 builder.Services.AddHttpClient("research-remote", client => client.Timeout = Timeout.InfiniteTimeSpan)
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });

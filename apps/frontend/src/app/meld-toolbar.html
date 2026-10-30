@@ -3,9 +3,15 @@
     <mat-icon>share</mat-icon>
     <span class="brand-text">
       <span class="brand-main">Meld Research</span>
-      <span class="brand-sub role-local">Local Assistant</span>
+      <span class="brand-sub role-local">{{ dummy() ? 'Dummy Mode' : 'Local Assistant' }}
+        @if (remoteOnline() !== null) {
+          <span class="connection-dot" [class.offline]="!remoteOnline()" role="img"
+            [attr.aria-label]="remoteOnline() ? 'Connected to the Meld Research server' : 'Working offline: the Meld Research server is unreachable'"
+            [title]="remoteOnline() ? 'Connected to the Meld Research server' : 'Working offline: the Meld Research server is unreachable. Reconnecting automatically.'"></span>
+        }
+      </span>
       <span class="brand-sub role-remote">Remote Backend</span>
-      @if (dummy()) { <span class="brand-version">Dummy mode</span> }
+      @if (versionText()) { <span class="brand-version role-local" [title]="versionTitle()">{{ versionText() }}</span> }
     </span>
   </a>
   <nav class="nav-links" aria-label="Main navigation">

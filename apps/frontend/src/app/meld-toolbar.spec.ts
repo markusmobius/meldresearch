@@ -1,5 +1,46 @@
 import { TestBed } from '@angular/core/testing';
-import { MeldToolbar } from './meld-toolbar';
+import { MeldToolbar, versionLabel } from './meld-toolbar';
+
+describe('Local version and connection indicator', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('labels releases by their first eight characters and commit time', () => {
+    expect(versionLabel(null)).toBe('');
+    expect(versionLabel({ version: 'development', versionDate: null, updateStatus: 'disabled' })).toBe('development build');
+    const label = versionLabel({ version: 'b916c395' + '0'.repeat(56), versionDate: '2026-10-30T01:28:21-04:00', updateStatus: 'current' });
+    expect(label.startsWith('vb916c395 \u00b7 ')).toBe(true);
+    expect(label).toContain('2026');
+  });
+
+  it.each([
+    [true, false, 'Connected to the Meld Research server'],
+    [false, true, 'Working offline'],
+  ])('shows the remote connection (online: %s)', async (online, offline, label) => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(url === '/api/version'
+      ? { version: 'a'.repeat(64), versionDate: '2026-10-30T01:28:21Z', updateStatus: 'current' }
+      : { online, checkedAt: '2026-10-30T01:28:21Z' }), { status: 200 })));
+    const fixture = TestBed.createComponent(MeldToolbar);
+    await vi.waitFor(() => expect(fixture.componentInstance.remoteOnline()).toBe(online));
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+    const dot = element.querySelector('.connection-dot')!;
+    expect(dot.classList.contains('offline')).toBe(offline);
+    expect(dot.getAttribute('aria-label')).toContain(label);
+    expect(element.querySelector('.brand-version')?.textContent).toContain('vaaaaaaaa');
+    fixture.destroy();
+  });
+
+  it('shows no indicator until the first check and treats a failed check as offline', async () => {
+    let fail!: (reason: unknown) => void;
+    vi.stubGlobal('fetch', vi.fn(() => new Promise((_, reject) => { fail = reject; })));
+    const fixture = TestBed.createComponent(MeldToolbar);
+    await fixture.whenStable();
+    expect((fixture.nativeElement as HTMLElement).querySelector('.connection-dot')).toBeNull();
+    fail(new TypeError('network down'));
+    await vi.waitFor(() => expect(fixture.componentInstance.remoteOnline()).toBe(false));
+    fixture.destroy();
+  });
+});
 
 describe('Remote account menu', () => {
   afterEach(() => document.querySelectorAll('meta[name="meld-account"], form#meld-sign-out').forEach(node => node.remove()));

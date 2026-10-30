@@ -183,6 +183,16 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Account messages describe the last sign-in attempt, and versions before the browser sign-in kept a device-code
+        // link here; neither applies after a restart (for example into an update).
+        try
+        {
+            var saved = await store.ReadAsync(stoppingToken);
+            if (saved.PendingLink is not null || saved.AccountError is not null)
+                await store.ChangeAsync(current => current with { PendingLink = null, AccountError = null }, stoppingToken);
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        { logger.LogWarning("Stale account messages could not be cleared ({Type}).", error.GetType().Name); }
         while (!stoppingToken.IsCancellationRequested)
         {
             bool force = Interlocked.Exchange(ref _force, 0) != 0;

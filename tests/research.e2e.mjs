@@ -374,6 +374,9 @@ try {
   const remote = client(remoteBase), local = client(localBase);
   await local('/api/status');
   await verifyPublicPages(local, remote);
+  const ping = await local('/api/remote-ping');
+  assert.equal(ping.status, 200);
+  assert.equal((await ping.json()).online, true, 'The local backend reports a reachable remote service.');
   assert.equal((await remote('/api/account')).status, 401);
   assert.equal((await local('/api/research/sync', { method: 'POST', body: {}, csrf: true })).status, 401);
   const configuration = await (await remote('/api/status')).json();

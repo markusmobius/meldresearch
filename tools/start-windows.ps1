@@ -52,11 +52,21 @@ while ($true) {
     if ($pointer.current -notmatch '^[0-9a-f]{12}$') { throw 'The installation pointer is invalid.' }
     $directory = Join-Path $root $pointer.current
     $metadata = Get-Content -LiteralPath (Join-Path $directory 'installation.json') -Raw | ConvertFrom-Json
+    # In the background there is no console to read, so the application's log goes to files; the previous run's log is
+    # kept so a restart into an update does not erase what happened before it. The logs omit research content.
+    $output = @{}
+    if ($Background) {
+        foreach ($name in 'backend', 'backend-errors') {
+            $log = Join-Path $root "$name.log"
+            if (Test-Path -LiteralPath $log) { Move-Item -LiteralPath $log -Destination (Join-Path $root "$name.previous.log") -Force }
+        }
+        $output = @{ RedirectStandardOutput = (Join-Path $root 'backend.log'); RedirectStandardError = (Join-Path $root 'backend-errors.log') }
+    }
     $process = Start-Process -FilePath (Join-Path $directory 'local\MeldResearch.LocalBackend.exe') `
         -WorkingDirectory (Join-Path $directory 'local') `
         -ArgumentList @('--Port', $port, '--FrontendPath', ('"' + (Join-Path $directory 'frontend') + '"'),
             '--ConnectorDirectory', ('"' + (Join-Path $directory 'browser\overleaf') + '"'), '--InstallRoot', ('"' + $root + '"')) `
-        -PassThru -NoNewWindow
+        -PassThru -NoNewWindow @output
     $null = $process.Handle # Required for ExitCode to be available after the process ends.
     try {
         $ready = $false

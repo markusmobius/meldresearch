@@ -154,6 +154,24 @@ public sealed class ResearchCoordinatorTests
     }
 
     [Fact]
+    public async Task StartupClearsAccountMessagesLeftByEarlierVersions()
+    {
+        var legacy = new PendingDeviceLink(new string('d', 64), new string('e', 64), "https://meld.example.invalid/connect?code=ABC",
+            "ABCDEF012345", DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow.AddMinutes(-5));
+        var store = new MemoryStore(new(1, Credential, legacy, "The account link expired. Start a new link.", [], []));
+        using var coordinator = Coordinator(store, new Remote(), new Source(ResearchTests.Snapshot("Synthetic.")));
+        await coordinator.StartAsync(CancellationToken.None);
+        try
+        {
+            for (int attempt = 0; attempt < 100 && store.State.AccountError is not null; attempt++) await Task.Delay(50);
+            Assert.Null(store.State.AccountError);
+            Assert.Null(store.State.PendingLink);
+            Assert.Equal(Credential, store.State.Credential);
+        }
+        finally { await coordinator.StopAsync(CancellationToken.None); }
+    }
+
+    [Fact]
     public async Task SignInCompletesOnlyForTheStateThisAppStartedAndProvesTheVerifier()
     {
         var store = new MemoryStore(new(1, null, null, null, [], []));

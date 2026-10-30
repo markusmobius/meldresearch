@@ -54,7 +54,7 @@ internal sealed class NativeHostRegistrar : INativeHostRegistrar
 }
 
 internal sealed record DesktopVersionResponse(string Version, DateTimeOffset? VersionDate, string? Runtime,
-    bool UpdatesEnabled, string? UpdatesDisabledReason, string UpdateStatus, string? PendingVersion);
+    bool UpdatesEnabled, string? UpdatesDisabledReason, string UpdateStatus, string? PendingVersion, string? LastUpdateError);
 
 /// <summary>
 /// Checks the remote server for a signed desktop release, verifies and installs it side by side in a new
@@ -70,9 +70,11 @@ internal sealed class DesktopUpdater(UpdateOptions options, IHttpClientFactory c
     private const long MaxExpandedBytes = 2L * 1024 * 1024 * 1024;
     private volatile string _status = options.Enabled ? "waiting" : "disabled";
     private volatile string? _pending;
+    // The most recent failure, kept until a later check succeeds; it contains no credentials or research content.
+    private volatile string? _lastError;
 
     public DesktopVersionResponse Status => new(options.Version, options.VersionDate, options.Runtime,
-        options.Enabled, options.DisabledReason, _status, _pending);
+        options.Enabled, options.DisabledReason, _status, _pending, _lastError);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -93,19 +95,23 @@ internal sealed class DesktopUpdater(UpdateOptions options, IHttpClientFactory c
                 {
                     if (await CheckAsync(stoppingToken))
                     {
+                        _lastError = null;
                         await RestartWhenIdleAsync(stoppingToken);
                         return;
                     }
+                    _lastError = null;
                 }
                 catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
                 {
                     _status = "failed";
+                    _lastError = $"{DateTimeOffset.UtcNow:u}: the update check timed out.";
                     logger.LogWarning("Desktop update check timed out. It will be retried.");
                 }
                 catch (Exception error) when (error is HttpRequestException or IOException or InvalidDataException or
                     UnauthorizedAccessException or JsonException or InvalidOperationException or CryptographicException)
                 {
                     _status = "failed";
+                    _lastError = $"{DateTimeOffset.UtcNow:u}: {error.GetType().Name}: {error.Message}";
                     logger.LogWarning("Desktop update check failed ({Type}: {Message}). It will be retried.", error.GetType().Name, error.Message);
                 }
                 await Task.Delay(options.Interval, clock, stoppingToken);
