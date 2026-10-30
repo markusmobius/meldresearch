@@ -162,21 +162,19 @@
                   <ol class="setup-steps">
                     @if (setup()?.storePublished) {
                       <li><span class="step-text">Add the connector from the Chrome Web Store</span>
-                        <a mat-stroked-button [href]="setup()?.storeUrl" target="_blank" rel="noopener noreferrer"><mat-icon>open_in_new</mat-icon>Open store</a></li>
+                        <a mat-stroked-button class="step-action" [href]="setup()?.storeUrl" target="_blank" rel="noopener noreferrer"><mat-icon>open_in_new</mat-icon>Open store</a></li>
                     } @else {
-                      <li><span class="step-text">Open <code>{{ extensionsPage }}</code></span>
-                        <button mat-stroked-button class="open-extensions" (click)="openExtensions()"><mat-icon>open_in_new</mat-icon>Open</button>
-                        <button mat-icon-button class="copy-button" (click)="copy(extensionsPage)"
-                          [attr.aria-label]="copied() === extensionsPage ? 'Copied' : 'Copy address'" [title]="copied() === extensionsPage ? 'Copied' : 'Copy address'">
-                          <mat-icon>{{ copied() === extensionsPage ? 'check' : 'content_copy' }}</mat-icon></button></li>
+                      <li><span class="step-text">Open a new tab and go to <code>{{ extensionsPage }}</code></span>
+                        <button mat-stroked-button class="step-action copy-address" (click)="copy(extensionsPage)">
+                          <mat-icon>{{ copied() === extensionsPage ? 'check' : 'content_copy' }}</mat-icon>{{ copied() === extensionsPage ? 'Copied' : 'Copy address' }}</button></li>
                       <li><span class="step-text">Turn on <strong>Developer mode</strong>, choose <strong>Load unpacked</strong> and paste the folder</span>
                         @if (setup()?.developmentDirectory; as directory) {
-                          <button mat-stroked-button class="copy-folder" (click)="copy(directory)" [title]="directory">
+                          <button mat-stroked-button class="step-action copy-folder" (click)="copy(directory)" [title]="directory">
                             <mat-icon>{{ copied() === directory ? 'check' : 'content_copy' }}</mat-icon>{{ copied() === directory ? 'Copied' : 'Copy folder' }}</button>
-                        } @else { <span class="muted">Start Meld from its launcher to provide the folder.</span> }</li>
+                        } @else { <span class="step-action muted">Start Meld from its launcher</span> }</li>
                     }
                     <li><span class="step-text">Reload this page</span>
-                      <button mat-stroked-button class="reload-button" (click)="reload()"><mat-icon>refresh</mat-icon>Reload</button></li>
+                      <button mat-stroked-button class="step-action reload-button" (click)="reload()"><mat-icon>refresh</mat-icon>Reload</button></li>
                   </ol>
                   @if (setupNote()) { <p class="muted" role="status">{{ setupNote() }}</p> }
                   <p class="hint">Already installed? Reload the connector on the extensions page, then reload here.

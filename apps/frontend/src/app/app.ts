@@ -233,16 +233,6 @@ export class App implements OnInit {
     }
   }
 
-  async openExtensions(): Promise<void> {
-    const browser = /Edg\//.test(navigator.userAgent) ? 'edge' : 'chrome';
-    if (await this.api.openExtensionsPage(browser)) {
-      this.setupNote.set('');
-      return;
-    }
-    await this.copy(this.extensionsPage);
-    this.setupNote.set(`Copied ${this.extensionsPage}; paste it into the address bar.`);
-  }
-
   reload(): void { location.reload(); }
 
   // Install as an app (Chrome/Edge), with the same top-right nudge as Project Meld.

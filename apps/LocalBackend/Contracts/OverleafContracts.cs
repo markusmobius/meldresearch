@@ -8,9 +8,6 @@ public sealed record BridgeStatusResponse(bool Connected, bool Busy, int Protoco
 public sealed record ExtensionSetupResponse(string ExtensionId, string ExtensionVersion,
     int ProtocolVersion, string? DevelopmentDirectory, string StoreUrl, bool StorePublished);
 
-/// <summary>Which installed browser should open its extensions page: "chrome" or "edge".</summary>
-public sealed record OpenExtensionsPageRequest(string Browser);
-
 /// <summary>Describes an accessible, non-archived Overleaf project.</summary>
 public sealed record OverleafProjectResponse(string Id, string Name, DateTimeOffset? UpdatedAt);
 

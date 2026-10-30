@@ -14,7 +14,6 @@ describe('Overleaf connection screen', () => {
     refresh: vi.fn(),
     download: vi.fn(),
     extension: vi.fn(),
-    openExtensionsPage: vi.fn(),
   };
   const browser = { send: vi.fn() };
   const setup = { extensionId: 'pejcljoimoeklelcfbfddnkimlkjgfhe', extensionVersion: '0.3.0',
@@ -181,26 +180,16 @@ describe('Overleaf connection screen', () => {
     await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith(setup.developmentDirectory));
     fixture.detectChanges();
     expect(element.querySelector('button.copy-folder')?.textContent).toContain('Copied');
-    api.openExtensionsPage.mockResolvedValue(true);
-    element.querySelector<HTMLButtonElement>('button.open-extensions')!.click();
-    await vi.waitFor(() => expect(api.openExtensionsPage).toHaveBeenCalledWith('chrome'));
+    element.querySelector<HTMLButtonElement>('button.copy-address')!.click();
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith('chrome://extensions'));
+    expect(element.querySelector('button.open-extensions')).toBeNull();
     expect(element.querySelector('button.reload-button')).not.toBeNull();
+    const actions = [...element.querySelectorAll<HTMLElement>('.setup-steps .step-action')];
+    expect(actions).toHaveLength(3);
     fixture.componentInstance.page.set('about-me');
     fixture.detectChanges();
     expect(element.querySelector<HTMLButtonElement>('.refresh-button')?.disabled).toBe(true);
     expect(api.refresh).not.toHaveBeenCalled();
-    fixture.destroy();
-  });
-
-  it('copies the extensions address when the browser cannot be opened for the user', async () => {
-    browser.send.mockResolvedValue({ kind: 'missing', message: 'Connector not detected.' });
-    const fixture = await screen();
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
-    api.openExtensionsPage.mockResolvedValue(false);
-    await fixture.componentInstance.openExtensions();
-    expect(writeText).toHaveBeenCalledWith('chrome://extensions');
-    expect(fixture.componentInstance.setupNote()).toContain('paste it into the address bar');
     fixture.destroy();
   });
 
