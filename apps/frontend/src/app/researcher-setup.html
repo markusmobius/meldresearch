@@ -1,6 +1,9 @@
 @let current = researcher();
 <div class="researcher-setup">
-  @if (current?.lastError) { <p class="alert" role="status">{{ current?.lastError }} Meld retries automatically.</p> }
+  @if (current?.lastError) {
+    <div class="alert retry-alert" role="status"><span>{{ current?.lastError }} Meld retries automatically.</span>
+      <button mat-stroked-button class="retry-button" [disabled]="saving()" (click)="retry()"><mat-icon>refresh</mat-icon>Retry now</button></div>
+  }
 
   @switch (phase()) {
     @case ('searching') {

@@ -23,7 +23,7 @@ internal sealed record ProjectDecision(Guid AccountId, string ProjectId, bool In
 /// </summary>
 internal sealed record ResearcherState(Guid AccountId, long Version, string Status, string SearchName,
     IReadOnlyList<ResearcherCandidate> Candidates, ResearcherCandidate? Researcher, IReadOnlyList<PublicationWork> Works,
-    DateTimeOffset? UpdatedAt, DateTimeOffset? DueAt, string? LastError);
+    DateTimeOffset? UpdatedAt, DateTimeOffset? DueAt, string? LastError, int Failures = 0);
 
 internal interface IResearchStore
 {

@@ -58,7 +58,7 @@ export class ResearchApi {
   decide(id: string, included: boolean, consentVersion: string | null): Promise<void> {
     return firstValueFrom(this.http.put<void>(`/api/research/projects/${encodeURIComponent(id)}/decision`, { included, consentVersion }));
   }
-  researcher(action: 'search' | 'confirm' | 'none', options: { authorId?: string; searchName?: string; baseVersion?: number } = {}): Promise<void> {
+  researcher(action: 'search' | 'confirm' | 'none' | 'retry', options: { authorId?: string; searchName?: string; baseVersion?: number } = {}): Promise<void> {
     return firstValueFrom(this.http.post<void>('/api/research/researcher', {
       action, authorId: options.authorId ?? null, searchName: options.searchName ?? null, baseVersion: options.baseVersion ?? null,
     }));

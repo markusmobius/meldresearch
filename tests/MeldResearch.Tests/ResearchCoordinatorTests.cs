@@ -120,10 +120,14 @@ public sealed class ResearchCoordinatorTests
     private sealed class Source(ResearchSnapshot snapshot) : IOverleafEvidenceSource
     {
         public bool Available { get; set; } = true;
-        public OverleafProjectsSnapshot? Latest => null;
+        public OverleafProjectsSnapshot? Latest { get; set; }
         public int Reads { get; private set; }
-        public Task<IReadOnlyList<OverleafProjectResponse>> ProjectsAsync(CancellationToken ct) =>
-            Task.FromResult<IReadOnlyList<OverleafProjectResponse>>([new(snapshot.ProjectId, snapshot.ProjectName, null)]);
+        public int ListReads { get; private set; }
+        public Task<IReadOnlyList<OverleafProjectResponse>> ProjectsAsync(CancellationToken ct)
+        {
+            ListReads++;
+            return Task.FromResult<IReadOnlyList<OverleafProjectResponse>>([new(snapshot.ProjectId, snapshot.ProjectName, null)]);
+        }
         public Task<ResearchSnapshot> SnapshotAsync(OverleafProjectResponse project, CancellationToken ct)
         { Reads++; return Task.FromResult(snapshot); }
     }
@@ -141,6 +145,7 @@ public sealed class ResearchCoordinatorTests
             ModelCalls++;
             if (Failure is not null) throw Failure;
             DuringAnalysis?.Invoke();
+            ct.ThrowIfCancellationRequested();
             return Task.FromResult(Analysis ?? new(new ResearchAnalysis("Synthetic project summary.", "No meaningful new facts.", []), "chat", "embedding", []));
         }
         public Task<ResearchEmbeddingResponse> EmbedAsync(string token, ResearchEmbeddingRequest request, CancellationToken ct)
@@ -270,5 +275,74 @@ public sealed class ResearchCoordinatorTests
             Assert.Equal(Credential, (await vault.ReadAsync(CancellationToken.None)).Credential);
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public async Task IncludingUsesTheKnownProjectListWithoutWaitingForTheBrowser()
+    {
+        var snapshot = ResearchTests.Snapshot("Synthetic research.");
+        var source = new Source(snapshot) { Latest = new([new(snapshot.ProjectId, "Known name", DateTimeOffset.UtcNow)], DateTimeOffset.UtcNow) };
+        var store = new MemoryStore(new(1, Credential, null, null, [], []));
+        using var coordinator = Coordinator(store, new Remote(), source);
+        await coordinator.DecideProjectAsync(snapshot.ProjectId, new(true, ResearchEvidence.ConsentVersion), CancellationToken.None);
+        Assert.Equal(0, source.ListReads);
+        Assert.Equal("Known name", Assert.Single(store.State.Projects).Name);
+    }
+
+    [Fact]
+    public async Task ExcludingAnotherProjectDoesNotInterruptTheProjectBeingProcessed()
+    {
+        var snapshot = ResearchTests.Snapshot("Synthetic research.");
+        var store = new MemoryStore(new(1, Credential, null, null, [Project(null)], []));
+        ResearchCoordinator? coordinator = null;
+        var remote = new Remote
+        {
+            DuringAnalysis = () => coordinator!.DecideProjectAsync("1123456789abcdef01234567", new(false, null), CancellationToken.None).GetAwaiter().GetResult()
+        };
+        using (coordinator = Coordinator(store, remote, new Source(snapshot)))
+            await coordinator.RunCycleAsync(true, CancellationToken.None);
+        Assert.Equal(snapshot.Revision, store.State.Projects[0].Snapshot?.Revision);
+        Assert.Null(store.State.Projects[0].Error);
+    }
+
+    [Fact]
+    public async Task PausingTheProjectBeingProcessedStopsOnlyItWithoutRecordingAnError()
+    {
+        var snapshot = ResearchTests.Snapshot("Synthetic research.");
+        var store = new MemoryStore(new(1, Credential, null, null, [Project(null)], []));
+        ResearchCoordinator? coordinator = null;
+        var remote = new Remote
+        {
+            DuringAnalysis = () => coordinator!.SetMonitoringAsync(snapshot.ProjectId, new(false, null), CancellationToken.None).GetAwaiter().GetResult()
+        };
+        using (coordinator = Coordinator(store, remote, new Source(snapshot)))
+            await coordinator.RunCycleAsync(true, CancellationToken.None);
+        var project = Assert.Single(store.State.Projects);
+        Assert.False(project.Enabled);
+        Assert.Null(project.Snapshot);
+        Assert.Null(project.Error);
+    }
+
+    [Fact]
+    public async Task ABusyBrowserIsNotReportedAsUnavailable()
+    {
+        var snapshot = ResearchTests.Snapshot("Synthetic research.");
+        var relay = new QueueingRelay();
+        var source = new OverleafEvidenceSource(relay, new MeldResearch.LocalBackend.Services.OverleafService(relay, null!, TimeProvider.System));
+        relay.Busy = true;
+        Assert.True(source.Available);
+        relay.Connected = false;
+        Assert.False(source.Available);
+        await Task.CompletedTask;
+    }
+
+    private sealed class QueueingRelay : MeldResearch.LocalBackend.Services.IBrowserRelay
+    {
+        public bool Connected { get; set; } = true;
+        public bool Busy { get; set; }
+        public BridgeStatusResponse Status => new(Connected, Busy, 2);
+        public Task ConnectAsync(System.Net.WebSockets.WebSocket socket, string localUrl, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<MeldResearch.LocalBackend.Services.BrowserResponse> FetchAsync(string operation, string? projectId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 }

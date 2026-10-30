@@ -16,7 +16,8 @@ internal interface IOverleafEvidenceSource
 
 internal sealed class OverleafEvidenceSource(IBrowserRelay browser, IOverleafService overleaf) : IOverleafEvidenceSource
 {
-    public bool Available => browser.Status.Connected && !browser.Status.Busy;
+    // A busy browser is not unavailable: reads queue behind the current transfer.
+    public bool Available => browser.Status.Connected;
     public OverleafProjectsSnapshot? Latest => overleaf.Latest;
     public Task<IReadOnlyList<OverleafProjectResponse>> ProjectsAsync(CancellationToken ct) => overleaf.RefreshAsync(ct);
     public async Task<ResearchSnapshot> SnapshotAsync(OverleafProjectResponse project, CancellationToken ct)

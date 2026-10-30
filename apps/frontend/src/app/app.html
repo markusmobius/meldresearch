@@ -111,7 +111,7 @@
             </mat-expansion-panel-header>
             <div class="section-heading">
               <p class="muted">{{ status()?.dummy ? 'Synthetic projects supplied by the local backend.' : 'Active projects accessible to your signed-in browser.' }}</p>
-              <button mat-stroked-button class="refresh-button" (click)="refresh()" [disabled]="!connected() || !!busy() || status()?.busy">
+              <button mat-stroked-button class="refresh-button" (click)="refresh()" [disabled]="!connected() || !!busy()">
                 <mat-icon>refresh</mat-icon>Refresh projects
               </button>
             </div>
@@ -120,7 +120,7 @@
                 <li><div><strong>{{ project.name }}</strong>
                   @if (project.updatedAt) { <small>Updated {{ project.updatedAt | date:'mediumDate' }}</small> }
                 </div>
-                  <button mat-button (click)="download(project)" [disabled]="!verified() || !!busy() || status()?.busy">
+                  <button mat-button (click)="download(project)" [disabled]="!verified() || !!busy()">
                     <mat-icon>download</mat-icon>Download ZIP
                   </button>
                 </li>

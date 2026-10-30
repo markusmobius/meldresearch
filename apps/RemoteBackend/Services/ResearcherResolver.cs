@@ -20,19 +20,27 @@ internal sealed class ResearcherResolver(IOpenAlexClient openAlex, IFoundryServi
         name = name.Trim();
         if (name.Length is < 2 or > 160) throw new ResearchFailure(400, "invalid_researcher_name", "Enter a researcher name of 2-160 characters.");
         var person = new { name };
+        // Stage logs (no names) show where a failed search stopped.
+        logger.LogInformation("Researcher search: Foundry name variants.");
         var expanded = await foundry.CompleteJsonAsync(NamesPrompt, "researcher_name_variants", NamesSchema, person, ct);
         string[] names;
         try { names = expanded.GetProperty("names").Deserialize<string[]>() ?? throw new JsonException(); }
         catch (Exception error) when (error is JsonException or InvalidOperationException or KeyNotFoundException) { throw InvalidModel(); }
         if (names.Length > 3 || names.Any(value => string.IsNullOrWhiteSpace(value) || value.Length > 160)) throw InvalidModel();
 
+        logger.LogInformation("Researcher search: OpenAlex author search with {Count} names.", names.Length + 1);
         var authors = await openAlex.SearchAuthorsAsync(new[] { name }.Concat(names), ct);
         logger.LogInformation("OpenAlex author search returned {Count} candidates.", authors.Count);
         if (authors.Count == 0) return [];
-        var candidates = new List<ResearcherCandidate>();
-        foreach (var author in authors)
-            candidates.Add(author with { SamplePublications = await openAlex.SamplePublicationsAsync(author.Id, ct) });
+        using var slots = new SemaphoreSlim(4);
+        var candidates = (await Task.WhenAll(authors.Select(async author =>
+        {
+            await slots.WaitAsync(ct);
+            try { return author with { SamplePublications = await openAlex.SamplePublicationsAsync(author.Id, ct) }; }
+            finally { slots.Release(); }
+        }))).ToList();
 
+        logger.LogInformation("Researcher search: Foundry ranking of {Count} candidates.", candidates.Count);
         var ranked = await foundry.CompleteJsonAsync(RankPrompt, "researcher_candidates", RankSchema, new
         {
             person,

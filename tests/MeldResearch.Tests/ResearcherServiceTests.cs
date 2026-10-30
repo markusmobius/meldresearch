@@ -103,4 +103,22 @@ public sealed class ResearcherServiceTests
         Assert.Contains("request limit", state.LastError);
         Assert.True(state.DueAt > DateTimeOffset.UtcNow.AddMinutes(30));
     }
+
+    [Fact]
+    public async Task GatewayFailuresRetrySoonAndRetryNowRunsAgainImmediately()
+    {
+        var (store, remote, service) = Create();
+        remote.Search = _ => throw new ResearchFailure(502, "remote_gateway_error", "Meld's server did not answer its web proxy.");
+        await service.DecideAsync(new("search", null, "Synthetic Researcher", null), CancellationToken.None);
+        await service.RunOnceAsync(CancellationToken.None);
+        var failed = store.State.Researchers![0];
+        Assert.Equal(1, failed.Failures);
+        Assert.True(failed.DueAt < DateTimeOffset.UtcNow.AddMinutes(2));
+
+        remote.Search = _ => new([Candidate("A1")]);
+        await service.DecideAsync(new("retry", null, null, failed.Version), CancellationToken.None);
+        Assert.Null(store.State.Researchers![0].LastError);
+        await service.RunOnceAsync(CancellationToken.None);
+        Assert.Equal(("choice", 0), (store.State.Researchers![0].Status, store.State.Researchers[0].Failures));
+    }
 }

@@ -364,7 +364,8 @@ export class App implements OnInit {
   }
 
   async refresh(): Promise<void> {
-    if (this.busy() || this.status()?.busy || !this.connected()) return;
+    // Browser reads queue behind monitoring transfers, so a busy browser never blocks this request.
+    if (this.busy() || !this.connected()) return;
     const version = this.status()?.connectionVersion ?? null;
     this.attemptedVersion = version;
     this.busy.set('Reading your Overleaf project list...');
@@ -384,7 +385,7 @@ export class App implements OnInit {
   }
 
   async download(project: OverleafProject): Promise<void> {
-    if (this.busy() || this.status()?.busy || !this.verified()) return;
+    if (this.busy() || !this.verified()) return;
     this.busy.set('Downloading and validating the selected project...');
     this.error.set('');
     try {

@@ -59,8 +59,13 @@ internal sealed class ResearcherService(IResearchStore store, IResearchRemote re
                     next = existing with { Version = existing.Version + 1, Status = "rejected", Candidates = [], Researcher = null,
                         Works = [], UpdatedAt = null, DueAt = null, LastError = null };
                     break;
+                case "retry":
+                    if (existing is not { Status: "searching" or "importing" or "ready" })
+                        throw new ResearchFailure(400, "nothing_to_retry", "There is no OpenAlex search or import to retry.");
+                    next = existing with { Version = existing.Version + 1, DueAt = now, LastError = null, Failures = 0 };
+                    break;
                 default:
-                    throw new ResearchFailure(400, "invalid_researcher_action", "Choose search, confirm or none.");
+                    throw new ResearchFailure(400, "invalid_researcher_action", "Choose search, confirm, none or retry.");
             }
             return current with { Researchers = Replace(current.Researchers, next) };
         }, ct);
@@ -109,20 +114,21 @@ internal sealed class ResearcherService(IResearchStore store, IResearchRemote re
             {
                 var found = await remote.SearchResearcherAsync(credential.Token, new(due.SearchName), ct);
                 var candidates = found.Candidates.Take(5).ToArray();
-                result = due with { Status = candidates.Length > 0 ? "choice" : "unmatched", Candidates = candidates, DueAt = null, LastError = null };
+                result = due with { Status = candidates.Length > 0 ? "choice" : "unmatched", Candidates = candidates, DueAt = null, LastError = null, Failures = 0 };
             }
             else
             {
                 var works = await remote.ResearcherWorksAsync(credential.Token, new(due.Researcher!.Id), ct);
                 var now = clock.GetUtcNow();
-                result = due with { Status = "ready", Works = works.Works.Take(2000).ToArray(), UpdatedAt = now, DueAt = now + RefreshInterval, LastError = null };
+                result = due with { Status = "ready", Works = works.Works.Take(2000).ToArray(), UpdatedAt = now, DueAt = now + RefreshInterval, LastError = null, Failures = 0 };
             }
         }
         catch (ResearchFailure failure)
         {
             logger.LogWarning("Researcher {Operation} failed: {Code}.", due.Status == "searching" ? "search" : "import", failure.Code);
-            var retry = failure.Status == 429 ? TimeSpan.FromHours(1) : TimeSpan.FromMinutes(15);
-            result = due with { DueAt = clock.GetUtcNow() + retry, LastError = failure.Message };
+            // Rate limits wait an hour; other failures retry after 1, 2, 4, 8 and then every 15 minutes.
+            var retry = failure.Status == 429 ? TimeSpan.FromHours(1) : TimeSpan.FromMinutes(Math.Min(15, Math.Pow(2, due.Failures)));
+            result = due with { DueAt = clock.GetUtcNow() + retry, LastError = failure.Message, Failures = due.Failures + 1 };
         }
         await store.ChangeAsync(current =>
         {

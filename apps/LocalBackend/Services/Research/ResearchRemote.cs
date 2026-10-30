@@ -89,6 +89,12 @@ internal sealed class ResearchRemote(ResearchOptions options, IHttpClientFactory
             {
                 string code = "remote_request_failed";
                 string detail = $"The remote service rejected this request (HTTP {(int)response.StatusCode}).";
+                // A web page instead of a JSON problem means the proxy in front of the service answered, not the service.
+                if (response.Content.Headers.ContentType?.MediaType is "text/html" or "text/plain")
+                {
+                    code = "remote_gateway_error";
+                    detail = $"Meld's server did not answer its web proxy ({(response.Headers.Server.ToString() is { Length: > 0 } server ? server : "proxy")}, HTTP {(int)response.StatusCode}). The service may be restarting or failing on this request.";
+                }
                 try
                 {
                     using var problem = JsonDocument.Parse(memory.ToArray());

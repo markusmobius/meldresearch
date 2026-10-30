@@ -114,8 +114,8 @@ internal sealed class BrowserRelay(ILogger<BrowserRelay> logger) : IBrowserRelay
 
     public async Task<BrowserResponse> FetchAsync(string operation, string? projectId, CancellationToken cancellationToken)
     {
-        if (!await _operationGate.WaitAsync(0, cancellationToken))
-            throw new ApiFailure(409, "browser_busy", "Wait for the current browser operation to finish.");
+        // The extension serves one request at a time; later requests queue behind it rather than failing.
+        await _operationGate.WaitAsync(cancellationToken);
 
         var transfer = new Transfer(Guid.NewGuid().ToString("N"));
         string? temporary = null;

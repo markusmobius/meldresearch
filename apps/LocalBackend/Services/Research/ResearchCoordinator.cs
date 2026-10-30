@@ -31,6 +31,9 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     private readonly SemaphoreSlim _accountGate = new(1, 1);
     private readonly object _cycleGate = new();
     private CancellationTokenSource? _cycle;
+    // The project the cycle is processing now, so pausing or excluding another project does not interrupt it.
+    private (string ProjectId, CancellationTokenSource Token)? _active;
+    private static readonly TimeSpan ProjectDeadline = TimeSpan.FromMinutes(10);
     // Held in memory only: a sign-in is a short browser round trip; after a restart the user simply signs in again.
     private PendingSignIn? _signIn;
     private int _busy;
@@ -148,7 +151,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         }
         if (!ResearchEvidence.IsProjectId(projectId)) throw new ResearchFailure(400, "invalid_project_id", "Select a valid Overleaf project.");
         var account = RequireCredential(await store.ReadAsync(ct));
-        CancelCycle();
+        CancelProject(projectId);
         await store.ChangeAsync(current =>
         {
             if (current.Credential?.Account.Id != account.Account.Id) throw AccountChanged();
@@ -177,15 +180,18 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         string name;
         if (enabled)
         {
-            var projects = await source.ProjectsAsync(ct);
-            name = projects.FirstOrDefault(project => project.Id == projectId)?.Name ??
+            // The list the user chose from is already known; read Overleaf again only if it is not (queued, never refused).
+            var monitored = state.Projects.FirstOrDefault(project => project.AccountId == account.Account.Id && project.ProjectId == projectId);
+            var known = source.Latest?.Projects.FirstOrDefault(project => project.Id == projectId) ??
+                (monitored is null ? null : new OverleafProjectResponse(monitored.ProjectId, monitored.Name, null));
+            name = (known ?? (await source.ProjectsAsync(ct)).FirstOrDefault(project => project.Id == projectId))?.Name ??
                 throw new ResearchFailure(404, "project_not_accessible", "This Overleaf project is not currently accessible.");
         }
         else
         {
             name = state.Projects.FirstOrDefault(project => project.AccountId == account.Account.Id && project.ProjectId == projectId)?.Name ??
                 throw new ResearchFailure(404, "project_not_monitored", "This project is not being monitored.");
-            CancelCycle();
+            CancelProject(projectId);
         }
         await store.ChangeAsync(current =>
         {
@@ -208,7 +214,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     public async Task ForgetAsync(string projectId, CancellationToken ct)
     {
         var account = RequireCredential(await store.ReadAsync(ct));
-        CancelCycle();
+        CancelProject(projectId);
         await store.ChangeAsync(current => current with
         {
             Projects = current.Projects.Where(project => project.AccountId != account.Account.Id || project.ProjectId != projectId).ToArray(),
@@ -244,7 +250,6 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         {
             bool force = Interlocked.Exchange(ref _force, 0) != 0;
             using var cycle = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-            cycle.CancelAfter(TimeSpan.FromMinutes(10));
             lock (_cycleGate) _cycle = cycle;
             try { await RunCycleAsync(force, cycle.Token); }
             catch (OperationCanceledException) when (cycle.IsCancellationRequested)
@@ -307,6 +312,11 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             var now = clock.GetUtcNow();
             if (!force && project.LastAttemptAt is { } attempted &&
                 now - attempted < TimeSpan.FromSeconds(options.PollSeconds * Math.Pow(2, Math.Min(project.FailureCount, 4)))) continue;
+            using var work = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            work.CancelAfter(ProjectDeadline);
+            lock (_cycleGate) _active = (project.ProjectId, work);
+            var outer = ct;
+            ct = work.Token;
             try
             {
                 var metadata = accessible.FirstOrDefault(item => item.Id == project.ProjectId) ??
@@ -359,10 +369,27 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 string code = error is ResearchFailure failure ? failure.Code : error is ApiFailure api ? api.Code : "invalid_research_archive";
                 string detail = error is ResearchFailure or ApiFailure ? error.Message : "Overleaf returned an invalid archive. Existing research was retained.";
                 logger.LogWarning("Research project processing failed: {Code}. Evidence omitted.", code);
-                await RecordErrorAsync(project, code, detail, ct);
+                await RecordErrorAsync(project, code, detail, outer);
+            }
+            catch (OperationCanceledException) when (work.IsCancellationRequested && !outer.IsCancellationRequested)
+            {
+                // Paused, excluded or forgotten while processing (nothing to record), or it ran out of time.
+                if (await StillSelectedAsync(project, outer))
+                {
+                    logger.LogWarning("Research project processing timed out. Evidence omitted.");
+                    await RecordErrorAsync(project, "research_timeout", "Processing this project took too long. Existing research was retained; Meld retries automatically.", outer);
+                }
+            }
+            finally
+            {
+                lock (_cycleGate) if (_active?.Token == work) _active = null;
+                ct = outer;
             }
         }
     }
+
+    private async Task<bool> StillSelectedAsync(MonitoredProject project, CancellationToken ct) =>
+        (await store.ReadAsync(ct)).Projects.Any(item => item.AccountId == project.AccountId && item.ProjectId == project.ProjectId && item.Enabled);
 
     private Task<LocalResearchState> CommitAsync(LinkedCredential credential, MonitoredProject previous,
         Func<MonitoredProject, MonitoredProject> change, CancellationToken ct) =>
@@ -416,5 +443,10 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     private static IReadOnlyList<MonitoredProject> Replace(IReadOnlyList<MonitoredProject> projects, MonitoredProject updated) =>
         [.. projects.Where(item => item.AccountId != updated.AccountId || item.ProjectId != updated.ProjectId), updated];
     private void CancelCycle() { lock (_cycleGate) _cycle?.Cancel(); }
+    /// <summary>Stops in-flight work for one project only; the cycle continues with the other projects.</summary>
+    private void CancelProject(string projectId)
+    {
+        lock (_cycleGate) if (_active is { } active && active.ProjectId == projectId) active.Token.Cancel();
+    }
     public override void Dispose() { CancelCycle(); _wake.Dispose(); _accountGate.Dispose(); base.Dispose(); }
 }

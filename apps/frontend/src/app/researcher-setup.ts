@@ -53,6 +53,7 @@ export class ResearcherSetup {
     return id ? this.save(() => this.api.researcher('confirm', { authorId: id, baseVersion: this.researcher()?.version })) : Promise.resolve();
   }
   none(): Promise<void> { return this.save(() => this.api.researcher('none', { baseVersion: this.researcher()?.version })); }
+  retry(): Promise<void> { return this.save(() => this.api.researcher('retry', { baseVersion: this.researcher()?.version })); }
   nameChanged(event: Event): void { this.searchName.set((event.target as HTMLInputElement).value); }
 
   private async save(operation: () => Promise<void>): Promise<void> {
