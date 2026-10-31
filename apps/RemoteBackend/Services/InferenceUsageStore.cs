@@ -6,7 +6,7 @@ namespace MeldResearch.RemoteBackend.Services;
 internal enum InferenceOperation { Chat, Embedding }
 
 /// <summary>Why a model request was made, for the superuser's usage dashboard (as in Project Meld).</summary>
-internal enum InferencePurpose { ProfileImport, ProfileUpdate, ResearcherMatching, Other, ProjectSummary }
+internal enum InferencePurpose { ProfileImport, ProfileUpdate, ResearcherMatching, Other, ProjectSummary, ProjectGrouping }
 
 internal sealed record InferenceUsageEntry(DateTimeOffset At, string Deployment, InferenceOperation Operation, InferencePurpose Purpose,
     int StatusCode, long? PromptTokens, long? CompletionTokens, TimeSpan Duration);

@@ -62,6 +62,18 @@ internal static class RemoteEndpoints
             await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
             return TypedResults.Ok(await foundry.SummarizeProjectAsync(request, ct));
         }).WithName("SummarizeProject").WithSummary("Describe one project in a paragraph from its main .tex file; nothing is stored.");
+        app.MapPost("/api/research/theme-match", async Task<Ok<ThemeMatchResponse>> (
+            ThemeMatchRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, CancellationToken ct) =>
+        {
+            await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            return TypedResults.Ok(await foundry.MatchThemeAsync(request, ct));
+        }).WithName("MatchResearchTheme").WithSummary("Decide whether a newly imported project belongs to an existing research card; nothing is stored.");
+        app.MapPost("/api/research/theme-merge", async Task<Ok<ThemeMergeResponse>> (
+            ThemeMergeRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, CancellationToken ct) =>
+        {
+            await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            return TypedResults.Ok(await foundry.MergeThemeAsync(request, ct));
+        }).WithName("MergeResearchTheme").WithSummary("Combine a research card's project summaries into one summary; nothing is stored.");
         app.MapPost("/api/research/embeddings", async Task<Ok<ResearchEmbeddingResponse>> (
             ResearchEmbeddingRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, CancellationToken ct) =>
         {
@@ -321,6 +333,7 @@ internal static class RemoteEndpoints
         InferencePurpose.ProfileUpdate => "Profile updates",
         InferencePurpose.ResearcherMatching => "Researcher matching",
         InferencePurpose.ProjectSummary => "Project summaries",
+        InferencePurpose.ProjectGrouping => "Project grouping",
         _ => "Other"
     };
 

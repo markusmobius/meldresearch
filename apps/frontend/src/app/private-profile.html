@@ -1,32 +1,34 @@
 <section class="private-profile" aria-labelledby="private-profile-heading">
   <header class="profile-head">
     <h2 id="private-profile-heading"><mat-icon>lock</mat-icon>My projects</h2>
-    <span class="profile-note">Built from your included Overleaf projects. Stored only on this computer.</span>
+    <span class="profile-note">Built from your included Overleaf projects; related projects share a card. Stored only on this computer.</span>
   </header>
-  <div class="project-grid">
-    @for (entry of entries(); track entry.project.projectId) {
-      <button type="button" class="profile-card" (click)="open(entry, details)"
-        [attr.aria-label]="(entry.project.profile?.title ?? entry.project.name) + ': open details' + (entry.recent.length ? ' and ' + entry.recent.length + ' recent updates' : '')">
-        @if (entry.project.profile; as profile) {
-          <span class="card-title">{{ profile.title }}</span>
-          <span class="card-source">{{ entry.project.name }}</span>
+  <div class="project-list">
+    @for (card of cards(); track card.id) {
+      <button type="button" class="profile-card" (click)="open(card, details)"
+        [attr.aria-label]="(card.profile?.title ?? card.members[0].name) + ': open details' + (card.recent.length ? ' and ' + card.recent.length + ' recent updates' : '')">
+        <span class="card-head">
+          <span class="card-title">{{ card.profile?.title ?? card.members[0].name }}</span>
+          @if (card.recent.length) {
+            <span class="recent-badge"><mat-icon>update</mat-icon>{{ card.recent.length }} {{ card.recent.length === 1 ? 'update' : 'updates' }} in the last 3 months</span>
+          }
+        </span>
+        <span class="card-source"><mat-icon>description</mat-icon>{{ memberNames(card) }}</span>
+        @if (card.profile; as profile) {
           <span class="card-description">{{ profile.description }}</span>
           @if (profile.topics.length) {
-            <span class="topics">@for (topic of profile.topics.slice(0, 4); track $index) { <span class="topic">{{ topic }}</span> }</span>
+            <span class="topics">@for (topic of profile.topics; track $index) { <span class="topic">{{ topic }}</span> }</span>
           }
-        } @else {
-          <span class="card-title">{{ entry.project.name }}</span>
         }
-        @if (entry.project.phase === 'importing' || entry.project.phase === 'queued' || entry.project.phase === 'waiting' || entry.project.phase === 'checking') {
+        @if (card.progress; as project) {
           <span class="progress-note" role="status"><mat-icon>autorenew</mat-icon>
-            {{ entry.project.phase === 'importing' ? 'Building this summary: ' + entry.project.filesDone + ' of ' + entry.project.filesTotal + ' files'
-              : entry.project.phase === 'queued' ? 'Queued for processing' : 'Reading the project from Overleaf' }}</span>
-          @if (entry.project.phase === 'importing' && entry.project.filesTotal) {
-            <mat-progress-bar mode="determinate" [value]="100 * entry.project.filesDone / entry.project.filesTotal"></mat-progress-bar>
+            {{ project.phase === 'importing' ? 'Building the summary of ' + project.name + ': ' + project.filesDone + ' of ' + project.filesTotal + ' files'
+              : project.phase === 'queued' ? project.name + ' is queued for processing' : 'Reading ' + project.name + ' from Overleaf' }}</span>
+          @if (project.phase === 'importing' && project.filesTotal) {
+            <mat-progress-bar mode="determinate" [value]="100 * project.filesDone / project.filesTotal"></mat-progress-bar>
           }
-        }
-        @if (entry.recent.length) {
-          <span class="recent-badge"><mat-icon>update</mat-icon>{{ entry.recent.length }} {{ entry.recent.length === 1 ? 'update' : 'updates' }} in the last 3 months</span>
+        } @else if (card.updating) {
+          <span class="progress-note" role="status"><mat-icon>autorenew</mat-icon>{{ card.themeId ? 'Combining the summaries of related projects...' : 'Finding related projects...' }}</span>
         }
       </button>
     } @empty {
@@ -36,13 +38,13 @@
 </section>
 
 <ng-template #details>
-  @if (selected(); as entry) {
-    <h2 mat-dialog-title class="details-title">{{ entry.project.profile?.title ?? entry.project.name }}
-      <span class="card-source">{{ entry.project.name }}</span></h2>
+  @if (selected(); as card) {
+    <h2 mat-dialog-title class="details-title">{{ card.profile?.title ?? card.members[0].name }}
+      <span class="card-source"><mat-icon>description</mat-icon>{{ memberNames(card) }}</span></h2>
     <mat-dialog-content class="details-content">
       <mat-tab-group class="details-tabs" animationDuration="0ms" mat-stretch-tabs [disablePagination]="true">
         <mat-tab label="Details">
-          @if (entry.project.profile; as profile) {
+          @if (card.profile; as profile) {
             <p class="description">{{ profile.description }}</p>
             @if (profile.contributions.length) {
               <ul class="contributions">@for (item of profile.contributions; track $index) { <li>{{ item }}</li> }</ul>
@@ -53,12 +55,31 @@
           } @else {
             <p class="description muted">The summary appears once the first import of this project finishes.</p>
           }
+          @if (card.themeId) {
+            <h3 class="members-title">Overleaf projects on this card</h3>
+            <ul class="members">
+              @for (member of card.members; track member.projectId) {
+                <li><span class="member-name">{{ member.name }}</span>
+                  @if (member.phase === 'ready' || member.phase === 'error') {
+                    <label class="move">Move to
+                      <select (change)="move(member, $event)" [disabled]="moving()" [attr.aria-label]="'Move ' + member.name + ' to another card'">
+                        <option value="keep" selected>This card</option>
+                        @if (card.members.length > 1) { <option value="">A card of its own</option> }
+                        @for (target of targets(); track target.id) { <option [value]="target.themeId">{{ target.profile?.title }}</option> }
+                      </select></label>
+                  }
+                </li>
+              }
+            </ul>
+            @if (moveError()) { <p class="alert" role="alert">{{ moveError() }}</p> }
+          }
         </mat-tab>
-        @if (entry.recent.length) {
-          <mat-tab [label]="'Recent updates (' + entry.recent.length + ')'">
+        @if (card.recent.length) {
+          <mat-tab [label]="'Recent updates (' + card.recent.length + ')'">
             <ul class="updates">
-              @for (update of entry.recent; track update.id) {
-                <li><span class="update-date">{{ (update.sourceUpdatedAt ?? update.observedAt) | date:'mediumDate' }}</span>
+              @for (update of card.recent; track update.id) {
+                <li><span class="update-date">{{ (update.sourceUpdatedAt ?? update.observedAt) | date:'mediumDate' }}
+                    @if (card.members.length > 1) { &middot; {{ update.projectName }} }</span>
                   <strong>{{ update.title }}</strong><span class="update-summary">{{ update.summary }}</span></li>
               }
             </ul>

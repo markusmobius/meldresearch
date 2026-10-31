@@ -19,6 +19,8 @@ internal interface IResearchCoordinator
     Task ForgetAsync(string projectId, CancellationToken ct);
     /// <summary>Queues a one-paragraph summary of a recent project from its main .tex file; choosing it is the consent.</summary>
     Task RequestSummaryAsync(string projectId, CancellationToken ct);
+    /// <summary>Moves a project to another research card, or to a card of its own when themeId is null.</summary>
+    Task MoveToThemeAsync(string projectId, string? themeId, CancellationToken ct);
     void RequestSync();
     /// <summary>True while a research cycle is reading sources or calling the remote models.</summary>
     bool Busy { get; }
@@ -50,6 +52,9 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     /// <summary>Summaries are offered for projects updated within this window, matching the Projects tab's recent list.</summary>
     internal static readonly TimeSpan SummaryWindow = TimeSpan.FromDays(183);
     private volatile string? _summarizing;
+    // After a failed grouping call, card work waits instead of retrying in a tight loop.
+    private DateTimeOffset _themeRetryAt = DateTimeOffset.MinValue;
+    private static readonly TimeSpan ThemeBackoff = TimeSpan.FromMinutes(15);
     private const string RevocationPending = "Local access has stopped. Remote credential revocation is pending and will retry automatically.";
     public bool Busy => Volatile.Read(ref _busy) != 0;
 
@@ -101,7 +106,10 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 researcher.Status == "ready" ? researcher.DueAt : null, researcher.LastError), processing,
             (state.Summaries ?? []).Where(item => item.AccountId == account).Select(item => new ProjectSummaryResponseItem(item.ProjectId,
                 item.Status == "queued" && item.ProjectId == _summarizing ? "running" : item.Status, item.Summary, item.MainPath,
-                item.UpdatedAt, item.SourceUpdatedAt, item.Error)).ToArray());
+                item.UpdatedAt, item.SourceUpdatedAt, item.Error)).ToArray(),
+            account is not { } owner ? [] : ThemePlan.Themes(state, owner).Select(theme => new ResearchThemeResponse(theme.Id, theme.Profile,
+                theme.Members, theme.Profile is null || !ThemePlan.Matches(theme, theme.Members.Select(id => projects.FirstOrDefault(project =>
+                    project.ProjectId == id)).Where(project => project?.Profile is not null).ToArray()!))).ToArray());
     }
 
     public async Task<AccountLinkResponse> BeginLinkAsync(string callbackUri, CancellationToken ct)
@@ -200,6 +208,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 Decisions = Decide(current.Decisions, account.Account.Id, projectId, false)
             };
         }, ct);
+        // An excluded project leaves its research card.
+        Wake();
     }
 
     private IReadOnlyList<ProjectDecision> Decide(IReadOnlyList<ProjectDecision>? decisions, Guid account, string projectId, bool included) =>
@@ -265,6 +275,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             Decisions = current.Credential?.Account.Id == account.Account.Id
                 ? Decide(current.Decisions, account.Account.Id, projectId, false) : current.Decisions
         }, ct);
+        Wake();
     }
 
     public async Task RequestSummaryAsync(string projectId, CancellationToken ct)
@@ -287,6 +298,84 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         }, ct);
         Interlocked.Exchange(ref _urgent, 1);
         Wake();
+    }
+
+    public async Task MoveToThemeAsync(string projectId, string? themeId, CancellationToken ct)
+    {
+        if (!ResearchEvidence.IsProjectId(projectId) || (themeId is not null && !ResearchThemes.IsThemeId(themeId)))
+            throw new ResearchFailure(400, "invalid_theme_move", "Choose a project and a research card.");
+        var account = RequireCredential(await store.ReadAsync(ct)).Account.Id;
+        await store.ChangeAsync(current =>
+        {
+            if (current.Credential?.Account.Id != account) throw AccountChanged();
+            var project = current.Projects.FirstOrDefault(item => item.AccountId == account && item.ProjectId == projectId);
+            if (project is null || !ThemePlan.Member(current, account, project) || !ThemePlan.Settled(project))
+                throw new ResearchFailure(409, "project_not_ready", "This project can be moved once its import has finished.");
+            if (themeId is not null && !ThemePlan.Themes(current, account).Any(theme => theme.Id == themeId))
+                throw new ResearchFailure(404, "theme_not_found", "That research card no longer exists. Reload and try again.");
+            return ThemePlan.Place(current, account, projectId, themeId, clock.GetUtcNow());
+        }, ct);
+        _themeRetryAt = DateTimeOffset.MinValue;
+        Wake();
+    }
+
+    /// <summary>
+    /// One unit of research card work: drop departed members, place a newly imported project on a card (one model call when
+    /// cards exist), or combine a card's member summaries (one model call when it has several members). Returns false when
+    /// nothing is due or the last grouping call failed recently.
+    /// </summary>
+    private async Task<bool> ThemeStepAsync(LinkedCredential credential, CancellationToken ct)
+    {
+        var account = credential.Account.Id;
+        var state = await store.ReadAsync(ct);
+        if (state.Credential?.Account.Id != account) return false;
+        if (ThemePlan.Cleaned(state, account) is not null)
+        {
+            await store.ChangeAsync(current => current.Credential?.Account.Id == account && ThemePlan.Cleaned(current, account) is { } cleaned
+                ? current with { Themes = cleaned } : current, ct);
+            return true;
+        }
+        if (clock.GetUtcNow() < _themeRetryAt) return false;
+        try
+        {
+            if (ThemePlan.Unplaced(state, account) is { } project)
+            {
+                var candidates = ThemePlan.Themes(state, account).Where(theme => theme.Profile is not null).Take(ResearchThemes.MaxCandidates)
+                    .Select(theme => new ThemeCandidate(theme.Id, theme.Profile!.Title, theme.Profile.Description, theme.Profile.Topics)).ToArray();
+                string? target = candidates.Length == 0 ? null
+                    : (await remote.MatchThemeAsync(credential.Token, new(project.Name, project.Profile!, candidates), ct)).ThemeId;
+                await store.ChangeAsync(current =>
+                    current.Credential?.Account.Id == account && ThemePlan.Unplaced(current, account)?.ProjectId == project.ProjectId
+                        ? ThemePlan.Place(current, account, project.ProjectId, target, clock.GetUtcNow()) : current, ct);
+                logger.LogInformation("Placed a newly imported project on {Kind} research card. Names omitted.", target is null ? "a new" : "an existing");
+                return true;
+            }
+            if (ThemePlan.Stale(state, account) is { } stale)
+            {
+                var members = stale.Members.OrderByDescending(member => member.LastSuccessAt).Take(ResearchThemes.MaxMembers).ToArray();
+                var profile = members.Length == 1 ? members[0].Profile!
+                    : (await remote.MergeThemeAsync(credential.Token, new(members.Select(member => new ThemeMember(member.Name, member.Profile!)).ToArray()), ct)).Profile;
+                var merged = stale.Members.ToDictionary(member => member.ProjectId, member => ThemePlan.Fingerprint(member.Profile!), StringComparer.Ordinal);
+                await store.ChangeAsync(current =>
+                {
+                    if (current.Credential?.Account.Id != account) return current;
+                    var theme = current.Themes?.FirstOrDefault(item => item.AccountId == account && item.Id == stale.Theme.Id);
+                    // Membership or a member's summary changed meanwhile: the next step summarizes the card again.
+                    if (theme is null || !theme.Members.SequenceEqual(stale.Theme.Members) || current.Projects.Any(item =>
+                            merged.TryGetValue(item.ProjectId, out var print) && item.AccountId == account &&
+                            (item.Profile is null || ThemePlan.Fingerprint(item.Profile) != print)))
+                        return current;
+                    return current with { Themes = [.. current.Themes!.Select(item => item == theme ? theme with { Profile = profile, MergedFrom = merged } : item)] };
+                }, ct);
+                return true;
+            }
+        }
+        catch (ResearchFailure failure)
+        {
+            logger.LogWarning("Research card grouping failed: {Code}. It is retried in {Minutes} minutes.", failure.Code, ThemeBackoff.TotalMinutes);
+            _themeRetryAt = clock.GetUtcNow() + ThemeBackoff;
+        }
+        return false;
     }
 
     /// <summary>A manual check: read every included project again now, even if its daily check is not due.</summary>
@@ -374,7 +463,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         bool queued = selected.Any(project => project.Pending is not null && Due(project, now));
         var summaries = (state.Summaries ?? []).Where(item => item.AccountId == credential.Account.Id && item.Status == "queued")
             .OrderBy(item => item.RequestedAt).ToArray();
-        if (due.Length == 0 && !queued && summaries.Length == 0) return false;
+        bool themes = ThemePlan.HasWork(state, credential.Account.Id) && clock.GetUtcNow() >= _themeRetryAt;
+        if (due.Length == 0 && !queued && summaries.Length == 0 && !themes) return false;
         Interlocked.Exchange(ref _busy, 1);
         var identity = await remote.AccountAsync(credential.Token, ct);
         if (identity.Id != credential.Account.Id) throw AccountChanged();
@@ -389,6 +479,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         {
             // A project the user just included is read in the next cycle, before any further queued steps.
             if (Volatile.Read(ref _urgent) != 0) return true;
+            // Card work first, so a project joins its research card as soon as its import finishes.
+            if (await ThemeStepAsync(credential, ct)) continue;
             if (!await StepAsync(credential, ct)) return false;
         }
         return true;
@@ -402,7 +494,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     internal async Task<bool> ResetIfDueAsync(CancellationToken ct)
     {
         if ((await store.ReadAsync(ct)).ResetEpoch >= ResetEpoch) return false;
-        await store.ChangeAsync(current => current with { Projects = [], Decisions = [], Researchers = [], Summaries = [], ResetEpoch = ResetEpoch }, ct);
+        await store.ChangeAsync(current => current with { Projects = [], Decisions = [], Researchers = [], Summaries = [], Themes = [], ResetEpoch = ResetEpoch }, ct);
         store.PruneTexts(new HashSet<string>(StringComparer.Ordinal));
         logger.LogInformation("Applied the one-time research reset {Epoch}: projects, choices, OpenAlex match and texts were erased.", ResetEpoch);
         return true;

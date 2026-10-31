@@ -4,33 +4,41 @@
 .profile-head h2 { display: flex; align-items: center; gap: 8px; font-size: 18px; margin: 0; }
 .profile-head h2 mat-icon { color: #084d42; }
 .profile-note { color: #64748b; font-size: 12px; }
-/* Compact cards: the full summary and recent Updates open in a dialog. */
-.project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
-.profile-card { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; padding: 14px 16px;
+/* One card per research line: title, its Overleaf projects, the one-paragraph description and topics. */
+.project-list { display: flex; flex-direction: column; gap: 12px; }
+.profile-card { display: flex; flex-direction: column; align-items: stretch; gap: 6px; width: 100%; min-width: 0; padding: 16px 18px;
   border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff; color: inherit; font: inherit; text-align: left; cursor: pointer;
   transition: border-color .15s, box-shadow .15s; }
 .profile-card:hover { border-color: #0a6655; box-shadow: 0 2px 8px rgba(8, 77, 66, .12); }
 .profile-card:focus-visible { outline: 2px solid #0a6655; outline-offset: 2px; }
-.card-title { font-size: 15px; font-weight: 600; color: #0f172a; line-height: 1.35; }
-.card-source { display: block; color: #64748b; font-size: 12px; font-weight: 400; }
-.card-description { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-  margin-top: 4px; font-size: 13px; line-height: 1.5; color: #334155; }
-.topics { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 0; }
+.card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.card-title { font-size: 16px; font-weight: 600; color: #0f172a; line-height: 1.35; }
+.card-source { display: flex; align-items: center; gap: 4px; color: #64748b; font-size: 12px; font-weight: 400; overflow-wrap: anywhere; }
+.card-source mat-icon { width: 14px; height: 14px; font-size: 14px; flex: none; }
+.card-description { font-size: 13.5px; line-height: 1.6; color: #334155; }
+.topics { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
 .topic { font-size: 11.5px; padding: 2px 8px; border-radius: 999px; background: #ecfdf5; color: #166534; }
-.recent-badge { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; padding: 2px 8px; border-radius: 999px;
-  background: #eff6ff; color: #1d4ed8; font-size: 12px; font-weight: 500; }
+.recent-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px;
+  background: #eff6ff; color: #1d4ed8; font-size: 12px; font-weight: 500; white-space: nowrap; }
 .recent-badge mat-icon, .progress-note mat-icon { font-size: 16px; width: 16px; height: 16px; }
-.progress-note { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: #084d42; margin-top: 6px; }
-.profile-card mat-progress-bar { width: 100%; margin-top: 4px; }
-.empty { margin: 8px 0 0; grid-column: 1 / -1; }
+.progress-note { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: #084d42; }
+.profile-card mat-progress-bar { width: 100%; }
+.empty { margin: 8px 0 0; }
 /* Dialog */
-.details-title { display: flex; flex-direction: column; gap: 2px; line-height: 1.3; }
+.details-title { display: flex; flex-direction: column; gap: 4px; line-height: 1.3; }
 .details-content { padding-top: 0; }
 .details-tabs { --mat-tab-header-label-text-tracking: 0; }
 .description { font-size: 14px; line-height: 1.6; color: #334155; margin: 14px 0 8px; }
-.contributions, .updates { margin: 8px 0; padding-left: 20px; font-size: 13.5px; line-height: 1.55; color: #334155; }
+.contributions { margin: 8px 0; padding-left: 20px; font-size: 13.5px; line-height: 1.55; color: #334155; }
 .contributions li { margin: 4px 0; }
-.updates { list-style: none; padding: 0; margin-top: 12px; }
+.members-title { margin: 18px 0 6px; font-size: 13px; font-weight: 600; color: #084d42; }
+.members { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.members li { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid #e2e8f0; }
+.member-name { color: #334155; overflow-wrap: anywhere; }
+.move { display: inline-flex; align-items: center; gap: 6px; color: #64748b; font-size: 12px; }
+.move select { max-width: 260px; height: 30px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; color: #1e293b; font: inherit; font-size: 12.5px; }
+.alert { margin: 8px 0 0; color: #b42318; font-size: 13px; }
+.updates { list-style: none; padding: 0; margin: 12px 0 8px; font-size: 13.5px; line-height: 1.55; }
 .updates li { display: flex; flex-direction: column; gap: 2px; padding: 10px 0; border-top: 1px solid #e2e8f0; }
 .updates li:first-child { border-top: 0; }
 .update-date { color: #64748b; font-size: 12px; }

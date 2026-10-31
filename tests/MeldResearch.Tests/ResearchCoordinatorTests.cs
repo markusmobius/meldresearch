@@ -517,6 +517,105 @@ public sealed class ResearchCoordinatorTests
         Assert.Null(ProjectSummaries.MainDocument([("chapter.tex", "\\section{A}"), ("readme.md", doc)]));
     }
 
+    private const string SecondId = "1123456789abcdef01234567";
+    private static MultiSource TwoProjects() => new(
+        Files(("a1.tex", "A one."), ("a2.tex", "A two.")) with { ProjectName = "news-slant" },
+        Files(("b1.tex", "B one.")) with { ProjectId = SecondId, ProjectName = "news-slant-slides" });
+    private static MonitoredProject IncludedAs(string id, string name) => Included(id) with { Name = name };
+
+    [Fact]
+    public async Task TheFirstImportedProjectGetsItsOwnCardWithoutAGroupingCall()
+    {
+        var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
+        var remote = new Remote();
+        using var coordinator = Coordinator(store, remote, new Source(Files(("main.tex", "Synthetic research."))));
+        await Drain(coordinator);
+        var theme = Assert.Single(store.State.Themes!);
+        Assert.Equal([ProjectId], theme.Members);
+        Assert.Equal(store.State.Projects[0].Profile, theme.Profile);
+        Assert.Empty(remote.Matches);
+        Assert.Empty(remote.Merges);
+        var status = Assert.Single((await coordinator.StatusAsync(CancellationToken.None)).Themes!);
+        Assert.False(status.Updating);
+    }
+
+    [Fact]
+    public async Task AProjectOfTheSameResearchLineJoinsThatCardAndTheCardIsCombinedOnce()
+    {
+        var store = new MemoryStore(new(1, Credential, null, null, [IncludedAs(ProjectId, "news-slant"), IncludedAs(SecondId, "news-slant-slides")], []));
+        var remote = new Remote { Match = request => request.Candidates[0].Id };
+        using var coordinator = Coordinator(store, remote, TwoProjects());
+        await Drain(coordinator);
+        var theme = Assert.Single(store.State.Themes!);
+        Assert.Equal([ProjectId, SecondId], theme.Members);
+        var match = Assert.Single(remote.Matches);
+        Assert.Equal("news-slant-slides", match.ProjectName);
+        var merge = Assert.Single(remote.Merges);
+        Assert.Equal(["news-slant", "news-slant-slides"], merge.Members.Select(member => member.ProjectName).Order());
+        Assert.Equal("Combined research line", theme.Profile!.Title);
+
+        // Nothing changed: no further grouping calls.
+        await Drain(coordinator, force: true);
+        Assert.Single(remote.Matches);
+        Assert.Single(remote.Merges);
+    }
+
+    [Fact]
+    public async Task AnUnrelatedProjectStartsItsOwnCard()
+    {
+        var store = new MemoryStore(new(1, Credential, null, null, [IncludedAs(ProjectId, "news-slant"), IncludedAs(SecondId, "news-slant-slides")], []));
+        var remote = new Remote();
+        using var coordinator = Coordinator(store, remote, TwoProjects());
+        await Drain(coordinator);
+        Assert.Equal(2, store.State.Themes!.Count);
+        Assert.Single(remote.Matches);
+        Assert.Empty(remote.Merges);
+    }
+
+    [Fact]
+    public async Task ExcludingAMemberRemovesItFromItsCardAndMovingSplitsAProjectOut()
+    {
+        var store = new MemoryStore(new(1, Credential, null, null, [IncludedAs(ProjectId, "news-slant"), IncludedAs(SecondId, "news-slant-slides")], []));
+        var remote = new Remote { Match = request => request.Candidates[0].Id };
+        using var coordinator = Coordinator(store, remote, TwoProjects());
+        await Drain(coordinator);
+        string themeId = store.State.Themes![0].Id;
+
+        await coordinator.MoveToThemeAsync(SecondId, null, CancellationToken.None);
+        await Drain(coordinator);
+        Assert.Equal(2, store.State.Themes!.Count);
+        Assert.Equal([ProjectId], store.State.Themes.Single(theme => theme.Id == themeId).Members);
+        // A single remaining member is the card's summary again, without a model call.
+        Assert.Equal(store.State.Projects.Single(project => project.ProjectId == ProjectId).Profile, store.State.Themes.Single(theme => theme.Id == themeId).Profile);
+        Assert.Single(remote.Merges);
+
+        await coordinator.MoveToThemeAsync(SecondId, themeId, CancellationToken.None);
+        await Drain(coordinator);
+        Assert.Single(store.State.Themes!);
+        Assert.Equal(2, remote.Merges.Count);
+
+        await coordinator.DecideProjectAsync(SecondId, new(false, null), CancellationToken.None);
+        await Drain(coordinator);
+        Assert.Equal([ProjectId], Assert.Single(store.State.Themes!).Members);
+        Assert.Equal(2, remote.Merges.Count);
+        Assert.Equal("invalid_theme_move", (await Assert.ThrowsAsync<ResearchFailure>(() =>
+            coordinator.MoveToThemeAsync(ProjectId, "not-a-card", CancellationToken.None))).Code);
+    }
+
+    [Fact]
+    public void ACardIsCombinedAgainOnlyOnceAllMembersAreSettled()
+    {
+        var profile = new ProjectProfile("T", "D", ["C"], ["t"]);
+        var settled = Included() with { Profile = profile, ImportComplete = true };
+        var pending = IncludedAs(SecondId, "slides") with { Profile = profile with { Title = "Changed" }, ImportComplete = true,
+            Pending = new ProjectManifest("r", DateTimeOffset.UtcNow, null, []) };
+        var theme = new ResearchTheme(Account.Id, Guid.NewGuid().ToString("N"), [ProjectId, SecondId], profile,
+            new Dictionary<string, string> { [ProjectId] = ThemePlan.Fingerprint(profile), [SecondId] = ThemePlan.Fingerprint(profile) }, DateTimeOffset.UtcNow);
+        var state = new LocalResearchState(1, Credential, null, null, [settled, pending], [], Themes: [theme]);
+        Assert.Null(ThemePlan.Stale(state, Account.Id));
+        Assert.NotNull(ThemePlan.Stale(state with { Projects = [settled, pending with { Pending = null }] }, Account.Id));
+    }
+
     private sealed class MultiSource(params ResearchSnapshot[] snapshots) : IOverleafEvidenceSource
     {
         public bool Available => true;
@@ -599,6 +698,20 @@ public sealed class ResearchCoordinatorTests
             ct.ThrowIfCancellationRequested();
             Requests.Add(request);
             return Task.FromResult((Step ?? (item => Summary(item, [])))(request));
+        }
+        public List<ThemeMatchRequest> Matches { get; } = [];
+        public List<ThemeMergeRequest> Merges { get; } = [];
+        public Func<ThemeMatchRequest, string?> Match { get; set; } = _ => null;
+        public Task<ThemeMatchResponse> MatchThemeAsync(string token, ThemeMatchRequest request, CancellationToken ct)
+        {
+            Matches.Add(request);
+            return Task.FromResult(new ThemeMatchResponse(Match(request), "Synthetic decision.", "chat"));
+        }
+        public Task<ThemeMergeResponse> MergeThemeAsync(string token, ThemeMergeRequest request, CancellationToken ct)
+        {
+            Merges.Add(request);
+            return Task.FromResult(new ThemeMergeResponse(new("Combined research line", string.Join(" + ", request.Members.Select(member => member.ProjectName)),
+                ["Combined."], ["combined"]), "chat"));
         }
         public List<ProjectSummaryRequest> Summaries { get; } = [];
         public Task<ProjectSummaryResponse> SummarizeProjectAsync(string token, ProjectSummaryRequest request, CancellationToken ct)

@@ -34,6 +34,8 @@ internal interface IResearchRemote
     Task RevokeAsync(string token, CancellationToken ct);
     Task<ProfileStepResponse> ProfileStepAsync(string token, ProfileStepRequest request, CancellationToken ct);
     Task<ProjectSummaryResponse> SummarizeProjectAsync(string token, ProjectSummaryRequest request, CancellationToken ct);
+    Task<ThemeMatchResponse> MatchThemeAsync(string token, ThemeMatchRequest request, CancellationToken ct);
+    Task<ThemeMergeResponse> MergeThemeAsync(string token, ThemeMergeRequest request, CancellationToken ct);
     Task<ResearcherSearchResponse> SearchResearcherAsync(string token, ResearcherSearchRequest request, CancellationToken ct);
     Task<ResearcherWorksResponse> ResearcherWorksAsync(string token, ResearcherWorksRequest request, CancellationToken ct);
 }
@@ -51,6 +53,10 @@ internal sealed class ResearchRemote(ResearchOptions options, IHttpClientFactory
         CallAsync<ProfileStepResponse>("api/research/profile-step", HttpMethod.Post, request, token, ct);
     public Task<ProjectSummaryResponse> SummarizeProjectAsync(string token, ProjectSummaryRequest request, CancellationToken ct) =>
         CallAsync<ProjectSummaryResponse>("api/research/project-summary", HttpMethod.Post, request, token, ct);
+    public Task<ThemeMatchResponse> MatchThemeAsync(string token, ThemeMatchRequest request, CancellationToken ct) =>
+        CallAsync<ThemeMatchResponse>("api/research/theme-match", HttpMethod.Post, request, token, ct);
+    public Task<ThemeMergeResponse> MergeThemeAsync(string token, ThemeMergeRequest request, CancellationToken ct) =>
+        CallAsync<ThemeMergeResponse>("api/research/theme-merge", HttpMethod.Post, request, token, ct);
     public Task<ResearcherSearchResponse> SearchResearcherAsync(string token, ResearcherSearchRequest request, CancellationToken ct) =>
         CallAsync<ResearcherSearchResponse>("api/researcher/candidates", HttpMethod.Post, request, token, ct);
     public Task<ResearcherWorksResponse> ResearcherWorksAsync(string token, ResearcherWorksRequest request, CancellationToken ct) =>

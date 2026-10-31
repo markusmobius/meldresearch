@@ -48,6 +48,12 @@ internal static class ResearchEndpoints
             await service.DecideProjectAsync(projectId, request, ct);
             return TypedResults.NoContent();
         }).WithName("DecideResearchProject").WithSummary("Include a project in the private profile (starts monitoring; needs consent) or exclude it.");
+        group.MapPut("/projects/{projectId}/theme", async Task<NoContent> (
+            string projectId, MoveToThemeRequest request, IResearchCoordinator service, CancellationToken ct) =>
+        {
+            await service.MoveToThemeAsync(projectId, request.ThemeId, ct);
+            return TypedResults.NoContent();
+        }).WithName("MoveResearchProjectToTheme").WithSummary("Move an imported project to another research card, or to a card of its own.");
         group.MapPost("/projects/{projectId}/summary", async Task<Accepted> (
             string projectId, IResearchCoordinator service, CancellationToken ct) =>
         {

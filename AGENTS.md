@@ -50,7 +50,10 @@ instruction file. Start with the [README](README.md) for setup and release detai
   file, resume after restart, never reprocess an unchanged hash or identical copy.
   Include/resume is processed first. Project summaries (one paragraph from the main
   `.tex`) are sent only on the user's per-project Summarize click, recent projects
-  only, and never resent while the main file's hash is unchanged.
+  only, and never resent while the main file's hash is unchanged. Research cards
+  ([ThemePlan](apps/LocalBackend/Services/Research/ThemePlan.cs)) group settled
+  projects by Foundry decision once, merge members' summaries only when a member's
+  summary fingerprint changes, and never move a placed project automatically.
 - Models select source line ranges; the server copies and validates actual
   citation text. Preserve grounding, evidence limits and visible validation errors.
 - The remote backend persists accounts, devices, one-time app sign-in codes, the
@@ -123,8 +126,8 @@ Use .NET 10, Node 24/npm and PowerShell 7. Run from this repository's root, e.g.
   About me and Account; Docs / Privacy / Project Team are under More.
   Account has vertical tabs Meld account / Overleaf (horizontal Connection |
   Projects) / OpenAlex. Projects owns include/exclude choices, consent,
-  monitoring and project summaries (no manual ZIP download UI); About me has Project Meld's tabs: Private profile,
-  Public profile (only once one exists) and Publications.
+  monitoring and project summaries (no manual ZIP download UI); About me has Project Meld's tabs: Private profile
+  (research cards), Public profile (only once one exists) and Publications.
 - Projects updated within six months need an active include/exclude choice;
   older ones are optional. The feed unlocks once one project is included. Each
   page load, and each newly seen undecided project, opens Overleaf → Projects;
@@ -172,7 +175,7 @@ Use .NET 10, Node 24/npm and PowerShell 7. Run from this repository's root, e.g.
   restore the removed application Playwright approach. Use the normal browser
   and connector; never execute downloaded TeX.
 - Current Chrome identity: `pejcljoimoeklelcfbfddnkimlkjgfhe`; extension version
-  `0.5.2`, native protocol `2`. Identity derives from the public manifest key,
+  `0.5.3`, native protocol `2`. Identity derives from the public manifest key,
   not a secret signing key. Update related identity/handshake checks together;
   compatible extension releases need not have identical version numbers.
 - Bump the connector manifest version whenever extension files change: installed

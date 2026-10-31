@@ -204,6 +204,30 @@ public sealed class FoundryTests
     }
 
     [Fact]
+    public async Task GroupingAcceptsOnlyOfferedCardsAndValidCombinedSummaries()
+    {
+        string reply = "";
+        using var http = new HttpClient(new Handler(_ => Task.FromResult(Response(new { choices = new[] { new { finish_reason = "stop", message = new { content = reply } } } }))));
+        using var foundry = Create(http);
+        string card = new('a', 32);
+        var match = new ThemeMatchRequest("news-slant-slides", Profile, [new(card, "News slant", "Why outlets differ.", ["media"])]);
+        reply = JsonSerializer.Serialize(new { cardId = card, explanation = "Slides of the same paper." });
+        Assert.Equal(card, (await foundry.MatchThemeAsync(match, CancellationToken.None)).ThemeId);
+        reply = JsonSerializer.Serialize(new { cardId = (string?)null, explanation = "Different question." });
+        Assert.Null((await foundry.MatchThemeAsync(match, CancellationToken.None)).ThemeId);
+        reply = JsonSerializer.Serialize(new { cardId = new string('b', 32), explanation = "Invented." });
+        Assert.Equal("invalid_theme_match", (await Assert.ThrowsAsync<ResearchFailure>(() => foundry.MatchThemeAsync(match, CancellationToken.None))).Code);
+
+        var merge = new ThemeMergeRequest([new("news-slant", Profile), new("news-slant-slides", Profile)]);
+        reply = JsonSerializer.Serialize(new { profile = Profile }, ResearchJson.Options);
+        Assert.Equal(Json(Profile), Json((await foundry.MergeThemeAsync(merge, CancellationToken.None)).Profile));
+        reply = JsonSerializer.Serialize(new { profile = Profile with { Title = "" } }, ResearchJson.Options);
+        Assert.Equal("invalid_theme_summary", (await Assert.ThrowsAsync<ResearchFailure>(() => foundry.MergeThemeAsync(merge, CancellationToken.None))).Code);
+        Assert.Equal("invalid_theme_request", (await Assert.ThrowsAsync<ResearchFailure>(() =>
+            foundry.MergeThemeAsync(new([new("solo", Profile)]), CancellationToken.None))).Code);
+    }
+
+    [Fact]
     public async Task RejectionsNameFoundrysStatusAndErrorCodeButNeverItsMessage()
     {
         using var http = new HttpClient(new Handler(_ => Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.Forbidden)

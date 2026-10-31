@@ -142,7 +142,7 @@ describe('Overleaf connection screen', () => {
     vi.stubGlobal('sessionStorage', {
       getItem: (key: string) => session.get(key) ?? null, setItem: (key: string, value: string) => session.set(key, value),
     });
-    api.extension.mockResolvedValue({ ...setup, extensionVersion: '0.5.2' });
+    api.extension.mockResolvedValue({ ...setup, extensionVersion: '0.5.3' });
     browser.send.mockResolvedValue(connector(true));
     api.status.mockResolvedValue(status(true));
     const fixture = await screen('home');
@@ -152,7 +152,7 @@ describe('Overleaf connection screen', () => {
     expect(fixture.componentInstance.view()).toBe('account');
     fixture.detectChanges();
     expect(element.querySelector('.setup-tab[aria-selected="true"]')?.textContent).toContain('Connector update needed');
-    expect(element.querySelector('.update-notice')?.textContent).toContain('0.3.0; this Meld needs 0.5.2');
+    expect(element.querySelector('.update-notice')?.textContent).toContain('0.3.0; this Meld needs 0.5.3');
     expect(element.querySelector('.installation mat-panel-title')?.textContent).toContain('Update the browser connector');
     expect(element.querySelector('.setup-steps')?.textContent).toContain('Remove');
     expect(element.querySelector('a[aria-label="Feed"]')).toBeNull();
@@ -162,7 +162,7 @@ describe('Overleaf connection screen', () => {
     expect(browser.send.mock.calls.filter(call => call[1] === 'reload')).toHaveLength(1);
 
     const current = connector(true);
-    current.state.extensionVersion = '0.5.2';
+    current.state.extensionVersion = '0.5.3';
     browser.send.mockResolvedValue(current);
     vi.advanceTimersByTime(3000);
     await vi.waitFor(() => expect(fixture.componentInstance.connectorStale()).toBe(false));

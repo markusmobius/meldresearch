@@ -165,7 +165,7 @@ that backend requires real Google OAuth configuration. No synthetic identity is
 available in Live mode.
 
 The source manifest now uses the supplied Chrome draft public key:
-**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.5.2**, wire protocol **2**.
+**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.5.3**, wire protocol **2**.
 It is a public identity key, not a signing secret.
 
 Until the private listing is approved, remove the old development-ID unpacked
@@ -220,6 +220,13 @@ Chrome Web Store instead.
   projects; **Check now** retries at once. Including (or resuming) a project stops
   the worker after its current file step, reads that project and processes it
   before older queued work.
+- **Research cards.** About me groups included projects into research cards: once a
+  project's first import finishes, Foundry decides from the summaries whether it
+  continues an existing card (same question, model, data or paper; a shared field is
+  not enough) or starts a new one, and a card with several projects gets one combined
+  summary, made again only when a member's summary changes. Each project's own
+  summary and Updates are kept. The card dialog moves a project to another card or to
+  a card of its own; Meld never moves a placed project by itself.
 - **One-time resets.** Raising `ResearchCoordinator.ResetEpoch` makes every
   installation erase, on its first start of that release, all projects (summaries,
   hashes, Updates, queue), include/exclude choices, project summaries, the OpenAlex

@@ -25,7 +25,13 @@ public sealed record ResearchStatusResponse(MeldAccountResponse? Account, DateTi
     string ConsentVersion, int PollSeconds, int PendingRevocations, IReadOnlyList<MonitoredProjectResponse> Projects,
     IReadOnlyList<ResearchUpdate> Updates, int TotalUpdates, IReadOnlyList<ProjectDecisionResponse> Decisions,
     OverleafProjectsSnapshot? OverleafProjects, ResearcherStatusResponse? Researcher, ProcessingStatusResponse? Processing,
-    IReadOnlyList<ProjectSummaryResponseItem>? Summaries = null);
+    IReadOnlyList<ProjectSummaryResponseItem>? Summaries = null, IReadOnlyList<ResearchThemeResponse>? Themes = null);
+
+/// <summary>A research card: its combined summary (null until made) and its Overleaf projects. Updating while being summarized again.</summary>
+public sealed record ResearchThemeResponse(string Id, ProjectProfile? Profile, IReadOnlyList<string> ProjectIds, bool Updating);
+
+/// <summary>Moves a project to another research card, or to a new card of its own when ThemeId is null.</summary>
+public sealed record MoveToThemeRequest(string? ThemeId);
 
 /// <summary>A project's one-paragraph summary from its main .tex file. Status: queued, running, ready or error.</summary>
 public sealed record ProjectSummaryResponseItem(string ProjectId, string Status, string? Summary, string? MainPath,

@@ -53,7 +53,10 @@ export interface ResearchStatus {
   processing: ProcessingStatus | null;
   /** One-paragraph summaries from projects' main .tex files, made only when the user chose Summarize. */
   summaries?: ReadonlyArray<ProjectSummary> | null;
+  /** Research cards: one line of research made of one or more included Overleaf projects, with a combined summary. */
+  themes?: ReadonlyArray<ResearchTheme> | null;
 }
+export interface ResearchTheme { id: string; profile: ProjectProfile | null; projectIds: ReadonlyArray<string>; updating: boolean; }
 export interface ProjectSummary {
   projectId: string; status: 'queued' | 'running' | 'ready' | 'error'; summary: string | null; mainPath: string | null;
   updatedAt: string | null; sourceUpdatedAt: string | null; error: string | null;
@@ -84,6 +87,10 @@ export class ResearchApi {
   /** Sends only this project's main .tex file to Foundry for a one-paragraph summary; the user's click is the consent. */
   summarize(id: string): Promise<void> {
     return firstValueFrom(this.http.post<void>(`/api/research/projects/${encodeURIComponent(id)}/summary`, {}));
+  }
+  /** Moves an imported project to another research card, or to a card of its own (themeId null). */
+  moveToTheme(id: string, themeId: string | null): Promise<void> {
+    return firstValueFrom(this.http.put<void>(`/api/research/projects/${encodeURIComponent(id)}/theme`, { themeId }));
   }
   sync(): Promise<void> { return firstValueFrom(this.http.post<void>('/api/research/sync', {})); }
   demoChange(): Promise<unknown> { return firstValueFrom(this.http.post('/api/development/overleaf/change', {})); }

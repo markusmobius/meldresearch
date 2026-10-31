@@ -21,7 +21,7 @@
       <header class="page-header">
         <div class="page-heading">
           <h1 class="page-title"><span class="material-icons site-only" aria-hidden="true">shield</span>Privacy &amp; Controls</h1>
-          <p class="page-subtitle">Last updated: October 2026 &middot; Meld Research and its Overleaf connector, version 0.5.2</p>
+          <p class="page-subtitle">Last updated: October 2026 &middot; Meld Research and its Overleaf connector, version 0.5.3</p>
         </div>
       </header>
 
@@ -49,7 +49,9 @@
               <li><strong>Azure AI Foundry:</strong> after you include a project, the companion sends it one file at a time (and, for
                 a changed file, its previous version) together with the project's current summary through the configured Meld service
                 to the configured Azure AI Foundry chat deployment. The updated summary and grounded Updates are returned to your
-                computer. Processing runs in the background without a separate prompt for each model request.</li>
+                computer. To show related projects (for example a paper and its slides) on one card of your private profile, the
+                summaries of your included projects are also sent to decide which projects belong together and to combine their
+                summaries. Processing runs in the background without a separate prompt for each model request.</li>
               <li><strong>The Meld website:</strong> keeps your account and approved installations in its own database. The remote
                 Meld application does not persist a project archive or log research payloads. To monitor cost and capacity, it records
                 for each model request only its time, deployment, purpose, outcome, token counts and duration, not its content or

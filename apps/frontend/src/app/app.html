@@ -31,7 +31,7 @@
           <mat-tab-group class="profile-tabs" animationDuration="0ms" [disablePagination]="true" mat-stretch-tabs
             [selectedIndex]="aboutTab() === 'publications' ? 1 : 0" (selectedIndexChange)="aboutTab.set($event === 1 ? 'publications' : 'private')">
             <mat-tab label="Private profile"><ng-template matTabContent>
-              <app-private-profile [status]="research()"></app-private-profile>
+              <app-private-profile [status]="research()" (changed)="researchChanged()"></app-private-profile>
             </ng-template></mat-tab>
             <mat-tab label="Publications"><ng-template matTabContent>
               <app-publications [researcher]="research()?.researcher ?? null"></app-publications>
