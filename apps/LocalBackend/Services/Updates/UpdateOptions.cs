@@ -22,7 +22,7 @@ internal sealed record UpdateOptions(bool Enabled, string? DisabledReason, strin
         string? root = configuration["InstallRoot"] is { Length: > 0 } configured ? Path.GetFullPath(configured) : null;
         string? key = configuration["UpdatePublicKey"];
         var initial = TimeSpan.FromSeconds(Math.Clamp(configuration.GetValue("Updates:InitialDelaySeconds", 45), 1, 3600));
-        var interval = TimeSpan.FromSeconds(Math.Clamp(configuration.GetValue("Updates:IntervalSeconds", 120), 5, 86400));
+        var interval = TimeSpan.FromSeconds(Math.Clamp(configuration.GetValue("Updates:IntervalSeconds", 60), 5, 86400));
         bool register = configuration.GetValue("Updates:RegisterNativeHost", true);
 
         string? reason =

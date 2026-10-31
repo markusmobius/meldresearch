@@ -58,8 +58,9 @@ internal sealed record DesktopVersionResponse(string Version, DateTimeOffset? Ve
 
 /// <summary>
 /// Checks the remote server for a signed desktop release, verifies and installs it side by side in a new
-/// version folder, repoints the stable launcher, and restarts through it once no research or browser work
-/// is running. The running version's files are never modified.
+/// version folder, repoints the stable launcher, and restarts through it straight away (as Project Meld does): research
+/// commits per file and resumes after the restart, so running work is no reason to stay on an old release. The running
+/// version's files are never modified.
 /// </summary>
 internal sealed class DesktopUpdater(UpdateOptions options, IHttpClientFactory clients, IResearchCoordinator research,
     IBrowserRelay browser, IHostApplicationLifetime lifetime, INativeHostRegistrar registrar, TimeProvider clock,
@@ -96,7 +97,7 @@ internal sealed class DesktopUpdater(UpdateOptions options, IHttpClientFactory c
                     if (await CheckAsync(stoppingToken))
                     {
                         _lastError = null;
-                        await RestartWhenIdleAsync(stoppingToken);
+                        await RestartAsync(stoppingToken);
                         return;
                     }
                     _lastError = null;
@@ -159,12 +160,12 @@ internal sealed class DesktopUpdater(UpdateOptions options, IHttpClientFactory c
             try
             {
                 await DownloadAsync(http, manifest, archive, ct);
-                if (Directory.Exists(expanded)) Directory.Delete(expanded, recursive: true);
+                if (Directory.Exists(expanded)) await RetryLockedAsync(() => Directory.Delete(expanded, recursive: true), ct);
                 Extract(archive, expanded);
                 if (!IsComplete(expanded, manifest)) throw new InvalidDataException("The update package is incomplete or names another release.");
                 MakeExecutable(expanded);
-                if (Directory.Exists(target)) Directory.Delete(target, recursive: true);
-                Directory.Move(expanded, target);
+                if (Directory.Exists(target)) await RetryLockedAsync(() => Directory.Delete(target, recursive: true), ct);
+                await RetryLockedAsync(() => Directory.Move(expanded, target), ct);
             }
             finally
             {
@@ -195,23 +196,35 @@ internal sealed class DesktopUpdater(UpdateOptions options, IHttpClientFactory c
         return true;
     }
 
-    /// <summary>
-    /// How long a verified update waits for research and browser work to finish. Processing commits one file at a time and
-    /// resumes after a restart, so continuous work (for example retries against a server that has moved on) must not keep an
-    /// installation on an old version indefinitely.
-    /// </summary>
-    internal static readonly TimeSpan MaximumIdleWait = TimeSpan.FromMinutes(2);
+    /// <summary>How long an open page gets to show "Updating" before the restart (Project Meld's start grace).</summary>
+    internal static readonly TimeSpan RestartGrace = TimeSpan.FromSeconds(8);
 
-    internal async Task RestartWhenIdleAsync(CancellationToken ct)
+    internal async Task RestartAsync(CancellationToken ct)
     {
-        var deadline = clock.GetUtcNow() + MaximumIdleWait;
-        while ((research.Busy || browser.Status.Busy) && clock.GetUtcNow() < deadline)
-            await Task.Delay(TimeSpan.FromSeconds(5), clock, ct);
+        _status = "restarting";
+        await Task.Delay(RestartGrace, clock, ct);
         if (research.Busy || browser.Status.Busy)
-            logger.LogInformation("Work is still running after {Minutes} minutes; it resumes after the update.", MaximumIdleWait.TotalMinutes);
+            logger.LogInformation("Restarting while work is running; it resumes from the last committed file after the update.");
         logger.LogInformation("Restarting into the updated desktop version.");
         RestartRequested = true;
         lifetime.StopApplication();
+    }
+
+    /// <summary>
+    /// Freshly extracted executables are often held briefly by antivirus scanning, which makes Windows refuse to move or
+    /// delete their folder ("access denied"). Retry for up to about 45 seconds before failing the attempt.
+    /// </summary>
+    private async Task RetryLockedAsync(Action operation, CancellationToken ct)
+    {
+        for (int attempt = 1; ; attempt++)
+        {
+            try { operation(); return; }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException && attempt < 10)
+            {
+                logger.LogInformation("Update files are briefly locked ({Type}); retrying.", error.GetType().Name);
+                await Task.Delay(TimeSpan.FromSeconds(attempt), clock, ct);
+            }
+        }
     }
 
     /// <summary>Set once a verified update is installed; Program exits with <see cref="DesktopUpdates.UpdateExitCode"/>.</summary>

@@ -68,3 +68,13 @@
     </mat-menu>
   }
 </mat-toolbar>
+@if (updateTarget(); as target) {
+  <div class="update-overlay" role="alertdialog" aria-modal="true" aria-labelledby="update-title" aria-describedby="update-detail">
+    <div class="update-card">
+      <mat-icon class="update-spin" aria-hidden="true">autorenew</mat-icon>
+      <strong id="update-title">Updating Meld Research</strong>
+      <span class="update-versions">{{ shortVersion(localVersion()?.version) }} &rarr; {{ shortVersion(target) }}</span>
+      <span id="update-detail">Meld restarts in a moment and this page reloads by itself. Queued processing continues afterwards.</span>
+    </div>
+  </div>
+}

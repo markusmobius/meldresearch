@@ -152,7 +152,8 @@ public sealed class DesktopUpdateTests : IDisposable
             Assert.Contains("InvalidDataException", updater.Status.LastUpdateError);
             Assert.Contains("signed manifest", updater.Status.LastUpdateError);
             Assert.Equal(Newer, updater.Status.PendingVersion);
-            await WaitAsync(() => updater.Status.UpdateStatus == "ready", TimeSpan.FromSeconds(20));
+            // A verified install restarts straight away, so "ready" turns into "restarting" within moments.
+            await WaitAsync(() => updater.Status.UpdateStatus is "ready" or "restarting", TimeSpan.FromSeconds(20));
             Assert.Null(updater.Status.LastUpdateError);
             Assert.Equal(Newer[..12], InstallationPointer.Read(Root).Current);
         }
@@ -195,15 +196,16 @@ public sealed class DesktopUpdateTests : IDisposable
     }
 
     [Fact]
-    public async Task AVerifiedUpdateRestartsEvenWhileWorkNeverStops()
+    public async Task AVerifiedUpdateRestartsAfterAShortGraceEvenWhileWorkIsRunning()
     {
         var clock = new JumpingClock();
         var start = clock.GetUtcNow();
         var updater = Updater(new Server(Sign(Manifest(Current, CurrentDate, [])), []), new Registrar(), new IdleResearch(busy: true), clock);
-        await updater.RestartWhenIdleAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
+        var restart = updater.RestartAsync(CancellationToken.None);
+        Assert.Equal("restarting", updater.Status.UpdateStatus);
+        await restart.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.True(updater.RestartRequested);
-        var waited = clock.GetUtcNow() - start;
-        Assert.InRange(waited, DesktopUpdater.MaximumIdleWait, DesktopUpdater.MaximumIdleWait + TimeSpan.FromSeconds(10));
+        Assert.Equal(DesktopUpdater.RestartGrace, clock.GetUtcNow() - start);
     }
 
     private DesktopUpdater Updater(HttpMessageHandler server, Registrar registrar, IdleResearch? research = null, TimeProvider? clock = null) => new(

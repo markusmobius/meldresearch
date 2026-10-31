@@ -30,6 +30,39 @@ describe('Local version and connection indicator', () => {
     fixture.destroy();
   });
 
+  it('shows the update overlay while Meld restarts into a new release and then reloads into it', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const oldVersion = 'a'.repeat(64), newVersion = 'b'.repeat(64);
+    let version: unknown = { version: oldVersion, versionDate: '2026-10-30T01:28:21Z', updateStatus: 'current' };
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url !== '/api/version') return new Response(JSON.stringify({ online: true }), { status: 200 });
+      if (version instanceof Error) throw version;
+      return new Response(JSON.stringify(version), { status: 200 });
+    }));
+    const fixture = TestBed.createComponent(MeldToolbar);
+    const reload = vi.fn();
+    fixture.componentInstance.reload = reload;
+    await vi.waitFor(() => expect(fixture.componentInstance.localVersion()?.version).toBe(oldVersion));
+    expect(fixture.componentInstance.updateTarget()).toBeNull();
+
+    version = { version: oldVersion, versionDate: '2026-10-30T01:28:21Z', updateStatus: 'restarting', pendingVersion: newVersion };
+    await vi.advanceTimersByTimeAsync(20000);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.updateTarget()).toBe(newVersion);
+    expect((fixture.nativeElement as HTMLElement).querySelector('.update-overlay')?.textContent).toContain('vaaaaaaaa → vbbbbbbbb');
+
+    version = new TypeError('restarting');
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(fixture.componentInstance.updateTarget()).toBe(newVersion);
+    expect(reload).not.toHaveBeenCalled();
+
+    version = { version: newVersion, versionDate: '2026-10-31T12:10:34Z', updateStatus: 'current' };
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(reload).toHaveBeenCalledOnce();
+    fixture.destroy();
+    vi.useRealTimers();
+  });
+
   it('shows no indicator until the first check and treats a failed check as offline', async () => {
     let fail!: (reason: unknown) => void;
     vi.stubGlobal('fetch', vi.fn(() => new Promise((_, reject) => { fail = reject; })));

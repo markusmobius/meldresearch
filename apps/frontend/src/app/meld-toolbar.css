@@ -63,3 +63,12 @@
   .nav-link-btn mat-icon { margin: 0 !important; }
   .account-compact-icon { display: inline-block; }
 }
+/* Shown while the local app installs and restarts into a newer release (as Project Meld's update overlay). */
+.update-overlay { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(15, 23, 42, .45); }
+.update-card { display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 380px; padding: 28px 32px; border-radius: 16px; background: #fff; color: #1e293b; text-align: center; box-shadow: 0 20px 40px rgba(0, 0, 0, .2); font: 400 14px/1.5 'Outfit', sans-serif; }
+.update-card strong { font-size: 18px; font-weight: 700; }
+.update-versions { font-variant-numeric: tabular-nums; color: #084d42; font-weight: 600; }
+.update-card > span:last-child { color: #64748b; font-size: 13px; }
+.update-spin { width: 36px; height: 36px; font-size: 36px; color: #0a6655; animation: update-spin 1.4s linear infinite; }
+@keyframes update-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .update-spin { animation: none; } }

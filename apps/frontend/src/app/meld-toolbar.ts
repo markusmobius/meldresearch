@@ -17,7 +17,12 @@ export function readRemoteAccount(): RemoteAccount | null {
 const isRemoteSite = () =>
   getComputedStyle(document.documentElement).getPropertyValue('--meld-role').trim() === 'remote';
 
-export interface LocalVersion { version: string; versionDate: string | null; updateStatus: string; }
+export interface LocalVersion { version: string; versionDate: string | null; updateStatus: string; pendingVersion?: string | null; }
+
+/** Updater states in which a newer release is installed or being installed and Meld restarts into it shortly. */
+const UPDATING = new Set(['installing', 'ready', 'restarting']);
+export const shortVersion = (version: string | null | undefined) =>
+  !version ? '' : /^[0-9a-f]{64}$/.test(version) ? 'v' + version.slice(0, 8) : version;
 
 /** Release label for the brand area: the first 8 characters of the content-hash release and its commit time. */
 export function versionLabel(local: LocalVersion | null): string {
@@ -56,6 +61,12 @@ export class MeldToolbar {
   readonly localVersion = signal<LocalVersion | null>(null);
   readonly remoteOnline = signal<boolean | null>(null);
   readonly versionText = computed(() => versionLabel(this.localVersion()));
+  /** The release Meld is restarting into; set from the first "installing" report until the new version answers. */
+  readonly updateTarget = signal<string | null>(null);
+  readonly shortVersion = shortVersion;
+  private loadedVersion: string | null = null;
+  /** Replaced in tests; reloading picks up the new release's frontend. */
+  reload: () => void = () => location.reload();
   readonly versionTitle = computed(() => {
     const local = this.localVersion();
     if (!local) return '';
@@ -67,19 +78,33 @@ export class MeldToolbar {
     // Static remote pages (Docs, Privacy, Team) cannot embed the session, so they ask for it.
     if (!this.remoteAccount() && !document.querySelector('app-root') && isRemoteSite()) void this.loadSession();
     if (!isRemoteSite() && location.protocol.startsWith('http')) {
-      void this.loadVersion();
-      void this.ping();
-      const timer = setInterval(() => void this.ping(), 20000);
-      inject(DestroyRef).onDestroy(() => clearInterval(timer));
+      // Like Project Meld: watch for an update every few seconds while one is underway, otherwise every 20 seconds.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let stopped = false;
+      const tick = async () => {
+        await Promise.all([this.loadVersion(), this.ping()]);
+        if (!stopped) timer = setTimeout(() => void tick(), this.updateTarget() ? 3000 : 20000);
+      };
+      void tick();
+      inject(DestroyRef).onDestroy(() => { stopped = true; clearTimeout(timer); });
     }
   }
 
   private async loadVersion(): Promise<void> {
     try {
       const response = await fetch('/api/version', { headers: { Accept: 'application/json' } });
-      if (response.ok) this.localVersion.set(await response.json() as LocalVersion);
+      if (!response.ok) return;
+      const local = await response.json() as LocalVersion;
+      if (this.loadedVersion === null) this.loadedVersion = local.version;
+      else if (local.version !== this.loadedVersion) {
+        this.reload();
+        return;
+      }
+      this.localVersion.set(local);
+      if (UPDATING.has(local.updateStatus) && local.pendingVersion) this.updateTarget.set(local.pendingVersion);
+      else if (!UPDATING.has(local.updateStatus)) this.updateTarget.set(null);
     } catch {
-      // The label is informational; the app works without it.
+      // While Meld restarts into an update it does not answer; the overlay stays until the new version does.
     }
   }
 
