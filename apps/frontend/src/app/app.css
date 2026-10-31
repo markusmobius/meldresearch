@@ -91,25 +91,12 @@ mat-card-avatar { color: #084d42; }
 }
 .install-tip-now mat-icon { font-size: 14px; width: 14px; height: 14px; }
 mat-form-field { display: block; width: 100%; margin-top: 12px; }
-.source-tools { display: flex; flex-direction: column; gap: 16px; margin-top: 24px; }
-.source-tools mat-expansion-panel { border: 1px solid #e2e8f0; box-shadow: none; }
 mat-panel-title { gap: 10px; }
-.section-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
-.project-list, .download-list, .file-list { list-style: none; padding: 0; margin: 0; }
-.project-list > li { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 12px 0; border-top: 1px solid #e2e8f0; }
-.project-list > li > div { flex: 1; min-width: 160px; overflow-wrap: anywhere; }
-.download-list > li { border-top: 1px solid #e2e8f0; padding: 12px 0; }
 small { display: block; color: #64748b; margin-top: 4px; font-size: 12px; }
-details { margin-top: 12px; font-size: 13px; }
-summary { cursor: pointer; }
-.file-list li { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; }
-.file-list code { overflow-wrap: anywhere; }
 @media (max-width: 700px) {
   .content-area { padding: 24px 16px; }
   .setup-layout { flex-direction: column; align-items: stretch; }
   .setup-tabs { flex: none; }
-  .source-tools mat-expansion-panel-header { padding: 0 12px; }
-  mat-panel-description { display: none; }
 }
 /* About me tabs (Project Meld's profile-tabs). */
 .profile-tabs { max-width: 960px; --mat-tab-header-label-text-tracking: 0; }

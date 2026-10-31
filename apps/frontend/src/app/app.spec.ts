@@ -10,7 +10,6 @@ import { LocalPage } from './meld-toolbar';
 describe('Overleaf connection screen', () => {
   const api = {
     status: vi.fn(),
-    downloads: vi.fn(),
     refresh: vi.fn(),
     download: vi.fn(),
     extension: vi.fn(),
@@ -69,7 +68,6 @@ describe('Overleaf connection screen', () => {
     localStorage.setItem('meldresearch.overleafConnectedFor', account.id);
     api.status.mockResolvedValue(status());
     api.extension.mockResolvedValue(setup);
-    api.downloads.mockResolvedValue([]);
     api.refresh.mockResolvedValue([]);
     browser.send.mockResolvedValue(connector());
     researchApi.status.mockResolvedValue(researchStatus());
@@ -253,7 +251,6 @@ describe('Overleaf connection screen', () => {
     const element: HTMLElement = fixture.nativeElement;
     expect(element.textContent).toContain('Browser connector disconnected');
     expect(fixture.componentInstance.overleafTab()).toBe('projects');
-    expect(element.querySelector<HTMLButtonElement>('.refresh-button')?.disabled).toBe(true);
     expect(api.refresh).not.toHaveBeenCalled();
     fixture.destroy();
   });
@@ -266,7 +263,6 @@ describe('Overleaf connection screen', () => {
     const element: HTMLElement = fixture.nativeElement;
     expect(element.textContent).toContain('<img src=x> Synthetic');
     expect(element.querySelector('app-project-selection img')).toBeNull();
-    expect(element.querySelector('.project-list img')).toBeNull();
 
     api.refresh.mockRejectedValue(new HttpErrorResponse({ status: 502, error: { detail: 'Overleaf page format changed.' } }));
     await fixture.componentInstance.refresh();
@@ -274,7 +270,6 @@ describe('Overleaf connection screen', () => {
     expect(element.querySelector('[role="alert"]')?.textContent).toContain('Overleaf page format changed.');
     expect(fixture.componentInstance.projects()).toHaveLength(1);
     expect(fixture.componentInstance.verified()).toBe(true);
-    expect(element.querySelector<HTMLButtonElement>('.project-list button')?.disabled).toBe(false);
     fixture.destroy();
   });
 
@@ -300,7 +295,6 @@ describe('Overleaf connection screen', () => {
     expect(actions).toHaveLength(3);
     fixture.componentInstance.chooseOverleafTab('projects');
     fixture.detectChanges();
-    expect(element.querySelector<HTMLButtonElement>('.refresh-button')?.disabled).toBe(true);
     expect(api.refresh).not.toHaveBeenCalled();
     fixture.destroy();
   });
@@ -407,15 +401,10 @@ describe('Overleaf connection screen', () => {
     fixture.destroy();
   });
 
-  it('keeps local snapshots available when connector detection fails', async () => {
-    api.downloads.mockResolvedValue([{
-      id: 'snapshot', projectId: '0123456789abcdef01234567', projectName: 'Synthetic snapshot',
-      downloadedAt: '2026-01-01T00:00:00Z', bytes: 1024, files: [],
-    }]);
+  it('stays usable when connector detection fails', async () => {
     browser.send.mockResolvedValue({ kind: 'error', message: 'The connector did not respond.' });
     const fixture = await screen();
     expect(fixture.nativeElement.textContent).toContain('The connector did not respond.');
-    expect(fixture.componentInstance.downloads()).toHaveLength(1);
     expect(fixture.componentInstance.busy()).toBe('');
     fixture.destroy();
   });

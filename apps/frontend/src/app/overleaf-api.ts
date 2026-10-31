@@ -25,15 +25,6 @@ export interface OverleafProject {
   updatedAt: string | null;
 }
 
-export interface Download {
-  id: string;
-  projectId: string;
-  projectName: string;
-  downloadedAt: string;
-  bytes: number;
-  files: ReadonlyArray<{ path: string; bytes: number }>;
-}
-
 @Injectable({ providedIn: 'root' })
 export class OverleafApi {
   private readonly http = inject(HttpClient);
@@ -51,19 +42,6 @@ export class OverleafApi {
       this.http.post<{ projects: OverleafProject[] }>('/api/overleaf/projects/refresh', {}),
     );
     return response.projects;
-  }
-
-  async downloads(): Promise<ReadonlyArray<Download>> {
-    const response = await firstValueFrom(
-      this.http.get<{ downloads: Download[] }>('/api/overleaf/downloads'),
-    );
-    return response.downloads;
-  }
-
-  download(projectId: string): Promise<Download> {
-    return firstValueFrom(
-      this.http.post<Download>(`/api/overleaf/projects/${encodeURIComponent(projectId)}/downloads`, {}),
-    );
   }
 }
 

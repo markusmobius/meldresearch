@@ -1,4 +1,3 @@
-import { DatePipe, DecimalPipe } from '@angular/common';
 import { Component, DestroyRef, HostListener, OnInit, computed, effect, inject, signal, untracked, viewChild } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -7,7 +6,7 @@ import { MatExpansionModule } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSidenavModule } from '@angular/material/sidenav';
 import { BrowserConnector, ConnectorResult, olderVersion } from './browser-connector';
-import { BridgeStatus, Download, ExtensionSetup, OverleafApi, OverleafProject, describeFailure, needsOverleafSignIn } from './overleaf-api';
+import { BridgeStatus, ExtensionSetup, OverleafApi, OverleafProject, describeFailure, needsOverleafSignIn } from './overleaf-api';
 import { ResearchPanel } from './research-panel';
 import { ResearchApi, ResearchStatus } from './research-api';
 import { LocalPage, MeldToolbar } from './meld-toolbar';
@@ -35,7 +34,7 @@ interface InstallPromptEvent extends Event {
 
 @Component({
   selector: 'app-root',
-  imports: [DatePipe, DecimalPipe, ResearchPanel, MeldToolbar, ProjectSelection, ResearcherSetup, PublicationsList, PrivateProfile, MatButtonModule, MatCardModule, MatTabsModule,
+  imports: [ResearchPanel, MeldToolbar, ProjectSelection, ResearcherSetup, PublicationsList, PrivateProfile, MatButtonModule, MatCardModule, MatTabsModule,
     MatExpansionModule, MatIconModule, MatSidenavModule],
   templateUrl: './app.html',
   styleUrl: './app.css',
@@ -55,7 +54,6 @@ export class App implements OnInit {
   readonly setup = signal<ExtensionSetup | null>(null);
   readonly connector = signal<ConnectorResult | null>(null);
   readonly projects = signal<ReadonlyArray<OverleafProject>>([]);
-  readonly downloads = signal<ReadonlyArray<Download>>([]);
   readonly error = signal('');
   readonly connectionError = signal('');
   readonly busy = signal('');
@@ -236,19 +234,10 @@ export class App implements OnInit {
   ngOnInit(): void {
     if ('serviceWorker' in navigator) void navigator.serviceWorker.register('/sw.js').catch(() => undefined);
     if (this.installTipAllowed()) this.showInstallTip.set(true);
-    void this.loadDownloads();
     void this.checkStatus();
     const timer = setInterval(() => { void this.checkStatus(); }, 3000);
     const wait = setTimeout(() => this.listWaitOver.set(true), 15000);
     this.destroyRef.onDestroy(() => { this.stopped = true; clearInterval(timer); clearTimeout(wait); });
-  }
-
-  private async loadDownloads(): Promise<void> {
-    try {
-      this.downloads.set(await this.api.downloads());
-    } catch (error: unknown) {
-      this.error.set(describeFailure(error));
-    }
   }
 
   private async checkStatus(): Promise<void> {
@@ -390,21 +379,4 @@ export class App implements OnInit {
     }
   }
 
-  async download(project: OverleafProject): Promise<void> {
-    if (this.busy() || !this.verified()) return;
-    this.busy.set('Downloading and validating the selected project...');
-    this.error.set('');
-    try {
-      const result = await this.api.download(project.id);
-      this.downloads.update(downloads => [result, ...downloads]);
-    } catch (error: unknown) {
-      this.error.set(describeFailure(error));
-      if (needsOverleafSignIn(error)) {
-        this.signInRequired.set(true);
-        this.loadedVersion.set(null);
-      }
-    } finally {
-      this.busy.set('');
-    }
-  }
 }

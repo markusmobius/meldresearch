@@ -60,7 +60,7 @@ See [AGENTS.md](AGENTS.md) for the persistent development instructions.
 - [Local backend](apps/LocalBackend): browser bridge, explicit project selection,
   background synchronization, encrypted research state, and an Updates feed.
 - [Angular frontend](apps/frontend): account/connector onboarding, processing
-  consent, monitoring controls, project status, citations, and manual ZIP copies.
+  consent, monitoring controls, project status and summaries, and citations.
 - [Research contracts](libraries/Research): source evidence, deterministic
   revisions, grounded changes, semantic-match candidates, and state reduction.
 - [Browser connector](browser/overleaf) and [native host](apps/BrowserHost):
@@ -162,8 +162,7 @@ fixtures or separate frontend-only server are used.
 Live uses the normal Chrome/Edge Overleaf session and registers this application's
 per-user native host. With no `-RemoteUrl`, it starts a local remote backend on 6050;
 that backend requires real Google OAuth configuration. No synthetic identity is
-available in Live mode. Listing/manual ZIP downloads remain available separately
-from account-gated model processing.
+available in Live mode.
 
 The source manifest now uses the supplied Chrome draft public key:
 **`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.5.2**, wire protocol **2**.

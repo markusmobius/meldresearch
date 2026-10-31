@@ -113,54 +113,6 @@
               @if (overleafTab() === 'projects') {
                 <app-project-selection [status]="research()" [projects]="overleafProjects()" [sourceReady]="verified()"
                   (changed)="researchChanged()"></app-project-selection>
-                <div class="source-tools">
-          <mat-expansion-panel class="source-browser">
-            <mat-expansion-panel-header>
-              <mat-panel-title><mat-icon>folder_open</mat-icon>Overleaf projects &amp; ZIP copies</mat-panel-title>
-            </mat-expansion-panel-header>
-            <div class="section-heading">
-              <p class="muted">{{ status()?.dummy ? 'Synthetic projects supplied by the local backend.' : 'Active projects accessible to your signed-in browser.' }}</p>
-              <button mat-stroked-button class="refresh-button" (click)="refresh()" [disabled]="!connected() || !!busy()">
-                <mat-icon>refresh</mat-icon>Refresh projects
-              </button>
-            </div>
-            <ul class="project-list">
-              @for (project of projects(); track project.id) {
-                <li><div><strong>{{ project.name }}</strong>
-                  @if (project.updatedAt) { <small>Updated {{ project.updatedAt | date:'mediumDate' }}</small> }
-                </div>
-                  <button mat-button (click)="download(project)" [disabled]="!verified() || !!busy()">
-                    <mat-icon>download</mat-icon>Download ZIP
-                  </button>
-                </li>
-              } @empty {
-                <li class="muted">{{ refreshed() ? 'No active projects found. Archived and deleted projects are not included.' : 'Connect Overleaf in Account; your project list loads automatically.' }}</li>
-              }
-            </ul>
-          </mat-expansion-panel>
-          <mat-expansion-panel class="local-downloads">
-            <mat-expansion-panel-header>
-              <mat-panel-title><mat-icon>download_done</mat-icon>Local downloads</mat-panel-title>
-              <mat-panel-description>{{ downloads().length }} snapshots</mat-panel-description>
-            </mat-expansion-panel-header>
-            <p class="muted">Validated ZIP snapshots remain available when the browser is closed. Your Overleaf originals are never changed.</p>
-            <ul class="download-list">
-              @for (download of downloads(); track download.id) {
-                <li>
-                  <div class="section-heading"><div><strong>{{ download.projectName }}</strong>
-                    <small>{{ download.downloadedAt | date:'medium' }} &middot; {{ download.bytes / 1024 | number:'1.0-1' }} KB</small></div>
-                    <a mat-button [href]="'/api/overleaf/downloads/' + download.id + '/archive'"><mat-icon>save_alt</mat-icon>Save ZIP copy</a>
-                  </div>
-                  <details><summary>{{ download.files.length }} validated files</summary>
-                    <ul class="file-list">
-                      @for (file of download.files; track file.path) { <li><code>{{ file.path }}</code><span>{{ file.bytes | number }} B</span></li> }
-                    </ul>
-                  </details>
-                </li>
-              } @empty { <li class="muted">No projects downloaded yet.</li> }
-            </ul>
-          </mat-expansion-panel>
-                </div>
               } @else {
               @if (status()?.dummy) {
                 <p class="muted">Synthetic Overleaf evidence from the local backend; no browser profile or private project is used.</p>
