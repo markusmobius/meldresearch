@@ -1,6 +1,5 @@
 :host { display: block; }
-.consent { font-size: 14px; line-height: 1.6; }
-.fine-print { font-size: 12px; margin: 4px 0 16px; }
+.fine-print { font-size: 12.5px; line-height: 1.55; margin: 0 0 16px; }
 .list-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; }
 .list-head h3, .details-title { font-size: 15px; font-weight: 600; margin: 0; color: #1e293b; }
 .details-title { margin: 24px 0 8px; }

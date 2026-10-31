@@ -13,6 +13,8 @@ internal sealed class RemoteExceptionHandler(ILogger<RemoteExceptionHandler> log
         int status = failure?.Status ?? (exception is BadHttpRequestException ? 400 :
             exception is HttpRequestException ? 502 : exception is OperationCanceledException ? 504 : 500);
         string code = failure?.Code ?? (status == 400 ? "invalid_request" : status == 504 ? "remote_timeout" : "remote_operation_failed");
+        // Cloudflare replaces origin 502/504 responses with its own page, which would hide this explanation.
+        if (status is 502 or 504) status = 503;
         logger.LogWarning("Remote operation failed: {Code} ({Type}). Credentials and evidence omitted.", code, exception.GetType().Name);
         context.Response.StatusCode = status;
         if (status == 429) context.Response.Headers.RetryAfter = "5";

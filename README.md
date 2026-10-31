@@ -120,7 +120,7 @@ It does not access a real Overleaf profile or register the browser connector.
 1. Open **Account** in Meld and choose **Sign in with the test account**.
 2. On the blue website, choose **Use the synthetic test account**; it returns to Meld signed in.
 3. Meld opens **Account → Overleaf → Projects**. Read the model-processing notice
-   and check consent.
+   above the list; choosing **Include** is the consent for that project.
 4. Choose **Include** for the synthetic project. Initial ingestion produces baseline
    research updates in **Feed**; **Review** opens the complete source evidence.
 5. In **Projects**, choose **Apply synthetic project change** to exercise a meaningful delta.
@@ -211,8 +211,8 @@ Chrome Web Store instead.
   in-flight results. Source-access failures do not erase saved knowledge.
 - Unchanged supported text makes no inference calls. Format-only changes may
   require model analysis but need not produce an update.
-- PDFs/images are tracked by hash but not analyzed. This release supports UTF-8
-  `.tex`, `.bib`, `.md`, and `.txt`: 128 KiB per text file, 256 KiB total text,
+- PDFs, images and `.bib` bibliographies are tracked by hash but not analyzed. This release
+  supports UTF-8 `.tex`, `.md`, and `.txt`: 128 KiB per text file, 256 KiB total text,
   2,000 file entries, 200 active facts, and at most 12 changes per analysis.
 - The UI shows the latest 100 updates; earlier entries remain stored. The
   encrypted test-release store is bounded at 64 MiB and fails explicitly at capacity.
@@ -316,6 +316,39 @@ managed identity; that identity needs the role above on `meldllm` and network
 access to it. `meldllm` is shared with another application, so both draw on the
 same deployment capacity; give Meld Research its own deployments (same model
 versions, its own tokens-per-minute limit) if rate limits ever collide.
+
+### Network access to `meldllm` (private endpoint)
+
+`meldllm` has public network access disabled; Project Meld reaches it only through
+a private endpoint. A token is not network access: from a VM without a private path
+every model call is rejected with HTTP 403 (the smoke test prints the status and
+Foundry's error code). Keep public access disabled and give this VM the same kind of
+path. Do not route production inference through Project Meld's gateways or model
+relay; they authenticate Project Meld installations and would couple the two apps.
+
+1. Create a private endpoint for `meldllm` in the VM's virtual network, in a small
+   dedicated subnet (not the VM's own, not an existing endpoint subnet). The group
+   ID is `account`. Approve the connection under `meldllm` → Networking if needed.
+   ```bash
+   az network vnet subnet create -g <vnet-rg> --vnet-name <vm-vnet> -n snet-meldllm-pe \
+     --address-prefixes <free /28>
+   az network private-endpoint create -g <vnet-rg> -n meldresearch-meldllm-pe \
+     --vnet-name <vm-vnet> --subnet snet-meldllm-pe --group-id account \
+     --connection-name meldresearch-meldllm \
+     --private-connection-resource-id $(az cognitiveservices account show -g <ai-rg> -n meldllm --query id -o tsv)
+   az network private-endpoint show -g <vnet-rg> -n meldresearch-meldllm-pe --query customDnsConfigs
+   ```
+2. Make `meldllm.openai.azure.com` resolve to that endpoint's IP on this VM only, keeping
+   the hostname so TLS validation is unchanged: add one `/etc/hosts` line
+   (`<endpoint IP> meldllm.openai.azure.com`). Do not link the shared
+   `privatelink.openai.azure.com` zone to the VNet or let the endpoint create DNS records:
+   that changes Azure OpenAI name resolution for every machine in the VNet and is shared
+   with Project Meld's configuration.
+3. Grant the VM's user-assigned identity **Cognitive Services OpenAI User** on
+   `meldllm` (not on the resource group).
+4. Verify on the VM: `getent hosts meldllm.openai.azure.com` shows the private IP;
+   `curl -s -o /dev/null -w '%{http_code}\n' https://meldllm.openai.azure.com/openai/v1/models`
+   returns 401 (reachable, no token) rather than 403; then run the smoke test above.
 
 Offline Foundry checks (pinned deployments, `store: false`, managed-identity bearer
 scope, no fallback, content-free smoke-test output) run with the normal C# tests.

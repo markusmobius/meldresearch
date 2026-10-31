@@ -49,27 +49,23 @@ describe('Project selection', () => {
     fixture.destroy();
   });
 
-  it('includes only after explicit consent, while excluding never needs consent', async () => {
+  it('treats Include as the consent under the shown notice, without a separate checkbox', async () => {
     const fixture = screen();
     const element: HTMLElement = fixture.nativeElement;
-    const include = element.querySelector<HTMLButtonElement>('.decision-row .include')!;
-    expect(include.disabled).toBe(true);
-    await fixture.componentInstance.decide(projects[0], true);
-    expect(api.decide).not.toHaveBeenCalled();
-    expect(fixture.componentInstance.error()).toContain('Approve processing');
+    expect(element.querySelector('mat-checkbox')).toBeNull();
+    expect(element.querySelector('.fine-print')?.textContent).toContain('Azure AI Foundry');
 
     element.querySelector<HTMLButtonElement>('.decision-row .exclude')!.click();
     await vi.waitFor(() => expect(api.decide).toHaveBeenCalledWith(recentId, false, null));
 
-    element.querySelector<HTMLInputElement>('mat-checkbox input')!.click();
-    fixture.detectChanges();
+    const include = element.querySelector<HTMLButtonElement>('.decision-row .include')!;
     expect(include.disabled).toBe(false);
     include.click();
     await vi.waitFor(() => expect(api.decide).toHaveBeenCalledWith(recentId, true, base.consentVersion));
     fixture.destroy();
   });
 
-  it('shows decisions, treats previously monitored projects as included, and resets consent for another account', () => {
+  it('shows decisions and treats previously monitored projects as included', () => {
     const monitored = { projectId: recentId, name: 'Recent', enabled: true, consentRequired: false, revision: null, summary: null,
       factCount: 2, lastAttemptAt: null, lastSuccessAt: null, errorCode: null, error: null, explanation: null, unprocessedFiles: 0 };
     const fixture = screen({ ...base, projects: [monitored],
@@ -79,11 +75,6 @@ describe('Project selection', () => {
     expect(element.querySelector('.all-decided')).not.toBeNull();
     expect(element.querySelector('.older-projects .exclude')?.classList.contains('selected')).toBe(true);
     expect(element.querySelector('.project-card')?.textContent).toContain('2 facts');
-
-    fixture.componentInstance.consent.set(true);
-    fixture.componentRef.setInput('status', { ...base, account: { ...base.account!, id: 'account-two' } });
-    fixture.detectChanges();
-    expect(fixture.componentInstance.consent()).toBe(false);
     fixture.destroy();
   });
 });

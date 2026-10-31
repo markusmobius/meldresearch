@@ -12,8 +12,19 @@ public static class ResearchEvidence
     public const int MaxChanges = 12;
     public const int MaxRequestBytes = 3 * 1024 * 1024;
     public const string ConsentVersion = "overleaf-foundry-2026-10";
+    /// <summary>Sources whose text is analyzed. Everything else, including .bib bibliographies, is tracked by hash only.</summary>
     public static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
-        { ".tex", ".bib", ".md", ".txt" };
+        { ".tex", ".md", ".txt" };
+
+    /// <summary>
+    /// Drops text this version no longer analyzes (stored snapshots kept .bib text), so comparisons and requests see only
+    /// analyzed sources. Hashes, and therefore the revision, are unchanged.
+    /// </summary>
+    public static ResearchSnapshot WithAnalyzedTextOnly(ResearchSnapshot snapshot) =>
+        snapshot.Files.Any(file => file.Text is not null && !TextExtensions.Contains(Path.GetExtension(file.Path)))
+            ? snapshot with { Files = snapshot.Files.Select(file => file.Text is not null && !TextExtensions.Contains(Path.GetExtension(file.Path))
+                ? file with { Text = null } : file).ToArray() }
+            : snapshot;
 
     public static bool IsProjectId(string? id) => id is { Length: 24 } &&
         id.All(character => character is >= '0' and <= '9' or >= 'a' and <= 'f');

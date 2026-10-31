@@ -345,4 +345,36 @@ public sealed class ResearchCoordinatorTests
         public Task<MeldResearch.LocalBackend.Services.BrowserResponse> FetchAsync(string operation, string? projectId, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
     }
+
+    [Fact]
+    public async Task BibliographiesAreTrackedByHashOnlyAndOldBibTextIsNotAModelChange()
+    {
+        string zip = Path.Combine(Path.GetTempPath(), "meld-bib-" + Guid.NewGuid().ToString("N") + ".zip");
+        try
+        {
+            using (var archive = System.IO.Compression.ZipFile.Open(zip, System.IO.Compression.ZipArchiveMode.Create))
+            {
+                foreach (var (name, text) in new[] { ("main.tex", "Synthetic research."), ("refs.bib", "@article{a, title={" + new string('x', 200_000) + "}}") })
+                {
+                    using var writer = new StreamWriter(archive.CreateEntry(name).Open());
+                    writer.Write(text);
+                }
+            }
+            var snapshot = await OverleafEvidenceSource.ReadSnapshotAsync(zip, new("0123456789abcdef01234567", "Synthetic", null),
+                DateTimeOffset.UtcNow, CancellationToken.None);
+            var bib = Assert.Single(snapshot.Files, file => file.Path == "refs.bib");
+            Assert.Null(bib.Text); // An oversized bibliography no longer blocks the project.
+            Assert.NotNull(Assert.Single(snapshot.Files, file => file.Path == "main.tex").Text);
+
+            // A snapshot stored by an earlier version kept the .bib text; the same files must not look changed.
+            var stored = snapshot with { Files = snapshot.Files.Select(file => file.Path == "refs.bib" ? file with { Text = "@article{a}" } : file).ToArray() };
+            var store = new MemoryStore(new(1, Credential, null, null, [Project(stored)], []));
+            var remote = new Remote();
+            using var coordinator = Coordinator(store, remote, new Source(snapshot));
+            await coordinator.RunCycleAsync(true, CancellationToken.None);
+            Assert.Equal(0, remote.ModelCalls);
+            Assert.Null(store.State.Projects[0].Error);
+        }
+        finally { File.Delete(zip); }
+    }
 }

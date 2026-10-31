@@ -147,7 +147,7 @@
               <div class="doc-timeline-step"><span class="step-number">4</span><div class="step-content">
                 <h4>Choose projects and consent</h4>
                 <p>In <strong>Account &rarr; Overleaf &rarr; Projects</strong>, review <a href="privacy.html">Privacy &amp; Controls</a>,
-                  give consent, and choose <strong>Include</strong> or <strong>Exclude</strong> for each project updated in the last six
+                  and choose <strong>Include</strong> (your consent to process that project) or <strong>Exclude</strong> for each project updated in the last six
                   months. Only process research you are authorized to send to these services.</p></div></div>
               <div class="doc-timeline-step"><span class="step-number">5</span><div class="step-content">
                 <h4>Link OpenAlex (optional)</h4>
@@ -187,14 +187,14 @@
             <ul>
               <li><strong>Select Overleaf projects:</strong> the list comes from your signed-in Overleaf account through the connector.
                 Archived and deleted projects are not included.</li>
-              <li><strong>Consent:</strong> allow selected project text to be sent through Meld's remote service to Azure AI Foundry for
-                update extraction and embeddings. If the notice changes, Meld asks for consent again before continuing.</li>
+              <li><strong>Consent:</strong> choosing <strong>Include</strong> allows that project's text to be sent through Meld's remote service to Azure AI Foundry for
+                              update extraction and embeddings. If the notice changes, Meld asks you to resume each project before continuing.</li>
               <li><strong>Pause:</strong> stop processing a project without deleting the knowledge already collected.</li>
               <li><strong>Forget local research:</strong> delete that project's local index and Updates for your account and exclude it
                 from your profile. Overleaf originals and manual ZIP downloads are unchanged.</li>
               <li><strong>Download ZIP:</strong> save a local snapshot of a project. ZIP files are ordinary, unencrypted files.</li>
             </ul>
-            <p>Only UTF-8 <code>.tex</code>, <code>.bib</code>, <code>.md</code>, and <code>.txt</code> sources are analyzed. PDFs
+            <p>Only UTF-8 <code>.tex</code>, <code>.md</code>, and <code>.txt</code> sources are analyzed. Bibliographies (<code>.bib</code>), PDFs
               and images are tracked by hash but not sent to the model.</p>
           </section>
 
@@ -324,7 +324,7 @@
           <section class="doc-section" id="limitations">
             <h2>Limitations &amp; Status</h2>
             <ul>
-              <li>Supported research text: UTF-8 <code>.tex</code>, <code>.bib</code>, <code>.md</code>, and <code>.txt</code>.
+              <li>Supported research text: UTF-8 <code>.tex</code>, <code>.md</code>, and <code>.txt</code>. <code>.bib</code> files are tracked by hash only.
                 PDFs and images are not analyzed.</li>
               <li>Hosted <code>www.overleaf.com</code>, normal Chrome or Edge profiles, and one connected profile at a time. Safari,
                 Firefox, self-hosted Overleaf, editing, and live collaboration are not supported.</li>

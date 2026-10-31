@@ -1,11 +1,8 @@
 @if (status(); as current) {
   <section class="project-selection" aria-label="Overleaf projects in your private profile">
-    <mat-checkbox class="consent" [checked]="consent()" (change)="consent.set($event.checked)">
-      I allow included project text to be sent through Meld's remote service to Azure AI Foundry to build my private profile
-      and research updates. Monitoring continues while Meld and my browser are running.
-    </mat-checkbox>
-    <p class="muted fine-print">UTF-8 .tex, .bib, .md, and .txt sources only; PDFs and images are not analyzed. Your profile stays on this computer.
-      <a href="/privacy.html" target="_blank" rel="noopener noreferrer">Privacy and data use</a></p>
+    <p class="muted fine-print">Choosing <strong>Include</strong> sends that project's .tex, .md and .txt text through Meld's service to
+      Azure AI Foundry to build your private profile and updates, and keeps monitoring it while Meld and your browser run.
+      Your profile stays on this computer. <a href="/privacy.html" target="_blank" rel="noopener noreferrer">Privacy and data use</a></p>
     @if (error()) { <p class="alert" role="alert">{{ error() }}</p> }
     @if (action()) { <p class="muted" role="status">{{ action() }}</p> }
 
@@ -53,14 +50,14 @@
             @if (project.summary) { <p class="project-summary">{{ project.summary }}</p> }
             @if (project.lastSuccessAt) { <p class="muted">Last content check {{ project.lastSuccessAt | date:'medium' }}</p> }
             @if (project.error) { <p class="alert" role="alert">{{ project.error }}</p> }
-            @if (project.consentRequired) { <p class="alert">Updated consent is required. Approve processing above, then resume this project.</p> }
+            @if (project.consentRequired) { <p class="alert">The processing notice changed. Choose Resume to continue under the current notice.</p> }
             @if (project.explanation) { <p class="muted">{{ project.explanation }}</p> }
             @if (project.unprocessedFiles) { <p class="muted">{{ project.unprocessedFiles }} non-text files were tracked by hash but not sent to the model.</p> }
             <div class="controls">
               @if (project.enabled) {
                 <button mat-button (click)="pause(project.projectId)" [disabled]="!!action()"><mat-icon>pause</mat-icon>Pause</button>
               } @else if (choice(project.projectId) === 'included') {
-                <button mat-button (click)="resume(project.projectId)" [disabled]="!!action() || !consent() || !sourceReady()"><mat-icon>play_arrow</mat-icon>Resume</button>
+                <button mat-button (click)="resume(project.projectId)" [disabled]="!!action() || !sourceReady()"><mat-icon>play_arrow</mat-icon>Resume</button>
               }
               @if (confirmForget() === project.projectId) {
                 <p>Delete this project's local index and updates? It is then excluded from your profile. Manual ZIPs and Overleaf originals remain.</p>
@@ -94,7 +91,7 @@
     </div>
     <div class="decision-actions" role="group" [attr.aria-label]="'Profile choice for ' + project.name">
       <button mat-stroked-button class="include" [class.selected]="decided === 'included'" [attr.aria-pressed]="decided === 'included'"
-        [disabled]="!!action() || decided === 'included' || !consent() || !sourceReady()" (click)="decide(project, true)">
+        [disabled]="!!action() || decided === 'included' || !sourceReady()" (click)="decide(project, true)">
         <mat-icon>{{ decided === 'included' ? 'check_circle' : 'add_circle_outline' }}</mat-icon>Include</button>
       <button mat-stroked-button class="exclude" [class.selected]="decided === 'excluded'" [attr.aria-pressed]="decided === 'excluded'"
         [disabled]="!!action() || decided === 'excluded'" (click)="decide(project, false)">

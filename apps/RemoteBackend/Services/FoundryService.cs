@@ -38,6 +38,7 @@ internal sealed class FoundryService : IFoundryService, IDisposable
     private readonly string _embedding;
     private readonly SemaphoreSlim _capacity = new(2, 2);
     private readonly SemaphoreSlim _credentialGate = new(1, 1);
+    private readonly ILogger? _logger;
     private DevelopmentCredential? _credential;
     private long _chatRequests;
     private long _embeddingRequests;
@@ -45,12 +46,14 @@ internal sealed class FoundryService : IFoundryService, IDisposable
     public long EmbeddingRequests => Interlocked.Read(ref _embeddingRequests);
     public bool Configured => _origin is not null && _chat.Length != 0 && _embedding.Length != 0;
 
-    public FoundryService(IConfiguration configuration, IHostEnvironment environment, IHttpClientFactory clients)
-        : this(configuration, environment, clients.CreateClient("foundry"), null) { }
+    public FoundryService(IConfiguration configuration, IHostEnvironment environment, IHttpClientFactory clients, ILogger<FoundryService> logger)
+        : this(configuration, environment, clients.CreateClient("foundry"), null, logger) { }
 
-    internal FoundryService(IConfiguration configuration, IHostEnvironment environment, HttpClient http, TokenCredential? credential)
+    internal FoundryService(IConfiguration configuration, IHostEnvironment environment, HttpClient http, TokenCredential? credential,
+        ILogger? logger = null)
     {
         _http = http;
+        _logger = logger;
         _configuration = configuration;
         _chat = configuration["Foundry:ChatDeployment"] ?? "";
         _embedding = configuration["Foundry:EmbeddingDeployment"] ?? "";
@@ -204,8 +207,15 @@ internal sealed class FoundryService : IFoundryService, IDisposable
             else Interlocked.Increment(ref _embeddingRequests);
             using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
             if (!response.IsSuccessStatusCode)
+            {
+                // Foundry's error code (for example PermissionDenied or DeploymentNotFound) explains the rejection
+                // without echoing request content; the message text is not read.
+                string reason = await FoundryErrorCodeAsync(response, deadline.Token);
+                _logger?.LogWarning("Foundry {Operation} rejected: HTTP {Status} {Reason}.", operation, (int)response.StatusCode, reason);
                 throw new ResearchFailure(response.StatusCode == System.Net.HttpStatusCode.TooManyRequests ? 429 : 502,
-                    "foundry_request_failed", "The configured Foundry deployment rejected the request. No other provider was used.");
+                    "foundry_request_failed", $"The configured Foundry deployment rejected the request (HTTP {(int)response.StatusCode}" +
+                    (reason.Length != 0 ? $", {reason}" : "") + "). No other provider was used.");
+            }
             return await ReadBoundedAsync(response, 4 * 1024 * 1024, deadline.Token);
         }
         finally { _capacity.Release(); }
@@ -290,6 +300,26 @@ internal sealed class FoundryService : IFoundryService, IDisposable
 
     private static ResearchFailure InvalidCitation() => new(502, "invalid_source_citation",
         "Foundry selected an invalid or oversized source line range. The previous project state was preserved.");
+
+    private static async Task<string> FoundryErrorCodeAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        try
+        {
+            using var document = await ReadBoundedAsync(response, 65536, ct);
+            var error = document.RootElement.TryGetProperty("error", out var value) ? value : document.RootElement;
+            string? code = error.TryGetProperty("code", out var item) && item.ValueKind == JsonValueKind.String ? item.GetString() : null;
+            string? type = error.TryGetProperty("type", out item) && item.ValueKind == JsonValueKind.String ? item.GetString() : null;
+            string? parameter = error.TryGetProperty("param", out item) && item.ValueKind == JsonValueKind.String ? item.GetString() : null;
+            static bool Safe(string? text) => text is { Length: > 0 and <= 64 } && text.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-' or '.');
+            var parts = new[] { code, type }.Where(Safe).Distinct().ToList();
+            if (Safe(parameter)) parts.Add("param " + parameter);
+            return string.Join(", ", parts);
+        }
+        catch (Exception error) when (error is ResearchFailure or JsonException or InvalidOperationException or HttpRequestException)
+        {
+            return "";
+        }
+    }
 
     private static async Task<JsonDocument> ReadBoundedAsync(HttpResponseMessage response, int maximum, CancellationToken ct)
     {

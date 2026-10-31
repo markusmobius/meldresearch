@@ -329,9 +329,10 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 }
                 await ChangeProjectAsync(project, item => item with { LastAttemptAt = now }, ct);
                 var snapshot = await source.SnapshotAsync(metadata, ct);
-                if (project.Snapshot is null && snapshot.Files.All(file => file.Text is null))
-                    throw new ResearchFailure(422, "no_supported_research_text", "This project has no supported UTF-8 .tex, .bib, .md, or .txt sources. PDFs and images are not analyzed in this version.");
-                if (project.Snapshot?.Revision == snapshot.Revision || !ResearchEvidence.HasTextChanges(project.Snapshot, snapshot))
+                var previous = project.Snapshot is null ? null : ResearchEvidence.WithAnalyzedTextOnly(project.Snapshot);
+                if (previous is null && snapshot.Files.All(file => file.Text is null))
+                    throw new ResearchFailure(422, "no_supported_research_text", "This project has no supported UTF-8 .tex, .md, or .txt sources. Bibliographies, PDFs and images are not analyzed in this version.");
+                if (previous?.Revision == snapshot.Revision || !ResearchEvidence.HasTextChanges(previous, snapshot))
                 {
                     await CommitAsync(credential, project, item => item with
                     {
@@ -342,7 +343,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                     continue;
                 }
                 IReadOnlyList<ResearchFactContext> candidates = [];
-                if (project.Snapshot is { } before && project.Facts.Count != 0)
+                if (previous is { } before && project.Facts.Count != 0)
                 {
                     var paths = ResearchEvidence.ChangedPaths(before, snapshot).ToHashSet(StringComparer.Ordinal);
                     string query = string.Join("\n", snapshot.Files.Concat(before.Files)
@@ -352,7 +353,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                     var vector = await remote.EmbedAsync(credential.Token, new([query]), ct);
                     candidates = ResearchReducer.Candidates(before, snapshot, project.Facts, vector);
                 }
-                var request = new AnalyzeResearchRequest(project.Snapshot, snapshot, project.Summary, candidates);
+                var request = new AnalyzeResearchRequest(previous, snapshot, project.Summary, candidates);
                 var result = await remote.AnalyzeAsync(credential.Token, request, ct);
                 var reduction = ResearchReducer.Apply(request, result, project.Facts);
                 await CommitAsync(credential, project, item => item with

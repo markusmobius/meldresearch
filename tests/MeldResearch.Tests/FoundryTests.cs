@@ -171,6 +171,21 @@ public sealed class FoundryTests
     }
 
     [Fact]
+    public async Task RejectionsNameFoundrysStatusAndErrorCodeButNeverItsMessage()
+    {
+        using var http = new HttpClient(new Handler(_ => Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.Forbidden)
+        {
+            Content = new StringContent("""{"error":{"code":"PermissionDenied","message":"SECRET-SENTINEL The principal lacks the role."}}""",
+                System.Text.Encoding.UTF8, "application/json")
+        })));
+        using var foundry = new FoundryService(ManagedIdentityConfiguration(), new Environment("Production"), http, new Credential());
+        var error = await Assert.ThrowsAsync<ResearchFailure>(() => foundry.EmbedAsync(new(["Synthetic text."]), CancellationToken.None));
+        Assert.Equal("foundry_request_failed", error.Code);
+        Assert.Contains("HTTP 403, PermissionDenied", error.Message);
+        Assert.DoesNotContain("SECRET-SENTINEL", error.Message);
+    }
+
+    [Fact]
     public async Task SmokeTestUsesTheProductionPathAndPrintsNoContentOrCredentials()
     {
         int calls = 0;
