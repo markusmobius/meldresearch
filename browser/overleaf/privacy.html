@@ -21,7 +21,7 @@
       <header class="page-header">
         <div class="page-heading">
           <h1 class="page-title"><span class="material-icons site-only" aria-hidden="true">shield</span>Privacy &amp; Controls</h1>
-          <p class="page-subtitle">Last updated: October 2026 &middot; Meld Research and its Overleaf connector, version 0.5.1</p>
+          <p class="page-subtitle">Last updated: October 2026 &middot; Meld Research and its Overleaf connector, version 0.5.2</p>
         </div>
       </header>
 
@@ -56,6 +56,11 @@
                 which account made it, and deletes these records after about 13 months.</li>
               <li><strong>Google:</strong> authenticates your Meld account. Google sign-in occurs in the normal browser; Meld does not
                 ask for your Google password.</li>
+              <li><strong>Project summaries:</strong> only when you choose Summarize for a project updated in the last six months,
+                the connector reads that project and the companion sends only its main .tex file (the one with \documentclass and
+                \begin{document}) through the Meld service to Azure AI Foundry for a one-paragraph description. This also applies to
+                projects you have not included. The paragraph, the file's path and its hash are stored in the encrypted research store;
+                the file text is not kept, and an unchanged main file is not sent again.</li>
               <li><strong>OpenAlex:</strong> only when you choose Search OpenAlex, the name you enter is sent through the Meld service
                 to Azure AI Foundry (to suggest spellings and rank real candidates) and to the public OpenAlex catalog (openalex.org)
                 to find author profiles. After you confirm an author, that author's public works are read from OpenAlex and stored in

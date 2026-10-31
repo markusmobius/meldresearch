@@ -48,6 +48,12 @@ internal static class ResearchEndpoints
             await service.DecideProjectAsync(projectId, request, ct);
             return TypedResults.NoContent();
         }).WithName("DecideResearchProject").WithSummary("Include a project in the private profile (starts monitoring; needs consent) or exclude it.");
+        group.MapPost("/projects/{projectId}/summary", async Task<Accepted> (
+            string projectId, IResearchCoordinator service, CancellationToken ct) =>
+        {
+            await service.RequestSummaryAsync(projectId, ct);
+            return TypedResults.Accepted("/api/research/status");
+        }).WithName("SummarizeResearchProject").WithSummary("Queue a one-paragraph summary of a recent project from its main .tex file; choosing it sends only that file to Foundry.");
         group.MapPost("/researcher", async Task<NoContent> (
             ResearcherDecisionRequest request, IResearcherService service, CancellationToken ct) =>
         {

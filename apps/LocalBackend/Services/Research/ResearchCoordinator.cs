@@ -17,6 +17,8 @@ internal interface IResearchCoordinator
     /// <summary>Records an active include/exclude choice. Including starts monitoring and requires current consent.</summary>
     Task DecideProjectAsync(string projectId, ProjectDecisionRequest request, CancellationToken ct);
     Task ForgetAsync(string projectId, CancellationToken ct);
+    /// <summary>Queues a one-paragraph summary of a recent project from its main .tex file; choosing it is the consent.</summary>
+    Task RequestSummaryAsync(string projectId, CancellationToken ct);
     void RequestSync();
     /// <summary>True while a research cycle is reading sources or calling the remote models.</summary>
     bool Busy { get; }
@@ -38,6 +40,16 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     private PendingSignIn? _signIn;
     private int _busy;
     private int _force;
+    // Set when the user includes or resumes a project: the worker stops after its current file step and reads that project.
+    private int _urgent;
+    /// <summary>
+    /// Raise to erase every installation's research once, on its first start of a release: projects (summaries, processed
+    /// hashes, Updates, queue), include/exclude choices, the OpenAlex match and the encrypted text store. Sign-in is kept.
+    /// </summary>
+    internal const int ResetEpoch = 1;
+    /// <summary>Summaries are offered for projects updated within this window, matching the Projects tab's recent list.</summary>
+    internal static readonly TimeSpan SummaryWindow = TimeSpan.FromDays(183);
+    private volatile string? _summarizing;
     private const string RevocationPending = "Local access has stopped. Remote credential revocation is pending and will retry automatically.";
     public bool Busy => Volatile.Read(ref _busy) != 0;
 
@@ -52,7 +64,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         string? active;
         lock (_cycleGate) active = _active?.ProjectId;
         bool busy = Volatile.Read(ref _busy) != 0;
-        var queue = projects.Where(project => project.Enabled && project.Pending is not null).OrderBy(project => project.PendingSince).ToArray();
+        var queue = QueueOrder(projects.Where(project => project.Enabled && project.Pending is not null)).ToArray();
         var running = queue.FirstOrDefault(project => project.ProjectId == active) ?? (busy ? queue.FirstOrDefault() : null);
         ProcessingStatusResponse? processing = null;
         if (running is not null)
@@ -86,7 +98,10 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             account is null ? null : source.Latest,
             researcher is null ? null : new(researcher.Version, researcher.Status, researcher.SearchName, researcher.Candidates,
                 researcher.Researcher, researcher.Works.Count, researcher.UpdatedAt,
-                researcher.Status == "ready" ? researcher.DueAt : null, researcher.LastError), processing);
+                researcher.Status == "ready" ? researcher.DueAt : null, researcher.LastError), processing,
+            (state.Summaries ?? []).Where(item => item.AccountId == account).Select(item => new ProjectSummaryResponseItem(item.ProjectId,
+                item.Status == "queued" && item.ProjectId == _summarizing ? "running" : item.Status, item.Summary, item.MainPath,
+                item.UpdatedAt, item.SourceUpdatedAt, item.Error)).ToArray());
     }
 
     public async Task<AccountLinkResponse> BeginLinkAsync(string callbackUri, CancellationToken ct)
@@ -224,14 +239,19 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 ? new MonitoredProject(account.Account.Id, projectId, name, true, ResearchEvidence.ConsentVersion,
                     null, null, [], [], null, null, null, null, null, 0, 0)
                 : existing with { Enabled = enabled, Name = name, ConsentVersion = enabled ? ResearchEvidence.ConsentVersion : existing.ConsentVersion,
-                    FailureCount = 0, ErrorCode = null, Error = null };
+                    FailureCount = 0, ErrorCode = null, Error = null, NextAttemptAt = enabled ? null : existing.NextAttemptAt };
+            if (enabled) updated = updated with { PrioritizedAt = clock.GetUtcNow() };
             return current with
             {
                 Projects = Replace(current.Projects, updated),
                 Decisions = decision is { } included ? Decide(current.Decisions, account.Account.Id, projectId, included) : current.Decisions
             };
         }, ct);
-        if (enabled) Wake();
+        if (enabled)
+        {
+            Interlocked.Exchange(ref _urgent, 1);
+            Wake();
+        }
     }
 
     public async Task ForgetAsync(string projectId, CancellationToken ct)
@@ -245,6 +265,28 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             Decisions = current.Credential?.Account.Id == account.Account.Id
                 ? Decide(current.Decisions, account.Account.Id, projectId, false) : current.Decisions
         }, ct);
+    }
+
+    public async Task RequestSummaryAsync(string projectId, CancellationToken ct)
+    {
+        if (!ResearchEvidence.IsProjectId(projectId)) throw new ResearchFailure(400, "invalid_project_id", "Select a valid Overleaf project.");
+        var account = RequireCredential(await store.ReadAsync(ct));
+        var known = source.Latest?.Projects.FirstOrDefault(project => project.Id == projectId) ??
+            (await source.ProjectsAsync(ct)).FirstOrDefault(project => project.Id == projectId) ??
+            throw new ResearchFailure(404, "project_not_accessible", "This Overleaf project is not currently accessible.");
+        var now = clock.GetUtcNow();
+        if (known.UpdatedAt is not { } updated || now - updated > SummaryWindow)
+            throw new ResearchFailure(400, "project_not_recent", "Summaries are available for projects updated in the last six months.");
+        await store.ChangeAsync(current =>
+        {
+            if (current.Credential?.Account.Id != account.Account.Id) throw AccountChanged();
+            var existing = current.Summaries?.FirstOrDefault(item => item.AccountId == account.Account.Id && item.ProjectId == projectId);
+            var next = (existing ?? new ProjectSummaryState(account.Account.Id, projectId, known.Name, "queued", now)) with
+            { Name = known.Name, Status = "queued", RequestedAt = now, Error = null };
+            return current with { Summaries = [.. (current.Summaries ?? []).Where(item => item != existing), next] };
+        }, ct);
+        Interlocked.Exchange(ref _urgent, 1);
+        Wake();
     }
 
     /// <summary>A manual check: read every included project again now, even if its daily check is not due.</summary>
@@ -276,6 +318,9 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         }
         catch (Exception error) when (error is not OperationCanceledException)
         { logger.LogWarning("Stale account messages could not be cleared ({Type}).", error.GetType().Name); }
+        try { await ResetIfDueAsync(stoppingToken); }
+        catch (Exception error) when (error is not OperationCanceledException)
+        { logger.LogWarning("The one-time research reset could not be applied ({Type}).", error.GetType().Name); }
         try { PruneTexts(await store.ReadAsync(stoppingToken)); }
         catch (Exception error) when (error is not OperationCanceledException)
         { logger.LogWarning("Unused research texts could not be pruned ({Type}).", error.GetType().Name); }
@@ -318,15 +363,18 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     /// </summary>
     internal async Task<bool> RunCycleAsync(bool force, CancellationToken ct, int maxSteps = 8)
     {
+        Interlocked.Exchange(ref _urgent, 0);
         await FlushRevocationsAsync(ct);
         var state = await store.ReadAsync(ct);
         if (state.Credential is null) return false;
         var credential = RequireCredential(state);
         var now = clock.GetUtcNow();
         var selected = Selected(state, credential.Account.Id);
-        var due = selected.Where(project => force || SweepDue(project, now)).ToArray();
+        var due = QueueOrder(selected.Where(project => force || SweepDue(project, now))).ToArray();
         bool queued = selected.Any(project => project.Pending is not null && Due(project, now));
-        if (due.Length == 0 && !queued) return false;
+        var summaries = (state.Summaries ?? []).Where(item => item.AccountId == credential.Account.Id && item.Status == "queued")
+            .OrderBy(item => item.RequestedAt).ToArray();
+        if (due.Length == 0 && !queued && summaries.Length == 0) return false;
         Interlocked.Exchange(ref _busy, 1);
         var identity = await remote.AccountAsync(credential.Token, ct);
         if (identity.Id != credential.Account.Id) throw AccountChanged();
@@ -334,9 +382,29 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         if (!configuration.FoundryConfigured)
             throw new ResearchFailure(503, "foundry_not_configured", "Configure the remote Foundry deployments before processing research.");
         await store.ChangeAsync(current => current.Credential?.Account.Id == credential.Account.Id ? current with { AccountError = null } : current, ct);
+        // Summaries the user asked for come first: each is one project read and at most one model call.
+        if (summaries.Length != 0) await SummarizeAsync(credential, summaries, ct);
         if (due.Length != 0) await SweepAsync(credential, due, force, ct);
         for (int step = 0; step < maxSteps; step++)
+        {
+            // A project the user just included is read in the next cycle, before any further queued steps.
+            if (Volatile.Read(ref _urgent) != 0) return true;
             if (!await StepAsync(credential, ct)) return false;
+        }
+        return true;
+    }
+
+    /// <summary>The user's most recent include or resume first, then the longest-waiting work.</summary>
+    private static IEnumerable<MonitoredProject> QueueOrder(IEnumerable<MonitoredProject> projects) =>
+        projects.OrderByDescending(project => project.PrioritizedAt ?? DateTimeOffset.MinValue).ThenBy(project => project.PendingSince);
+
+    /// <summary>Applies the one-time reset named by <see cref="ResetEpoch"/>; returns whether anything was reset.</summary>
+    internal async Task<bool> ResetIfDueAsync(CancellationToken ct)
+    {
+        if ((await store.ReadAsync(ct)).ResetEpoch >= ResetEpoch) return false;
+        await store.ChangeAsync(current => current with { Projects = [], Decisions = [], Researchers = [], Summaries = [], ResetEpoch = ResetEpoch }, ct);
+        store.PruneTexts(new HashSet<string>(StringComparer.Ordinal));
+        logger.LogInformation("Applied the one-time research reset {Epoch}: projects, choices, OpenAlex match and texts were erased.", ResetEpoch);
         return true;
     }
 
@@ -346,6 +414,62 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     private static MonitoredProject[] Selected(LocalResearchState state, Guid account) =>
         state.Projects.Where(project => project.AccountId == account && project.Enabled &&
             project.ConsentVersion == ResearchEvidence.ConsentVersion).ToArray();
+
+    /// <summary>
+    /// Reads each requested project and summarizes only its main .tex file. An unchanged main file reuses the stored summary
+    /// without a model call. A result is dropped if the request was replaced or reset meanwhile.
+    /// </summary>
+    private async Task SummarizeAsync(LinkedCredential credential, IReadOnlyList<ProjectSummaryState> queued, CancellationToken ct)
+    {
+        if (!source.Available)
+        {
+            foreach (var item in queued)
+                await CommitSummaryAsync(credential, item, current => current with
+                { Error = "Waiting for the browser connection. Keep your normal browser running." }, ct);
+            return;
+        }
+        var accessible = await source.ProjectsAsync(ct);
+        foreach (var item in queued)
+        {
+            ct.ThrowIfCancellationRequested();
+            _summarizing = item.ProjectId;
+            try
+            {
+                var metadata = accessible.FirstOrDefault(project => project.Id == item.ProjectId) ??
+                    throw new ResearchFailure(409, "overleaf_project_unavailable", "The project is missing, archived, or no longer accessible.");
+                var snapshot = await source.SnapshotAsync(metadata, ct);
+                string main = ProjectSummaries.MainDocument(snapshot.Files.Where(file => file.Text is not null).Select(file => (file.Path, file.Text!))) ??
+                    throw new ResearchFailure(422, "no_main_document",
+                        "No main .tex file with \\documentclass and \\begin{document} was found. Files over 128 KB are not read.");
+                var file = snapshot.Files.First(candidate => candidate.Path == main);
+                string summary = item.MainSha256 == file.Sha256 && item.Summary is { } kept ? kept
+                    : (await remote.SummarizeProjectAsync(credential.Token, new(item.ProjectId, metadata.Name, main, file.Text!), ct)).Summary;
+                if (!ProjectSummaries.ValidSummary(summary))
+                    throw new ResearchFailure(502, "invalid_project_summary", "Foundry returned an unsupported project summary. Nothing was stored.");
+                var now = clock.GetUtcNow();
+                await CommitSummaryAsync(credential, item, current => current with
+                {
+                    Name = metadata.Name, Status = "ready", MainPath = main, MainSha256 = file.Sha256, Summary = summary,
+                    UpdatedAt = now, SourceUpdatedAt = metadata.UpdatedAt, Error = null
+                }, ct);
+            }
+            catch (ResearchFailure failure)
+            {
+                logger.LogWarning("Project summary failed: {Code}. Names and evidence omitted.", failure.Code);
+                await CommitSummaryAsync(credential, item, current => current with { Status = "error", Error = failure.Message }, ct);
+            }
+            finally { _summarizing = null; }
+        }
+    }
+
+    private async Task CommitSummaryAsync(LinkedCredential credential, ProjectSummaryState requested,
+        Func<ProjectSummaryState, ProjectSummaryState> change, CancellationToken ct) =>
+        await store.ChangeAsync(current =>
+        {
+            var latest = current.Summaries?.FirstOrDefault(item => item.AccountId == requested.AccountId && item.ProjectId == requested.ProjectId);
+            if (current.Credential?.Account.Id != credential.Account.Id || latest is null || latest.RequestedAt != requested.RequestedAt) return current;
+            return current with { Summaries = [.. current.Summaries!.Where(item => item != latest), change(latest)] };
+        }, ct);
 
     /// <summary>Reads each due project once: unchanged metadata or content costs nothing; changed files are queued.</summary>
     private async Task SweepAsync(LinkedCredential credential, IReadOnlyList<MonitoredProject> due, bool force, CancellationToken ct)
@@ -412,8 +536,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         var state = await store.ReadAsync(ct);
         if (state.Credential?.Account.Id != credential.Account.Id) return false;
         var now = clock.GetUtcNow();
-        var project = Selected(state, credential.Account.Id).Where(item => item.Pending is not null && Due(item, now))
-            .OrderBy(item => item.PendingSince).FirstOrDefault();
+        var project = QueueOrder(Selected(state, credential.Account.Id).Where(item => item.Pending is not null && Due(item, now)))
+            .FirstOrDefault();
         if (project is null) return false;
         await RunForProjectAsync(project, ct, async token =>
         {

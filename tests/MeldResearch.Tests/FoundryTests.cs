@@ -179,6 +179,31 @@ public sealed class FoundryTests
     }
 
     [Fact]
+    public async Task ProjectSummariesSendOnlyTheMainTexStatelesslyAndRejectMalformedParagraphs()
+    {
+        string? sent = null;
+        string reply = "A synthetic study of pilot participants and their completion rates.";
+        using var http = new HttpClient(new Handler(async request =>
+        {
+            sent = await request.Content!.ReadAsStringAsync();
+            return Response(new { choices = new[] { new { finish_reason = "stop", message = new { content = JsonSerializer.Serialize(new { summary = reply }) } } } });
+        }));
+        using var foundry = Create(http);
+        var request = new ProjectSummaryRequest("0123456789abcdef01234567", "Synthetic research", "main.tex", "\\documentclass{article}\\begin{document}Pilot.\\end{document}");
+        var result = await foundry.SummarizeProjectAsync(request, CancellationToken.None);
+        Assert.Equal((reply, "synthetic-chat"), (result.Summary, result.ChatModel));
+        using (var body = JsonDocument.Parse(sent!))
+        {
+            Assert.False(body.RootElement.GetProperty("store").GetBoolean());
+            Assert.Contains("Pilot.", body.RootElement.GetProperty("messages")[1].GetProperty("content").GetString());
+        }
+        reply = "Two\nlines.";
+        Assert.Equal("invalid_project_summary", (await Assert.ThrowsAsync<ResearchFailure>(() => foundry.SummarizeProjectAsync(request, CancellationToken.None))).Code);
+        Assert.Equal("invalid_project_summary_request", (await Assert.ThrowsAsync<ResearchFailure>(() =>
+            foundry.SummarizeProjectAsync(request with { Path = "notes.md" }, CancellationToken.None))).Code);
+    }
+
+    [Fact]
     public async Task RejectionsNameFoundrysStatusAndErrorCodeButNeverItsMessage()
     {
         using var http = new HttpClient(new Handler(_ => Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.Forbidden)

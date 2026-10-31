@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Meld Research - Overleaf connection",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Read selected Overleaf projects into your local Meld Research application. No cookie extraction.",
   "minimum_chrome_version": "120",
   "incognito": "not_allowed",

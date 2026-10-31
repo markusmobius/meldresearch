@@ -406,6 +406,130 @@ public sealed class ResearchCoordinatorTests
     }
 
     [Fact]
+    public async Task TheOneTimeResetErasesResearchChoicesAndOpenAlexButKeepsSignIn()
+    {
+        var researcher = new ResearcherState(Account.Id, 3, "ready", "Synthetic", [], null, [], DateTimeOffset.UtcNow, null, null);
+        var store = new MemoryStore(new(1, Credential, null, null, [Included() with { Profile = new("T", "D", ["C"], ["t"]) }], [],
+            [new(Account.Id, ProjectId, true, DateTimeOffset.UtcNow)], [researcher]));
+        store.Texts["abc"] = "Synthetic source text.";
+        using var coordinator = Coordinator(store, new Remote(), new Source(Files(("main.tex", "Synthetic."))));
+        Assert.True(await coordinator.ResetIfDueAsync(CancellationToken.None));
+        Assert.Empty(store.State.Projects);
+        Assert.Empty(store.State.Decisions!);
+        Assert.Empty(store.State.Researchers!);
+        Assert.Empty(store.Texts);
+        Assert.Equal(Credential, store.State.Credential);
+        Assert.Equal(ResearchCoordinator.ResetEpoch, store.State.ResetEpoch);
+
+        // Applied once: work done after the reset survives later starts.
+        store.State = store.State with { Projects = [Included()] };
+        Assert.False(await coordinator.ResetIfDueAsync(CancellationToken.None));
+        Assert.Single(store.State.Projects);
+    }
+
+    [Fact]
+    public async Task ANewlyIncludedProjectIsReadAndProcessedBeforeOlderQueuedWork()
+    {
+        const string second = "1123456789abcdef01234567";
+        var source = new MultiSource(
+            Files(("a1.tex", "A one."), ("a2.tex", "A two."), ("a3.tex", "A three.")),
+            Files(("b1.tex", "B one.")) with { ProjectId = second, ProjectName = "Second" });
+        var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
+        ResearchCoordinator? coordinator = null;
+        var remote = new Remote();
+        bool included = false;
+        remote.During = request =>
+        {
+            if (included || request.File.Path != "a1.tex") return;
+            included = true;
+            coordinator!.DecideProjectAsync(second, new(true, ResearchEvidence.ConsentVersion), CancellationToken.None).GetAwaiter().GetResult();
+        };
+        using (coordinator = Coordinator(store, remote, source))
+        {
+            // The first cycle stops after the step in flight instead of continuing with a2 and a3.
+            Assert.True(await coordinator.RunCycleAsync(false, CancellationToken.None));
+            Assert.Equal(["a1.tex"], remote.Requests.Select(request => request.File.Path));
+            await Drain(coordinator);
+        }
+        Assert.Equal(["a1.tex", "b1.tex", "a2.tex", "a3.tex"], remote.Requests.Select(request => request.File.Path));
+        Assert.All(store.State.Projects, project => Assert.True(project.ImportComplete));
+    }
+
+    [Fact]
+    public async Task SummarizeSendsOnlyTheMainTexOfARecentProjectAndReusesItWhileUnchanged()
+    {
+        var source = new Source(Files(("sections/intro.tex", "Intro text."),
+            ("paper.tex", "\\documentclass{article}\n\\begin{document}\nA study of synthetic markets.\n\\end{document}"),
+            ("slides/talk.tex", "\\documentclass{beamer}\n\\begin{document}\nSlides.\n\\end{document}")));
+        var store = new MemoryStore(new(1, Credential, null, null, [], []));
+        var remote = new Remote();
+        using var coordinator = Coordinator(store, remote, source);
+
+        await coordinator.RequestSummaryAsync(ProjectId, CancellationToken.None);
+        Assert.Equal("queued", (await coordinator.StatusAsync(CancellationToken.None)).Summaries!.Single().Status);
+        await Drain(coordinator);
+        var request = Assert.Single(remote.Summaries);
+        Assert.Equal(("paper.tex", ProjectId), (request.Path, request.ProjectId));
+        Assert.Contains("synthetic markets", request.Text);
+        Assert.Empty(remote.Requests); // Not included: no profile processing.
+        Assert.Empty(store.State.Projects);
+        var ready = Assert.Single((await coordinator.StatusAsync(CancellationToken.None)).Summaries!);
+        Assert.Equal(("ready", "paper.tex", "A synthetic project about paper.tex."), (ready.Status, ready.MainPath, ready.Summary));
+        Assert.DoesNotContain(store.State.Summaries!, item => item.Summary!.Contains("synthetic markets"));
+
+        // Asking again with the same main file reuses the summary without a model call.
+        await coordinator.RequestSummaryAsync(ProjectId, CancellationToken.None);
+        await Drain(coordinator);
+        Assert.Single(remote.Summaries);
+        Assert.Equal("ready", store.State.Summaries!.Single().Status);
+
+        await coordinator.ResetIfDueAsync(CancellationToken.None);
+        Assert.Empty(store.State.Summaries!);
+    }
+
+    [Fact]
+    public async Task SummariesAreOnlyForRecentProjectsWithAMainDocument()
+    {
+        var old = Files(("main.tex", "\\documentclass{article}\\begin{document}Old.\\end{document}")) with { SourceUpdatedAt = DateTimeOffset.UtcNow.AddDays(-200) };
+        var store = new MemoryStore(new(1, Credential, null, null, [], []));
+        using (var coordinator = Coordinator(store, new Remote(), new Source(old)))
+            Assert.Equal("project_not_recent", (await Assert.ThrowsAsync<ResearchFailure>(() =>
+                coordinator.RequestSummaryAsync(ProjectId, CancellationToken.None))).Code);
+
+        var remote = new Remote();
+        using (var coordinator = Coordinator(store, remote, new Source(Files(("notes.tex", "Only notes, no document.")))))
+        {
+            await coordinator.RequestSummaryAsync(ProjectId, CancellationToken.None);
+            await Drain(coordinator);
+        }
+        var failed = Assert.Single(store.State.Summaries!);
+        Assert.Equal("error", failed.Status);
+        Assert.Contains("No main .tex file", failed.Error);
+        Assert.Empty(remote.Summaries);
+    }
+
+    [Fact]
+    public void TheMainDocumentIsTheTopLevelCompilableTexPreferringMain()
+    {
+        const string doc = "\\documentclass{article}\n\\begin{document}x\\end{document}";
+        Assert.Equal("main.tex", ProjectSummaries.MainDocument([("deep/paper.tex", doc), ("main.tex", doc), ("other.tex", doc + "longer")]));
+        Assert.Equal("other.tex", ProjectSummaries.MainDocument([("deep/main.tex", doc), ("other.tex", doc), ("refs.tex", "no class")]));
+        Assert.Null(ProjectSummaries.MainDocument([("chapter.tex", "\\section{A}"), ("readme.md", doc)]));
+    }
+
+    private sealed class MultiSource(params ResearchSnapshot[] snapshots) : IOverleafEvidenceSource
+    {
+        public bool Available => true;
+        public OverleafProjectsSnapshot? Latest => null;
+        public Task<IReadOnlyList<OverleafProjectResponse>> ProjectsAsync(CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<OverleafProjectResponse>>(snapshots.Select(item => new OverleafProjectResponse(item.ProjectId, item.ProjectName, item.SourceUpdatedAt)).ToArray());
+        public Task<ResearchSnapshot> SnapshotAsync(OverleafProjectResponse project, CancellationToken ct) =>
+            Task.FromResult(snapshots.Single(item => item.ProjectId == project.Id) with { ObservedAt = DateTimeOffset.UtcNow });
+        public Task<IReadOnlyDictionary<string, DateTimeOffset>?> EditTimesAsync(string projectId, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyDictionary<string, DateTimeOffset>?>(null);
+    }
+
+    [Fact]
     public async Task ABusyBrowserIsNotReportedAsUnavailable()
     {
         var snapshot = ResearchTests.Snapshot("Synthetic research.");
@@ -475,6 +599,12 @@ public sealed class ResearchCoordinatorTests
             ct.ThrowIfCancellationRequested();
             Requests.Add(request);
             return Task.FromResult((Step ?? (item => Summary(item, [])))(request));
+        }
+        public List<ProjectSummaryRequest> Summaries { get; } = [];
+        public Task<ProjectSummaryResponse> SummarizeProjectAsync(string token, ProjectSummaryRequest request, CancellationToken ct)
+        {
+            Summaries.Add(request);
+            return Task.FromResult(new ProjectSummaryResponse("A synthetic project about " + request.Path + ".", "chat"));
         }
         public Task<RemoteStatusResponse> StatusAsync(CancellationToken ct) =>
             Task.FromResult(new RemoteStatusResponse(false, true, true, "https://meld.example.invalid/privacy.html", "synthetic", "https://chromewebstore.google.com"));

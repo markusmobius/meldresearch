@@ -50,7 +50,7 @@ public sealed class NativeHandshakeTests
     public void BundledIdentityMatchesTheChromeDraft()
     {
         Assert.Equal("pejcljoimoeklelcfbfddnkimlkjgfhe", ExtensionIdentity.Id);
-        Assert.Equal("0.5.1", ExtensionIdentity.Version);
+        Assert.Equal("0.5.2", ExtensionIdentity.Version);
         Assert.Equal(2, WireProtocol.Version);
     }
 }

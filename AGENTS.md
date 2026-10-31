@@ -48,6 +48,9 @@ instruction file. Start with the [README](README.md) for setup and release detai
   changed files, and meaningful summary changes become cited Updates. The pending
   manifest, order and per-file processed hashes are the persistent queue: commit per
   file, resume after restart, never reprocess an unchanged hash or identical copy.
+  Include/resume is processed first. Project summaries (one paragraph from the main
+  `.tex`) are sent only on the user's per-project Summarize click, recent projects
+  only, and never resent while the main file's hash is unchanged.
 - Models select source line ranges; the server copies and validates actual
   citation text. Preserve grounding, evidence limits and visible validation errors.
 - The remote backend persists accounts, devices, one-time app sign-in codes, the
@@ -168,7 +171,7 @@ Use .NET 10, Node 24/npm and PowerShell 7. Run from this repository's root, e.g.
   restore the removed application Playwright approach. Use the normal browser
   and connector; never execute downloaded TeX.
 - Current Chrome identity: `pejcljoimoeklelcfbfddnkimlkjgfhe`; extension version
-  `0.5.1`, native protocol `2`. Identity derives from the public manifest key,
+  `0.5.2`, native protocol `2`. Identity derives from the public manifest key,
   not a secret signing key. Update related identity/handshake checks together;
   compatible extension releases need not have identical version numbers.
 - Bump the connector manifest version whenever extension files change: installed

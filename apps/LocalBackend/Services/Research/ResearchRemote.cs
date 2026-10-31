@@ -33,6 +33,7 @@ internal interface IResearchRemote
     Task<MeldAccountResponse> AccountAsync(string token, CancellationToken ct);
     Task RevokeAsync(string token, CancellationToken ct);
     Task<ProfileStepResponse> ProfileStepAsync(string token, ProfileStepRequest request, CancellationToken ct);
+    Task<ProjectSummaryResponse> SummarizeProjectAsync(string token, ProjectSummaryRequest request, CancellationToken ct);
     Task<ResearcherSearchResponse> SearchResearcherAsync(string token, ResearcherSearchRequest request, CancellationToken ct);
     Task<ResearcherWorksResponse> ResearcherWorksAsync(string token, ResearcherWorksRequest request, CancellationToken ct);
 }
@@ -48,6 +49,8 @@ internal sealed class ResearchRemote(ResearchOptions options, IHttpClientFactory
         _ = await CallAsync<JsonElement>("api/account/device", HttpMethod.Delete, null, token, ct);
     public Task<ProfileStepResponse> ProfileStepAsync(string token, ProfileStepRequest request, CancellationToken ct) =>
         CallAsync<ProfileStepResponse>("api/research/profile-step", HttpMethod.Post, request, token, ct);
+    public Task<ProjectSummaryResponse> SummarizeProjectAsync(string token, ProjectSummaryRequest request, CancellationToken ct) =>
+        CallAsync<ProjectSummaryResponse>("api/research/project-summary", HttpMethod.Post, request, token, ct);
     public Task<ResearcherSearchResponse> SearchResearcherAsync(string token, ResearcherSearchRequest request, CancellationToken ct) =>
         CallAsync<ResearcherSearchResponse>("api/researcher/candidates", HttpMethod.Post, request, token, ct);
     public Task<ResearcherWorksResponse> ResearcherWorksAsync(string token, ResearcherWorksRequest request, CancellationToken ct) =>

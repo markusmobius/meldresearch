@@ -7,7 +7,7 @@ import { OverleafApi } from './overleaf-api';
 describe('Project selection', () => {
   const recentId = '0123456789abcdef01234567';
   const olderId = '1123456789abcdef01234567';
-  const api = { decide: vi.fn(), monitor: vi.fn(), forget: vi.fn(), demoChange: vi.fn() };
+  const api = { decide: vi.fn(), monitor: vi.fn(), forget: vi.fn(), demoChange: vi.fn(), summarize: vi.fn() };
   const base: ResearchStatus = {
     account: { id: 'account-one', name: 'Synthetic researcher', email: 'researcher@example.invalid' },
     credentialExpiresAt: null, pendingLink: null, accountError: null, busy: false, dummy: false,
@@ -46,6 +46,39 @@ describe('Project selection', () => {
     expect(element.querySelector('.older-projects')?.textContent).toContain('Older project');
     expect(element.querySelector('.older-projects .decision-row.undecided')).toBeNull();
     expect(element.querySelector('img')).toBeNull();
+    fixture.destroy();
+  });
+
+  it('summarizes a recent project only when asked and shows the paragraph under its name', async () => {
+    api.summarize.mockResolvedValue(undefined);
+    const fixture = screen();
+    const element: HTMLElement = fixture.nativeElement;
+    expect(element.querySelector('.older-projects .summarize')).toBeNull();
+    const button = element.querySelector<HTMLButtonElement>('.decision-row .summarize')!;
+    expect(button.textContent).toContain('Summarize');
+    expect(button.title).toContain('only this project\'s main .tex file');
+    button.click();
+    await vi.waitFor(() => expect(api.summarize).toHaveBeenCalledWith(recentId));
+
+    fixture.componentRef.setInput('status', { ...base, summaries: [{ projectId: recentId, status: 'running', summary: null, mainPath: null,
+      updatedAt: null, sourceUpdatedAt: null, error: null }] });
+    fixture.detectChanges();
+    expect(element.querySelector('.blurb-status')?.textContent).toContain('Summarizing the main .tex file');
+    expect(element.querySelector('.decision-row .summarize')).toBeNull();
+
+    fixture.componentRef.setInput('status', { ...base, summaries: [{ projectId: recentId, status: 'ready',
+      summary: 'A synthetic study of markets.', mainPath: 'paper/main.tex', updatedAt: projects[0].updatedAt,
+      sourceUpdatedAt: projects[0].updatedAt, error: null }] });
+    fixture.detectChanges();
+    expect(element.querySelector('.project-blurb')?.textContent).toContain('A synthetic study of markets.');
+    expect(element.querySelector('.blurb-source')?.textContent).toContain('From main.tex');
+    expect(element.querySelector('.decision-row .summarize')).toBeNull();
+
+    // A newer Overleaf edit than the summary's source offers an update.
+    fixture.componentRef.setInput('status', { ...base, summaries: [{ projectId: recentId, status: 'ready',
+      summary: 'A synthetic study of markets.', mainPath: 'main.tex', updatedAt: null, sourceUpdatedAt: '2020-01-01T00:00:00Z', error: null }] });
+    fixture.detectChanges();
+    expect(element.querySelector('.decision-row .summarize')?.textContent).toContain('Update summary');
     fixture.destroy();
   });
 

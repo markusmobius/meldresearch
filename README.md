@@ -120,7 +120,11 @@ It does not access a real Overleaf profile or register the browser connector.
 1. Open **Account** in Meld and choose **Sign in with the test account**.
 2. On the blue website, choose **Use the synthetic test account**; it returns to Meld signed in.
 3. Meld opens **Account → Overleaf → Projects**. Read the model-processing notice
-   above the list; choosing **Include** is the consent for that project.
+   above the list; choosing **Include** is the consent for that project and starts
+   processing it at once, ahead of queued work. **Summarize** on a recent project
+   sends only its main `.tex` file (`\documentclass` + `\begin{document}`, top folder
+   and `main.tex` preferred) for a one-paragraph description to help you decide; it
+   is stored locally and the model is not called again while that file is unchanged.
 4. Choose **Include** for the synthetic project. Initial ingestion produces baseline
    research updates in **Feed**; **Review** opens the complete source evidence.
 5. In **Projects**, choose **Apply synthetic project change** to exercise a meaningful delta.
@@ -162,7 +166,7 @@ available in Live mode. Listing/manual ZIP downloads remain available separately
 from account-gated model processing.
 
 The source manifest now uses the supplied Chrome draft public key:
-**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.5.1**, wire protocol **2**.
+**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.5.2**, wire protocol **2**.
 It is a public identity key, not a signing secret.
 
 Until the private listing is approved, remove the old development-ID unpacked
@@ -214,7 +218,14 @@ Chrome Web Store instead.
   commits atomically, so a restart resumes at the next file and never repeats one.
   Account → Overleaf → Projects shows what is importing or updating and the queue.
   A failed step backs off (1 minute doubling to a day) without blocking other
-  projects; **Check now** retries at once.
+  projects; **Check now** retries at once. Including (or resuming) a project stops
+  the worker after its current file step, reads that project and processes it
+  before older queued work.
+- **One-time resets.** Raising `ResearchCoordinator.ResetEpoch` makes every
+  installation erase, on its first start of that release, all projects (summaries,
+  hashes, Updates, queue), include/exclude choices, project summaries, the OpenAlex
+  match and the encrypted text store, keeping only sign-in. Epoch 1 starts all
+  imports from scratch after the move to file-by-file profiles.
 - File hashes, not ZIP timestamps or ZIP byte order, identify content. Identical
   copies (for example earlier submission folders) are folded in once.
 - The model selects source line ranges; the server copies the exact source text

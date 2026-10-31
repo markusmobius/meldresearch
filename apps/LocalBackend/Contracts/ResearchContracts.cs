@@ -15,7 +15,6 @@ public sealed record MonitoredProjectResponse(string ProjectId, string Name, boo
     string? ErrorCode, string? Error, string? Explanation, int UnprocessedFiles,
     ProjectProfile? Profile, string Phase, int FilesDone, int FilesTotal, DateTimeOffset? LastSweepAt, DateTimeOffset? NextSweepAt);
 
-/// <summary>The project being processed now and how many others wait in the queue.</summary>
 /// <summary>The project the queue is working on; CurrentFile is the file being folded into its summary next (or now).</summary>
 public sealed record ProcessingStatusResponse(string ProjectId, string Name, string Kind, int FilesDone, int FilesTotal, int Queued,
     string? CurrentFile = null);
@@ -25,7 +24,12 @@ public sealed record ResearchStatusResponse(MeldAccountResponse? Account, DateTi
     AccountLinkResponse? PendingLink, string? AccountError, bool Busy, bool Dummy, string PrivacyUrl,
     string ConsentVersion, int PollSeconds, int PendingRevocations, IReadOnlyList<MonitoredProjectResponse> Projects,
     IReadOnlyList<ResearchUpdate> Updates, int TotalUpdates, IReadOnlyList<ProjectDecisionResponse> Decisions,
-    OverleafProjectsSnapshot? OverleafProjects, ResearcherStatusResponse? Researcher, ProcessingStatusResponse? Processing);
+    OverleafProjectsSnapshot? OverleafProjects, ResearcherStatusResponse? Researcher, ProcessingStatusResponse? Processing,
+    IReadOnlyList<ProjectSummaryResponseItem>? Summaries = null);
+
+/// <summary>A project's one-paragraph summary from its main .tex file. Status: queued, running, ready or error.</summary>
+public sealed record ProjectSummaryResponseItem(string ProjectId, string Status, string? Summary, string? MainPath,
+    DateTimeOffset? UpdatedAt, DateTimeOffset? SourceUpdatedAt, string? Error);
 
 /// <summary>Includes a project in the private profile (which starts monitoring, so it needs consent) or excludes it.</summary>
 public sealed record ProjectDecisionRequest(bool Included, string? ConsentVersion);

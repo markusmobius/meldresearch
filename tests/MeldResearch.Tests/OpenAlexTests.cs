@@ -89,6 +89,7 @@ public sealed class OpenAlexTests
         public InferenceCapacity Capacity => new("chat", "embedding", 0, 2);
         public Task<ProfileStepResponse> ProfileStepAsync(ProfileStepRequest request, CancellationToken ct) => throw new NotSupportedException();
         public Task<ResearchEmbeddingResponse> EmbedAsync(ResearchEmbeddingRequest request, CancellationToken ct) => throw new NotSupportedException();
+        public Task<ProjectSummaryResponse> SummarizeProjectAsync(ProjectSummaryRequest request, CancellationToken ct) => throw new NotSupportedException();
         public Task<JsonElement> CompleteJsonAsync(string system, string schemaName, string schema, object input, CancellationToken ct) =>
             Task.FromResult(JsonDocument.Parse(schemaName == "researcher_name_variants" ? """{"names":[]}""" : ranking).RootElement.Clone());
     }

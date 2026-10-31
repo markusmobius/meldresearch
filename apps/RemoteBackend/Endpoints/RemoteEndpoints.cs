@@ -56,6 +56,12 @@ internal static class RemoteEndpoints
             await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
             return TypedResults.Ok(await foundry.ProfileStepAsync(request, ct));
         }).WithName("ProfileStep").WithSummary("Fold one Overleaf file into the project summary and report grounded Updates; nothing is stored.");
+        app.MapPost("/api/research/project-summary", async Task<Ok<ProjectSummaryResponse>> (
+            ProjectSummaryRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, CancellationToken ct) =>
+        {
+            await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            return TypedResults.Ok(await foundry.SummarizeProjectAsync(request, ct));
+        }).WithName("SummarizeProject").WithSummary("Describe one project in a paragraph from its main .tex file; nothing is stored.");
         app.MapPost("/api/research/embeddings", async Task<Ok<ResearchEmbeddingResponse>> (
             ResearchEmbeddingRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, CancellationToken ct) =>
         {
@@ -314,6 +320,7 @@ internal static class RemoteEndpoints
         InferencePurpose.ProfileImport => "Profile import",
         InferencePurpose.ProfileUpdate => "Profile updates",
         InferencePurpose.ResearcherMatching => "Researcher matching",
+        InferencePurpose.ProjectSummary => "Project summaries",
         _ => "Other"
     };
 

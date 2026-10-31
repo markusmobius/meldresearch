@@ -42,3 +42,14 @@
   .decision-actions { width: 100%; grid-template-columns: 1fr 1fr; }
   .project-card mat-panel-description { display: none; }
 }
+/* Optional one-paragraph description from the project's main .tex file, made only when the user chooses Summarize. */
+.project-blurb { margin: 6px 0 2px; max-width: 72ch; font-size: 0.85rem; line-height: 1.45; color: #334155; }
+.blurb-status { display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 0.78rem; color: #64748b; }
+.blurb-status.error { color: #b42318; }
+.blurb-status mat-icon { width: 16px; height: 16px; font-size: 16px; }
+.blurb-source { display: block; margin-top: 2px; font-size: 0.72rem; color: #94a3b8; }
+button.summarize { align-self: flex-start; height: 28px; margin: 4px 0 0 -8px; padding: 0 8px; font-size: 0.8rem; }
+button.summarize mat-icon { width: 16px; height: 16px; font-size: 16px; }
+.spin { animation: blurb-spin 1.6s linear infinite; }
+@keyframes blurb-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }

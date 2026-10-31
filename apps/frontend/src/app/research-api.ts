@@ -51,6 +51,12 @@ export interface ResearchStatus {
   overleafProjects: { projects: ReadonlyArray<OverleafProject>; fetchedAt: string } | null;
   researcher: ResearcherStatus | null;
   processing: ProcessingStatus | null;
+  /** One-paragraph summaries from projects' main .tex files, made only when the user chose Summarize. */
+  summaries?: ReadonlyArray<ProjectSummary> | null;
+}
+export interface ProjectSummary {
+  projectId: string; status: 'queued' | 'running' | 'ready' | 'error'; summary: string | null; mainPath: string | null;
+  updatedAt: string | null; sourceUpdatedAt: string | null; error: string | null;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -75,6 +81,10 @@ export class ResearchApi {
   }
   publications(): Promise<Publications> { return firstValueFrom(this.http.get<Publications>('/api/research/publications')); }
   forget(id: string): Promise<void> { return firstValueFrom(this.http.delete<void>(`/api/research/projects/${encodeURIComponent(id)}`)); }
+  /** Sends only this project's main .tex file to Foundry for a one-paragraph summary; the user's click is the consent. */
+  summarize(id: string): Promise<void> {
+    return firstValueFrom(this.http.post<void>(`/api/research/projects/${encodeURIComponent(id)}/summary`, {}));
+  }
   sync(): Promise<void> { return firstValueFrom(this.http.post<void>('/api/research/sync', {})); }
   demoChange(): Promise<unknown> { return firstValueFrom(this.http.post('/api/development/overleaf/change', {})); }
 }

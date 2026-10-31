@@ -2,7 +2,8 @@
   <section class="project-selection" aria-label="Overleaf projects in your private profile">
     <p class="muted fine-print">Choosing <strong>Include</strong> sends that project's .tex, .md and .txt text through Meld's service to
       Azure AI Foundry to build your private profile and updates, and keeps monitoring it while Meld and your browser run.
-      Your profile stays on this computer. <a href="/privacy.html" target="_blank" rel="noopener noreferrer">Privacy and data use</a></p>
+      Your profile stays on this computer. <strong>Summarize</strong> sends only that project's main .tex file, for a one-paragraph
+      description. <a href="/privacy.html" target="_blank" rel="noopener noreferrer">Privacy and data use</a></p>
     @if (error()) { <p class="alert" role="alert">{{ error() }}</p> }
     @if (action()) { <p class="muted" role="status">{{ action() }}</p> }
     @if (current.projects.length) {
@@ -112,6 +113,24 @@
         @if (project.updatedAt) { Updated {{ project.updatedAt | date:'mediumDate' }} }
         @if (decided === 'included' && watched) { &middot; <span class="phase" [attr.data-phase]="watched.phase">{{ phaseLabel(watched) }}</span> }
       </small>
+      @if (isRecentProject(project)) {
+        @let summary = summaryFor(project.id);
+        @if (summary?.summary) { <p class="project-blurb">{{ summary?.summary }}</p> }
+        @if (summary?.status === 'queued' || summary?.status === 'running') {
+          <span class="blurb-status" role="status"><mat-icon class="spin">autorenew</mat-icon>
+            {{ summary?.status === 'running' ? 'Summarizing the main .tex file...' : 'Summary queued' }}
+            @if (summary?.error) { &middot; {{ summary?.error }} }</span>
+        } @else {
+          @if (summary?.status === 'error') { <span class="blurb-status error" role="alert">{{ summary?.error }}</span> }
+          @if (!summary || summary.status === 'error' || summaryStale(project, summary)) {
+            <button mat-button class="summarize" [disabled]="!!action() || !sourceReady()" (click)="summarize(project)"
+              title="Sends only this project's main .tex file to Azure AI Foundry for a one-paragraph description">
+              <mat-icon>{{ summary ? 'refresh' : 'summarize' }}</mat-icon>{{ !summary ? 'Summarize' : summary.status === 'error' ? 'Try again' : 'Update summary' }}</button>
+          } @else if (summary.mainPath) {
+            <small class="blurb-source">From {{ fileName(summary.mainPath) }}</small>
+          }
+        }
+      }
     </div>
     <div class="decision-actions" role="group" [attr.aria-label]="'Profile choice for ' + project.name">
       <button mat-stroked-button class="include" [class.selected]="decided === 'included'" [attr.aria-pressed]="decided === 'included'"

@@ -5,7 +5,7 @@ import { MatExpansionModule } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { OverleafApi, OverleafProject, describeFailure } from './overleaf-api';
-import { ResearchApi, ResearchProject, ResearchStatus } from './research-api';
+import { ProjectSummary, ResearchApi, ResearchProject, ResearchStatus } from './research-api';
 import { ProjectChoice, isRecent, projectChoice } from './project-decisions';
 
 /** Account → Overleaf → Projects: an active include/exclude choice per recent project, optional choices for older ones. */
@@ -33,6 +33,12 @@ export class ProjectSelection {
   choice(id: string): ProjectChoice { return projectChoice(this.status(), id); }
   isRecentProject(project: OverleafProject): boolean { return isRecent(project); }
   monitored(id: string): ResearchProject | undefined { return this.status()?.projects.find(project => project.projectId === id); }
+  summaryFor(id: string): ProjectSummary | undefined { return this.status()?.summaries?.find(summary => summary.projectId === id); }
+  /** Overleaf reports a newer edit than the one the summary was made from. */
+  summaryStale(project: OverleafProject, summary: ProjectSummary): boolean {
+    return !!project.updatedAt && !!summary.sourceUpdatedAt && Date.parse(project.updatedAt) > Date.parse(summary.sourceUpdatedAt);
+  }
+  fileName(path: string | null): string { return path?.split('/').pop() || 'the main .tex file'; }
 
   phaseLabel(project: ResearchProject): string {
     if (!project.enabled) return 'Paused';
@@ -45,6 +51,11 @@ export class ProjectSelection {
       case 'error': return 'Needs attention';
       default: return project.profile ? 'Up to date' : 'Imported';
     }
+  }
+
+  /** Choosing Summarize is the consent to send only this project's main .tex file. */
+  async summarize(project: OverleafProject): Promise<void> {
+    await this.run(`Queuing a summary of ${project.name}...`, () => this.api.summarize(project.id));
   }
 
   async checkNow(): Promise<void> { await this.run('Checking included projects...', () => this.api.sync()); }

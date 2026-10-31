@@ -84,3 +84,41 @@ public static class ProfileEvidence
     private static ResearchFailure Invalid(string reason) => new(502, "ungrounded_research_analysis",
         $"Foundry returned an invalid or ungrounded summary step ({reason}). The previous project state was preserved.");
 }
+
+/// <summary>
+/// A one-paragraph description of a project the user has not necessarily included, from its main LaTeX file only. Sent only
+/// when the user chooses Summarize for that project; the remote service keeps no copy.
+/// </summary>
+public sealed record ProjectSummaryRequest(string ProjectId, string ProjectName, string Path, string Text);
+public sealed record ProjectSummaryResponse(string Summary, string ChatModel);
+
+public static class ProjectSummaries
+{
+    public const int MaxSummaryCharacters = 1200;
+
+    public static void ValidateRequest(ProjectSummaryRequest request)
+    {
+        if (request is null || !ResearchEvidence.IsProjectId(request.ProjectId) || string.IsNullOrWhiteSpace(request.ProjectName) ||
+            request.ProjectName.Length > 500 || !ResearchEvidence.IsSafePath(request.Path) ||
+            !System.IO.Path.GetExtension(request.Path).Equals(".tex", StringComparison.OrdinalIgnoreCase) ||
+            string.IsNullOrWhiteSpace(request.Text) || Encoding.UTF8.GetByteCount(request.Text) > ResearchEvidence.MaxFileTextBytes ||
+            request.Text.Contains('\0'))
+            throw new ResearchFailure(400, "invalid_project_summary_request", "Only a project's main .tex file of up to 128 KB can be summarized.");
+    }
+
+    public static bool ValidSummary(string? summary) =>
+        !string.IsNullOrWhiteSpace(summary) && summary.Length <= MaxSummaryCharacters && !summary.Contains('\n');
+
+    /// <summary>
+    /// The document Overleaf most likely compiles: a .tex file with \documentclass and \begin{document}, preferring the
+    /// top folder, then a file named main, then the largest. Null when the project has no such file.
+    /// </summary>
+    public static string? MainDocument(IEnumerable<(string Path, string Text)> files) =>
+        files.Where(file => System.IO.Path.GetExtension(file.Path).Equals(".tex", StringComparison.OrdinalIgnoreCase) &&
+                file.Text.Contains("\\documentclass", StringComparison.Ordinal) && file.Text.Contains("\\begin{document}", StringComparison.Ordinal))
+            .OrderBy(file => file.Path.Count(character => character == '/'))
+            .ThenBy(file => System.IO.Path.GetFileNameWithoutExtension(file.Path).Equals("main", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ThenByDescending(file => file.Text.Length)
+            .ThenBy(file => file.Path, StringComparer.Ordinal)
+            .Select(file => file.Path).FirstOrDefault();
+}
