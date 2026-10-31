@@ -119,21 +119,24 @@ internal sealed class FoundryService : IFoundryService, IDisposable
         }, ResearchJson.Options);
         var messages = new List<object> { new { role = "system", content = StepPrompt }, new { role = "user", content = input } };
         ProfileStepResponse? response = null;
-        // A summary over the size limit gets one request to shorten it; the step otherwise fails without changing anything.
+        // A summary that breaks a limit gets one request naming the problems; if it still does not fit, it is trimmed to the
+        // limits rather than failing the step (which would otherwise fail again on every retry).
         for (int attempt = 0; attempt < 2 && response is null; attempt++)
         {
             var step = await CompleteStepAsync(messages, request.Initial ? InferencePurpose.ProfileImport : InferencePurpose.ProfileUpdate, ct);
-            var candidate = new ProfileStepResponse(step.Profile, (step.Updates ?? []).Select(update => new ProfileUpdate(update.Title,
-                update.Summary, (update.Evidence ?? []).Select(citation => ResolveCitation(request.File, citation)).ToArray())).ToArray(),
-                step.Explanation, _chat);
-            if (step.Profile is not null && ProfileEvidence.Length(step.Profile) > ProfileEvidence.MaxProfileCharacters && attempt == 0)
+            var problems = step.Profile is null ? [] : ProfileEvidence.Problems(step.Profile);
+            if (problems.Count != 0 && attempt == 0)
             {
+                _logger?.LogInformation("Summary step broke {Count} limit(s); asking once to fix them.", problems.Count);
                 messages.Add(new { role = "assistant", content = JsonSerializer.Serialize(step, ResearchJson.Options) });
-                messages.Add(new { role = "user", content = $"The summary is {ProfileEvidence.Length(step.Profile)} characters as JSON. " +
-                    "Return the same result with the summary shortened to at most 4500 characters, merging or dropping the least significant points." });
+                messages.Add(new { role = "user", content = "Fix the summary: " + string.Join("; ", problems) +
+                    ". Return the same result with a shorter summary, merging or dropping the least significant points." });
                 continue;
             }
-            response = candidate;
+            var profile = step.Profile is not null && problems.Count != 0 ? ProfileEvidence.Fit(step.Profile) : step.Profile;
+            response = new ProfileStepResponse(profile!, (step.Updates ?? []).Select(update => new ProfileUpdate(update.Title,
+                update.Summary, (update.Evidence ?? []).Select(citation => ResolveCitation(request.File, citation)).ToArray())).ToArray(),
+                step.Explanation, _chat);
         }
         ProfileEvidence.ValidateResponse(request, response!);
         return response!;
@@ -199,6 +202,8 @@ internal sealed class FoundryService : IFoundryService, IDisposable
         ProjectProfile? profile;
         try { profile = result.GetProperty("profile").Deserialize<ProjectProfile>(ResearchJson.Options); }
         catch (Exception error) when (error is JsonException or InvalidOperationException or KeyNotFoundException) { profile = null; }
+        if (profile is not null && !ProfileEvidence.ValidProfile(profile) && ProfileEvidence.Fit(profile) is var fitted && ProfileEvidence.ValidProfile(fitted))
+            profile = fitted;
         if (profile is null || !ProfileEvidence.ValidProfile(profile))
             throw new ResearchFailure(502, "invalid_theme_summary", "Foundry returned an unsupported combined summary. Nothing was changed.");
         return new(profile, _chat);
@@ -552,8 +557,10 @@ internal sealed class FoundryService : IFoundryService, IDisposable
         Fold the supplied file into currentSummary (which may be null for the first file): keep what is still supported,
         add what the file establishes, correct what it contradicts, and merge duplicates. Slides, notes and earlier
         submission copies repeat the paper: use them only for genuinely new information. Formatting, LaTeX boilerplate,
-        bibliographies and acknowledgements add nothing. The whole summary must stay under 4500 characters as JSON;
-        when space is short, keep the most significant and most current research. Describe the research, not the files.
+        bibliographies and acknowledgements add nothing. Limits: title at most 200 characters; description ONE paragraph of
+        at most 1200 characters; at most 15 contributions of at most 400 characters each; at most 12 topics of at most 60
+        characters each; the whole summary under 4500 characters as JSON. When space is short, keep the most significant and
+        most current research and merge related points. Describe the research, not the files.
 
         mode "initial": this builds the existing baseline. Return an empty updates array: nothing here is news.
         mode "update": previousLines are the file before the change and currentLines after it (null when the file was

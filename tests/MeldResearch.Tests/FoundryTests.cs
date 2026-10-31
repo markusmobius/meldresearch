@@ -245,6 +245,35 @@ public sealed class FoundryTests
     }
 
     [Fact]
+    public async Task ASummaryThatBreaksALimitIsAskedToBeFixedOnceThenFittedInsteadOfFailing()
+    {
+        var bodies = new List<string>();
+        var tooLong = Profile with { Description = string.Join(" ", Enumerable.Repeat("A long synthetic sentence about the pilot.", 60)),
+            Topics = [.. Enumerable.Range(1, 20).Select(index => "topic " + index)] };
+        using var http = new HttpClient(new Handler(async request =>
+        {
+            bodies.Add(await request.Content!.ReadAsStringAsync());
+            return Step(new(tooLong, "Read.", []));
+        }));
+        using var foundry = Create(http);
+        var result = await foundry.ProfileStepAsync(Initial("Synthetic."), CancellationToken.None);
+        Assert.Equal(2, bodies.Count);
+        string retry = JsonDocument.Parse(bodies[1]).RootElement.GetProperty("messages")[3].GetProperty("content").GetString()!;
+        Assert.Contains("description must be one paragraph of 1-1500 characters", retry);
+        Assert.Contains("at most 12 topics (it has 20)", retry);
+        Assert.True(ProfileEvidence.ValidProfile(result.Profile));
+        Assert.True(result.Profile.Description.Length <= ProfileEvidence.MaxDescription);
+        Assert.Equal(12, result.Profile.Topics.Count);
+        Assert.StartsWith("A long synthetic sentence", result.Profile.Description);
+
+        // An empty title is a failed answer, not a long one: it is still rejected.
+        using var empty = new HttpClient(new Handler(_ => Task.FromResult(Step(new(Profile with { Title = "" }, "Read.", [])))));
+        using var failing = Create(empty);
+        Assert.Equal("ungrounded_research_analysis", (await Assert.ThrowsAsync<ResearchFailure>(() =>
+            failing.ProfileStepAsync(Initial("Synthetic."), CancellationToken.None))).Code);
+    }
+
+    [Fact]
     public async Task GroupingAcceptsOnlyOfferedCardsAndValidCombinedSummaries()
     {
         string reply = "";

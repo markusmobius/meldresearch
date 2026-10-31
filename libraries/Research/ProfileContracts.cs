@@ -72,11 +72,53 @@ public static class ProfileEvidence
         }
     }
 
-    public static bool ValidProfile(ProjectProfile profile) =>
-        profile is not null && Short(profile.Title, 200) && Short(profile.Description, 1500) &&
-        profile.Contributions is { Count: <= MaxContributions } && profile.Contributions.All(item => Short(item, 500)) &&
-        profile.Topics is { Count: <= 12 } && profile.Topics.All(item => Short(item, 80)) &&
-        Length(profile) <= MaxProfileCharacters;
+    public const int MaxTitle = 200, MaxDescription = 1500, MaxContribution = 500, MaxTopics = 12, MaxTopic = 80;
+
+    public static bool ValidProfile(ProjectProfile profile) => profile is not null && Problems(profile).Count == 0;
+
+    /// <summary>Each limit the summary breaks, phrased so the model can fix it; empty when the summary is valid.</summary>
+    public static IReadOnlyList<string> Problems(ProjectProfile profile)
+    {
+        var problems = new List<string>();
+        if (!Short(profile.Title, MaxTitle)) problems.Add($"title must be 1-{MaxTitle} characters");
+        if (!Short(profile.Description, MaxDescription)) problems.Add($"description must be one paragraph of 1-{MaxDescription} characters (it has {profile.Description?.Length ?? 0})");
+        if (profile.Contributions is null || profile.Contributions.Count > MaxContributions) problems.Add($"at most {MaxContributions} contributions (it has {profile.Contributions?.Count ?? 0})");
+        else if (!profile.Contributions.All(item => Short(item, MaxContribution))) problems.Add($"each contribution must be 1-{MaxContribution} characters");
+        if (profile.Topics is null || profile.Topics.Count > MaxTopics) problems.Add($"at most {MaxTopics} topics (it has {profile.Topics?.Count ?? 0})");
+        else if (!profile.Topics.All(item => Short(item, MaxTopic))) problems.Add($"each topic must be 1-{MaxTopic} characters");
+        if (problems.Count == 0 && Length(profile) > MaxProfileCharacters) problems.Add($"the whole summary must be at most 4500 characters as JSON (it has {Length(profile)})");
+        return problems;
+    }
+
+    /// <summary>
+    /// Last resort when the model still breaks a limit: keep the most significant content (earlier items first) and shorten
+    /// long text at a sentence or word boundary, so a valid summary is stored instead of failing the step again and again.
+    /// </summary>
+    public static ProjectProfile Fit(ProjectProfile profile)
+    {
+        // A missing title or description is a failed answer, not a long one: leave it to fail validation.
+        if (string.IsNullOrWhiteSpace(profile.Title) || string.IsNullOrWhiteSpace(profile.Description)) return profile;
+        var fitted = new ProjectProfile(Trim(profile.Title, MaxTitle), Trim(profile.Description, MaxDescription),
+            (profile.Contributions ?? []).Select(item => Trim(item, MaxContribution)).Where(item => item.Length != 0).Take(MaxContributions).ToArray(),
+            (profile.Topics ?? []).Select(item => Trim(item, MaxTopic)).Where(item => item.Length != 0).Take(MaxTopics).ToArray());
+        while (Length(fitted) > MaxProfileCharacters && fitted.Contributions.Count > 0)
+            fitted = fitted with { Contributions = fitted.Contributions.Take(fitted.Contributions.Count - 1).ToArray() };
+        while (Length(fitted) > MaxProfileCharacters && fitted.Topics.Count > 0)
+            fitted = fitted with { Topics = fitted.Topics.Take(fitted.Topics.Count - 1).ToArray() };
+        if (Length(fitted) > MaxProfileCharacters) fitted = fitted with { Description = Trim(fitted.Description, 800) };
+        return fitted;
+    }
+
+    private static string Trim(string? text, int max)
+    {
+        text = (text ?? "").Replace('\n', ' ').Replace('\r', ' ').Trim();
+        if (text.Length <= max) return text;
+        string cut = text[..max];
+        int sentence = cut.LastIndexOf(". ", StringComparison.Ordinal);
+        if (sentence >= max / 2) return cut[..(sentence + 1)];
+        int space = cut.LastIndexOf(' ');
+        return (space >= max / 2 ? cut[..space] : cut[..(max - 1)]).TrimEnd(',', ';', ':', ' ') + "\u2026";
+    }
 
     private static bool ValidText(string? text) => text is null ||
         (Encoding.UTF8.GetByteCount(text) <= ResearchEvidence.MaxFileTextBytes && !text.Contains('\0'));

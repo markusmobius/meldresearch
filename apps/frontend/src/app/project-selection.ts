@@ -48,7 +48,7 @@ export class ProjectSelection {
       case 'queued': return `Queued \u00b7 ${project.filesTotal} ${project.filesTotal === 1 ? 'file' : 'files'}`;
       case 'importing': return `Importing ${project.filesDone} of ${project.filesTotal} files`;
       case 'updating': return `Processing changes ${project.filesDone} of ${project.filesTotal}`;
-      case 'error': return 'Needs attention';
+      case 'error': return 'Retrying after an error';
       default: return project.profile ? 'Up to date' : 'Imported';
     }
   }

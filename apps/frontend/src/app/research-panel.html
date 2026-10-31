@@ -51,9 +51,9 @@
             }
             @if (needsProjectAttention()) {
               <p class="alert" role="alert">
-                {{ attentionProjects().length === 1 ? attentionProjects()[0] + ' needs attention.' :
-                  attentionProjects().length + ' projects need attention: ' + attentionProjects().slice(0, 3).join(', ') + (attentionProjects().length > 3 ? ', ...' : '') + '.' }}
-                <a href="/#account">View project status</a>.</p>
+                {{ attentionProjects().length === 1 ? attentionProjects()[0] + ' could not be processed.' :
+                  attentionProjects().length + ' projects could not be processed: ' + attentionProjects().slice(0, 3).join(', ') + (attentionProjects().length > 3 ? ', ...' : '') + '.' }}
+                Meld retries automatically. <a href="/#account">See why</a>.</p>
             }
             @for (update of current.updates; track update.id) {
               <article class="feed-card share-source-own">

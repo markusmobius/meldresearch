@@ -53,3 +53,5 @@ button.summarize mat-icon { width: 16px; height: 16px; font-size: 16px; }
 .spin { animation: blurb-spin 1.6s linear infinite; }
 @keyframes blurb-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+/* Why an included project's last attempt failed (the row's phase says it is retrying). */
+.row-error { display: block; margin-top: 4px; max-width: 72ch; font-size: 0.78rem; line-height: 1.4; color: #b42318; }

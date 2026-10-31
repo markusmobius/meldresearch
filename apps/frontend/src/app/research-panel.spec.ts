@@ -68,7 +68,7 @@ describe('Research Updates onboarding', () => {
     expect(strip.textContent).toContain('Also: NewsSlant, Favors');
     expect(strip.querySelector('[title="sections/model.tex"]')).not.toBeNull();
     expect(fixture.componentInstance.progressPercent()).toBe(25);
-    expect(fixture.nativeElement.querySelector('[role="alert"]')?.textContent).toContain('2 projects need attention: NewsSlant, Favors.');
+    expect(fixture.nativeElement.querySelector('[role="alert"]')?.textContent).toContain('2 projects could not be processed: NewsSlant, Favors.');
     fixture.destroy();
   });
 
