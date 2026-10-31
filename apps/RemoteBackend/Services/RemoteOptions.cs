@@ -1,3 +1,5 @@
+using System.Security.Claims;
+
 namespace MeldResearch.RemoteBackend.Services;
 
 internal sealed class RemoteOptions
@@ -9,6 +11,23 @@ internal sealed class RemoteOptions
     public string? GoogleClientId { get; init; }
     public bool GoogleConfigured => !string.IsNullOrWhiteSpace(GoogleClientId);
     public string? DownloadDirectory { get; init; }
+    /// <summary>Verified Google emails that may see operator pages such as LLM usage (config Superusers, comma-separated).</summary>
+    public IReadOnlySet<string> Superusers { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// A session from Sign in with Google with a verified email on the superuser list. In Dummy mode (development loopback
+    /// only) the synthetic account stands in, so the operator pages can be tested.
+    /// </summary>
+    public bool IsSuperuser(ClaimsPrincipal user)
+    {
+        if (user.Identity?.IsAuthenticated != true) return false;
+        string? provider = user.FindFirstValue("meld_provider");
+        if (Dummy) return provider == "dummy";
+        return provider == "google" && user.FindFirstValue("meld_email_verified") == "true" &&
+            user.FindFirstValue(ClaimTypes.Email) is { Length: > 0 } email && Superusers.Contains(email);
+    }
+
+    public const string DefaultSuperuser = "markusmobius@gmail.com";
 
     public static RemoteOptions Load(IConfiguration configuration, IHostEnvironment environment)
     {
@@ -26,7 +45,9 @@ internal sealed class RemoteOptions
         {
             DataDirectory = data, PublicOrigin = uri, Dummy = dummy,
             GoogleClientId = configuration["Google:ClientId"] is { Length: > 0 } clientId ? clientId.Trim() : null,
-            DownloadDirectory = configuration["DownloadDirectory"] is { Length: > 0 } downloads ? Path.GetFullPath(downloads) : null
+            DownloadDirectory = configuration["DownloadDirectory"] is { Length: > 0 } downloads ? Path.GetFullPath(downloads) : null,
+            Superusers = (configuration["Superusers"] ?? DefaultSuperuser).Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase)
         };
     }
 }

@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { MeldToolbar, versionLabel } from './meld-toolbar';
+import { MeldToolbar, readRemoteAccount, versionLabel } from './meld-toolbar';
 
 describe('Local version and connection indicator', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -69,5 +69,23 @@ describe('Remote account menu', () => {
     expect(button.textContent).toContain('Ada Lovelace');
     fixture.componentInstance.signOut();
     expect(submit).toHaveBeenCalled();
+  });
+
+  it('offers LLM usage only to the superuser', async () => {
+    const meta = document.createElement('meta');
+    meta.name = 'meld-account';
+    meta.content = 'Ada Lovelace';
+    meta.dataset['email'] = 'ada@example.invalid';
+    document.head.append(meta);
+    expect(readRemoteAccount()?.superuser).toBe(false);
+    meta.dataset['superuser'] = 'true';
+    expect(readRemoteAccount()?.superuser).toBe(true);
+
+    const fixture = TestBed.createComponent(MeldToolbar);
+    await fixture.whenStable();
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.remote-account-btn')!.click();
+    await fixture.whenStable();
+    expect(document.querySelector('a[href="/usage"]')?.textContent).toContain('LLM usage');
+    fixture.destroy();
   });
 });

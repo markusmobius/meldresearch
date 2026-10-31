@@ -42,6 +42,23 @@ describe('OpenAlex researcher setup', () => {
     fixture.destroy();
   });
 
+  it('shows the search in progress while the request runs and reports a failed search', async () => {
+    let finish!: (error?: unknown) => void;
+    api.researcher.mockReturnValue(new Promise<void>((resolve, reject) => { finish = error => error ? reject(error) : resolve(); }));
+    const fixture = setup(null);
+    const element: HTMLElement = fixture.nativeElement;
+    const searching = fixture.componentInstance.search();
+    fixture.detectChanges();
+    expect(element.querySelector('[role="status"]')?.textContent).toContain('Searching OpenAlex for Google Name');
+    expect(element.querySelector('form.search')).toBeNull();
+    finish(new Error('OpenAlex has reached its request limit.'));
+    await searching;
+    fixture.detectChanges();
+    expect(element.querySelector('form.search')).not.toBeNull();
+    expect(element.querySelector('[role="alert"]')?.textContent).toBeTruthy();
+    fixture.destroy();
+  });
+
   it('lets the user confirm one offered author, or none of them', async () => {
     const fixture = setup(state('choice', { candidates: [candidate('A1'), candidate('A2')] }));
     const element: HTMLElement = fixture.nativeElement;

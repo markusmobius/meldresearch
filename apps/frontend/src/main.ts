@@ -17,6 +17,7 @@ async function start(): Promise<void> {
   const application = await createApplication(config);
   application.bootstrap(MeldToolbar);
   if (document.querySelector('app-meld-install')) application.bootstrap((await import('./app/meld-install')).MeldInstall);
+  if (document.querySelector('app-meld-usage')) application.bootstrap((await import('./app/meld-usage')).MeldUsage);
 }
 
 void start().catch(() => {

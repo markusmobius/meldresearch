@@ -124,8 +124,10 @@ It does not access a real Overleaf profile or register the browser connector.
 4. Choose **Include** for the synthetic project. Initial ingestion produces baseline
    research updates in **Feed**; **Review** opens the complete source evidence.
 5. In **Projects**, choose **Apply synthetic project change** to exercise a meaningful delta.
-6. **OpenAlex** offers a search by your name (Foundry plus OpenAlex; consumes quota);
-   confirm an author or choose **I'm not on OpenAlex**.
+6. **OpenAlex** offers a search by your name (Foundry plus OpenAlex; consumes quota)
+   that answers while you wait; confirm an author or choose **I'm not on OpenAlex**.
+   The confirmed author's publications are imported by a persisted background job
+   (resumes after restart, backs off on failure, refreshes weekly) into **About me**.
 7. The **Check for changes** refresh control in **Feed** makes zero model calls
    when supported content has not changed.
 
@@ -160,7 +162,7 @@ available in Live mode. Listing/manual ZIP downloads remain available separately
 from account-gated model processing.
 
 The source manifest now uses the supplied Chrome draft public key:
-**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.5.0**, wire protocol **2**.
+**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.5.1**, wire protocol **2**.
 It is a public identity key, not a signing secret.
 
 Until the private listing is approved, remove the old development-ID unpacked
@@ -385,6 +387,14 @@ sign-ins and website sessions therefore survive restarts. Migrations in
 at startup. Names, email addresses, and device names are stored as Data
 Protection ciphertext; app credentials and sign-in codes are stored only as
 SHA-256 hashes. The Google subject is the plain lookup key.
+
+The same database keeps one `inference_usage` row per Foundry request (time,
+deployment, chat/embedding, purpose, HTTP status, token counts, duration; no
+content and no account), pruned after 400 days. Superusers (config `Superusers`,
+comma-separated verified Google emails, default `markusmobius@gmail.com`; the
+synthetic account in Dummy mode) see it at `/usage` (LLM usage dashboard, ported
+from Project Meld; also in the account menu) and `/api/usage`. Everyone else
+gets 404. The Foundry smoke test does not record usage.
 
 SQLite supports one remote process per data directory (`server.lock` enforces this),
 not multiple load-balanced instances. Research text is never stored remotely.

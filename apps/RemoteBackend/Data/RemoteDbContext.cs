@@ -43,12 +43,31 @@ internal sealed class SignInCodeEntity
     public DateTimeOffset ExpiresAt { get; set; }
 }
 
+/// <summary>
+/// One Foundry request for the superuser's LLM usage dashboard: metadata only, never prompt or response text and never
+/// the calling account. AtMs is UTC Unix milliseconds so SQLite can group requests into time buckets.
+/// </summary>
+internal sealed class InferenceUsageEntity
+{
+    public long Id { get; set; }
+    public long AtMs { get; set; }
+    public required string Deployment { get; set; }
+    public required string Operation { get; set; }
+    public required string Purpose { get; set; }
+    /// <summary>The HTTP status from Foundry; 0 when no response arrived.</summary>
+    public int StatusCode { get; set; }
+    public long? PromptTokens { get; set; }
+    public long? CompletionTokens { get; set; }
+    public int DurationMs { get; set; }
+}
+
 internal sealed class RemoteDbContext(DbContextOptions<RemoteDbContext> options) : DbContext(options), IDataProtectionKeyContext
 {
     public DbSet<AccountEntity> Accounts => Set<AccountEntity>();
     public DbSet<DeviceEntity> Devices => Set<DeviceEntity>();
     public DbSet<SignInCodeEntity> SignInCodes => Set<SignInCodeEntity>();
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
+    public DbSet<InferenceUsageEntity> InferenceUsage => Set<InferenceUsageEntity>();
 
     // SQLite cannot compare DateTimeOffset values in SQL; UTC Unix milliseconds keep expiry queries server-side.
     protected override void ConfigureConventions(ModelConfigurationBuilder configuration) =>
@@ -82,6 +101,15 @@ internal sealed class RemoteDbContext(DbContextOptions<RemoteDbContext> options)
             code.HasOne(item => item.Account).WithMany().HasForeignKey(item => item.AccountId).OnDelete(DeleteBehavior.Cascade);
         });
         model.Entity<DataProtectionKey>().ToTable("data_protection_keys");
+        model.Entity<InferenceUsageEntity>(usage =>
+        {
+            usage.ToTable("inference_usage");
+            usage.HasKey(item => item.Id);
+            usage.Property(item => item.Deployment).HasMaxLength(128);
+            usage.Property(item => item.Operation).HasMaxLength(16);
+            usage.Property(item => item.Purpose).HasMaxLength(32);
+            usage.HasIndex(item => item.AtMs);
+        });
     }
 }
 

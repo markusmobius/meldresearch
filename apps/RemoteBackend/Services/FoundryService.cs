@@ -12,6 +12,8 @@ internal interface IFoundryService
     bool Configured { get; }
     long ChatRequests { get; }
     long EmbeddingRequests { get; }
+    /// <summary>Configured deployments and the requests in flight against the concurrency limit.</summary>
+    InferenceCapacity Capacity { get; }
     /// <summary>Folds one file into the project summary; later steps also report cited Updates.</summary>
     Task<ProfileStepResponse> ProfileStepAsync(ProfileStepRequest request, CancellationToken ct);
     Task<ResearchEmbeddingResponse> EmbedAsync(ResearchEmbeddingRequest request, CancellationToken ct);
@@ -36,7 +38,9 @@ internal sealed class FoundryService : IFoundryService, IDisposable
     private readonly Uri? _tokenSource;
     private readonly string _chat;
     private readonly string _embedding;
-    private readonly SemaphoreSlim _capacity = new(2, 2);
+    private const int MaxConcurrency = 2;
+    private readonly SemaphoreSlim _capacity = new(MaxConcurrency, MaxConcurrency);
+    private readonly InferenceUsageStore? _usage;
     private readonly SemaphoreSlim _credentialGate = new(1, 1);
     private readonly ILogger? _logger;
     private DevelopmentCredential? _credential;
@@ -45,15 +49,18 @@ internal sealed class FoundryService : IFoundryService, IDisposable
     public long ChatRequests => Interlocked.Read(ref _chatRequests);
     public long EmbeddingRequests => Interlocked.Read(ref _embeddingRequests);
     public bool Configured => _origin is not null && _chat.Length != 0 && _embedding.Length != 0;
+    public InferenceCapacity Capacity => new(_chat, _embedding, MaxConcurrency - _capacity.CurrentCount, MaxConcurrency);
 
-    public FoundryService(IConfiguration configuration, IHostEnvironment environment, IHttpClientFactory clients, ILogger<FoundryService> logger)
-        : this(configuration, environment, clients.CreateClient("foundry"), null, logger) { }
+    public FoundryService(IConfiguration configuration, IHostEnvironment environment, IHttpClientFactory clients, ILogger<FoundryService> logger,
+        InferenceUsageStore usage)
+        : this(configuration, environment, clients.CreateClient("foundry"), null, logger, usage) { }
 
     internal FoundryService(IConfiguration configuration, IHostEnvironment environment, HttpClient http, TokenCredential? credential,
-        ILogger? logger = null)
+        ILogger? logger = null, InferenceUsageStore? usage = null)
     {
         _http = http;
         _logger = logger;
+        _usage = usage;
         _configuration = configuration;
         _chat = configuration["Foundry:ChatDeployment"] ?? "";
         _embedding = configuration["Foundry:EmbeddingDeployment"] ?? "";
@@ -97,7 +104,7 @@ internal sealed class FoundryService : IFoundryService, IDisposable
         // A summary over the size limit gets one request to shorten it; the step otherwise fails without changing anything.
         for (int attempt = 0; attempt < 2 && response is null; attempt++)
         {
-            var step = await CompleteStepAsync(messages, ct);
+            var step = await CompleteStepAsync(messages, request.Initial ? InferencePurpose.ProfileImport : InferencePurpose.ProfileUpdate, ct);
             var candidate = new ProfileStepResponse(step.Profile, (step.Updates ?? []).Select(update => new ProfileUpdate(update.Title,
                 update.Summary, (update.Evidence ?? []).Select(citation => ResolveCitation(request.File, citation)).ToArray())).ToArray(),
                 step.Explanation, _chat);
@@ -114,7 +121,7 @@ internal sealed class FoundryService : IFoundryService, IDisposable
         return response!;
     }
 
-    private async Task<ModelStep> CompleteStepAsync(IReadOnlyList<object> messages, CancellationToken ct)
+    private async Task<ModelStep> CompleteStepAsync(IReadOnlyList<object> messages, InferencePurpose purpose, CancellationToken ct)
     {
         var payload = new
         {
@@ -124,7 +131,7 @@ internal sealed class FoundryService : IFoundryService, IDisposable
                 name = "overleaf_profile_step", strict = true, schema = JsonDocument.Parse(StepSchema).RootElement
             } }
         };
-        using var result = await SendAsync("chat/completions", payload, ct);
+        using var result = await SendAsync("chat/completions", payload, purpose, ct);
         try
         {
             var choice = result.RootElement.GetProperty("choices")[0];
@@ -148,7 +155,8 @@ internal sealed class FoundryService : IFoundryService, IDisposable
             request.Input.Any(text => string.IsNullOrWhiteSpace(text) || text.Length > 16000))
             throw new ResearchFailure(400, "invalid_embedding_input", "Supply 1-20 nonempty texts of at most 16000 characters.");
         RequireConfiguration();
-        using var response = await SendAsync("embeddings", new { model = _embedding, input = request.Input, encoding_format = "float" }, ct);
+        using var response = await SendAsync("embeddings", new { model = _embedding, input = request.Input, encoding_format = "float" },
+            InferencePurpose.Other, ct);
         try
         {
             var items = response.RootElement.GetProperty("data").EnumerateArray().ToArray();
@@ -184,7 +192,8 @@ internal sealed class FoundryService : IFoundryService, IDisposable
                 name = schemaName, strict = true, schema = JsonDocument.Parse(schema).RootElement
             } }
         };
-        using var result = await SendAsync("chat/completions", payload, ct);
+        // Only researcher matching uses free-form JSON completions.
+        using var result = await SendAsync("chat/completions", payload, InferencePurpose.ResearcherMatching, ct);
         try
         {
             var choice = result.RootElement.GetProperty("choices")[0];
@@ -199,10 +208,15 @@ internal sealed class FoundryService : IFoundryService, IDisposable
         }
     }
 
-    private async Task<JsonDocument> SendAsync(string operation, object body, CancellationToken ct)
+    private async Task<JsonDocument> SendAsync(string operation, object body, InferencePurpose purpose, CancellationToken ct)
     {
         if (!await _capacity.WaitAsync(0, ct))
             throw new ResearchFailure(429, "foundry_busy", "Foundry processing is busy. Try again shortly.");
+        bool chat = operation == "chat/completions";
+        DateTimeOffset? sentAt = null;
+        int status = 0;
+        long? promptTokens = null, completionTokens = null;
+        var timer = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -216,9 +230,12 @@ internal sealed class FoundryService : IFoundryService, IDisposable
             };
             request.Content.Headers.ContentType = new("application/json");
             await AuthorizeAsync(request, deadline.Token);
-            if (operation == "chat/completions") Interlocked.Increment(ref _chatRequests);
+            if (chat) Interlocked.Increment(ref _chatRequests);
             else Interlocked.Increment(ref _embeddingRequests);
+            sentAt = DateTimeOffset.UtcNow;
+            timer.Restart();
             using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
+            status = (int)response.StatusCode;
             if (!response.IsSuccessStatusCode)
             {
                 // Foundry's error code (for example PermissionDenied or DeploymentNotFound) explains the rejection
@@ -229,9 +246,29 @@ internal sealed class FoundryService : IFoundryService, IDisposable
                     "foundry_request_failed", $"The configured Foundry deployment rejected the request (HTTP {(int)response.StatusCode}" +
                     (reason.Length != 0 ? $", {reason}" : "") + "). No other provider was used.");
             }
-            return await ReadBoundedAsync(response, 4 * 1024 * 1024, deadline.Token);
+            var document = await ReadBoundedAsync(response, 4 * 1024 * 1024, deadline.Token);
+            (promptTokens, completionTokens) = Usage(document.RootElement, chat);
+            return document;
         }
-        finally { _capacity.Release(); }
+        finally
+        {
+            _capacity.Release();
+            // Only requests that reached Foundry count; the record holds no request or response content.
+            if (sentAt is { } at && _usage is not null)
+                await _usage.RecordAsync(new(at, chat ? _chat : _embedding, chat ? InferenceOperation.Chat : InferenceOperation.Embedding,
+                    purpose, status, promptTokens, completionTokens, timer.Elapsed), CancellationToken.None);
+        }
+    }
+
+    /// <summary>Token counts from the response's usage block; null when Foundry did not report them.</summary>
+    private static (long? Prompt, long? Completion) Usage(JsonElement root, bool chat)
+    {
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("usage", out var usage) || usage.ValueKind != JsonValueKind.Object)
+            return (null, null);
+        static long? Count(JsonElement usage, string name) =>
+            usage.TryGetProperty(name, out var value) && value.TryGetInt64(out long count) && count >= 0 ? count : null;
+        long? prompt = Count(usage, "prompt_tokens");
+        return prompt is null ? (null, null) : (prompt, chat ? Count(usage, "completion_tokens") ?? 0 : 0);
     }
 
     private async Task AuthorizeAsync(HttpRequestMessage request, CancellationToken ct)

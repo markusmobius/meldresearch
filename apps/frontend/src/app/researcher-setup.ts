@@ -26,6 +26,8 @@ export class ResearcherSetup {
   readonly selectedId = signal<string | null>(null);
   readonly editing = signal(false);
   readonly saving = signal(false);
+  /** The name being searched right now; the search runs while the user waits. */
+  readonly searching = signal<string | null>(null);
   readonly error = signal('');
   readonly phase = computed(() => this.researcher()?.status ?? null);
   readonly showSearch = computed(() => this.editing() || this.phase() === null || this.phase() === 'unmatched' || this.phase() === 'rejected');
@@ -46,7 +48,9 @@ export class ResearcherSetup {
       this.error.set('Enter your name as it appears on your publications.');
       return Promise.resolve();
     }
-    return this.save(() => this.api.researcher('search', { searchName: name, baseVersion: this.researcher()?.version }));
+    this.searching.set(name);
+    return this.save(() => this.api.researcher('search', { searchName: name, baseVersion: this.researcher()?.version }))
+      .finally(() => this.searching.set(null));
   }
   confirm(): Promise<void> {
     const id = this.selectedId();

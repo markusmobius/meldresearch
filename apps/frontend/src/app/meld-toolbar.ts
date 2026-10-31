@@ -6,12 +6,12 @@ import { MatToolbarModule } from '@angular/material/toolbar';
 
 export type LocalPage = 'home' | 'about-me' | 'account';
 
-export interface RemoteAccount { name: string; email: string; signOutToken?: string; }
+export interface RemoteAccount { name: string; email: string; signOutToken?: string; superuser?: boolean; }
 
 /** The signed-in remote account, published by the server-rendered page; null on local and anonymous pages. */
 export function readRemoteAccount(): RemoteAccount | null {
   const meta = document.querySelector<HTMLMetaElement>('meta[name="meld-account"]');
-  return meta ? { name: meta.content, email: meta.dataset['email'] ?? '' } : null;
+  return meta ? { name: meta.content, email: meta.dataset['email'] ?? '', superuser: meta.dataset['superuser'] === 'true' } : null;
 }
 
 const isRemoteSite = () =>

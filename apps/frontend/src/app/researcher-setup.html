@@ -5,11 +5,14 @@
       <button mat-stroked-button class="retry-button" [disabled]="saving()" (click)="retry()"><mat-icon>refresh</mat-icon>Retry now</button></div>
   }
 
+  @if (searching(); as name) {
+    <p class="phase-status" role="status"><mat-icon>person_search</mat-icon>Searching OpenAlex for <strong>{{ name }}</strong>...</p>
+    <mat-progress-bar mode="indeterminate" aria-label="Searching OpenAlex"></mat-progress-bar>
+  } @else {
   @switch (phase()) {
     @case ('searching') {
       <p class="phase-status" role="status"><mat-icon>person_search</mat-icon>Searching OpenAlex for <strong>{{ current?.searchName }}</strong>...</p>
       <mat-progress-bar mode="indeterminate" aria-label="Searching OpenAlex"></mat-progress-bar>
-      <p class="muted">This takes up to a minute. You can keep using Meld; the candidates appear here.</p>
     }
     @case ('choice') {
       <p class="source-note">{{ current?.searchName }} <span>Public source: OpenAlex</span></p>
@@ -42,6 +45,7 @@
     @case ('importing') {
       <p class="phase-status" role="status"><mat-icon>downloading</mat-icon>Importing publications for <strong>{{ current?.researcher?.name }}</strong>...</p>
       <mat-progress-bar mode="indeterminate" aria-label="Importing publications"></mat-progress-bar>
+      <p class="muted">This runs in the background and continues after a restart. Your publications appear in About me.</p>
     }
     @case ('ready') {
       @if (current?.researcher; as author) {
@@ -71,8 +75,9 @@
         to your private profile. Search by your name, then confirm which author is you.</p>
     }
   }
+  }
 
-  @if (showSearch()) {
+  @if (showSearch() && !searching()) {
     <form class="search" (submit)="$event.preventDefault(); search()">
       <mat-form-field appearance="outline" subscriptSizing="dynamic">
         <mat-label>Your name on publications</mat-label>

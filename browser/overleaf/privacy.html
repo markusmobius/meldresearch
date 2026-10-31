@@ -21,7 +21,7 @@
       <header class="page-header">
         <div class="page-heading">
           <h1 class="page-title"><span class="material-icons site-only" aria-hidden="true">shield</span>Privacy &amp; Controls</h1>
-          <p class="page-subtitle">Last updated: October 2026 &middot; Meld Research and its Overleaf connector, version 0.5.0</p>
+          <p class="page-subtitle">Last updated: October 2026 &middot; Meld Research and its Overleaf connector, version 0.5.1</p>
         </div>
       </header>
 
@@ -51,7 +51,9 @@
                 to the configured Azure AI Foundry chat deployment. The updated summary and grounded Updates are returned to your
                 computer. Processing runs in the background without a separate prompt for each model request.</li>
               <li><strong>The Meld website:</strong> keeps your account and approved installations in its own database. The remote
-                Meld application does not persist a project archive or log research payloads.</li>
+                Meld application does not persist a project archive or log research payloads. To monitor cost and capacity, it records
+                for each model request only its time, deployment, purpose, outcome, token counts and duration, not its content or
+                which account made it, and deletes these records after about 13 months.</li>
               <li><strong>Google:</strong> authenticates your Meld account. Google sign-in occurs in the normal browser; Meld does not
                 ask for your Google password.</li>
               <li><strong>OpenAlex:</strong> only when you choose Search OpenAlex, the name you enter is sent through the Meld service

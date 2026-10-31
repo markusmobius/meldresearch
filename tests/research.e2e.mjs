@@ -294,8 +294,8 @@ async function verifyRemoteSession(base) {
   assert.equal((await browser('/docs.html')).status, 200);
   const home = await (await browser('/')).text();
   assert.match(home, /<a class="install-button" href="\/account">/, 'After signing up, Home offers only the install button.');
-  assert.match(home, /<meta name="meld-account" content="Demo Researcher" data-email="researcher@example.invalid">/,
-    'The toolbar account menu reflects the existing session after visiting Docs.');
+  assert.match(home, /<meta name="meld-account" content="Demo Researcher" data-email="researcher@example.invalid" data-superuser="true">/,
+    'The toolbar account menu reflects the existing session after visiting Docs; the Dummy account stands in for the superuser.');
   assert.doesNotMatch(home, /Use the synthetic test account|stat-card|Read the setup guide/);
   assert.match(home, /<footer class="meld-footer"><nav aria-label="Footer"><a href="mailto:[^"]+">Contact<\/a>\s*<a href="\/privacy.html">Privacy<\/a><\/nav><\/footer>/);
   const session = await browser('/api/session');
@@ -303,6 +303,16 @@ async function verifyRemoteSession(base) {
   const sessionBody = await session.json();
   assert.equal(sessionBody.name, 'Demo Researcher');
   assert.ok(sessionBody.signOutToken);
+  assert.equal(sessionBody.superuser, true);
+  const usagePage = await browser('/usage');
+  assert.equal(usagePage.status, 200, 'The superuser sees the LLM usage dashboard.');
+  assert.match(await usagePage.text(), /<app-meld-usage><h2>LLM Usage<\/h2>/, 'Without JavaScript the dashboard shows a summary table.');
+  const usage = await browser('/api/usage');
+  assert.equal(usage.status, 200);
+  const usageBody = await usage.json();
+  assert.equal(usageBody.bucketMinutes, 1);
+  assert.ok(Array.isArray(usageBody.buckets) && usageBody.capacity.maxConcurrency === 2);
+  assert.equal((await browser('/api/usage?purpose=1')).status, 400, 'Purposes are named, not numbered.');
   const account = await browser('/account');
   assert.equal(account.status, 200);
   const accountHtml = await account.text();
@@ -316,6 +326,8 @@ async function verifyRemoteSession(base) {
   assert.equal(signOut.headers.get('location'), '/');
   assert.equal((await browser('/account')).status, 401, 'Signing out ends the session.');
   assert.equal((await browser('/api/session')).status, 204);
+  assert.equal((await browser('/usage')).status, 404, 'LLM usage does not exist for anyone but the superuser.');
+  assert.equal((await browser('/api/usage')).status, 404);
   const anonymous = await (await browser('/')).text();
   assert.match(anonymous, /class="dummy-sign-in"/);
   assert.doesNotMatch(anonymous, /meld-account|meld-sign-out/);

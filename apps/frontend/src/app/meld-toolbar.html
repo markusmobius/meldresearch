@@ -59,6 +59,7 @@
         <small>{{ account.email }}</small>
       </div>
       <a mat-menu-item href="/account"><mat-icon>download</mat-icon><span>Install Meld Research</span></a>
+      @if (account.superuser) { <a mat-menu-item href="/usage"><mat-icon>query_stats</mat-icon><span>LLM usage</span></a> }
       <button mat-menu-item (click)="signOut()"><mat-icon>logout</mat-icon><span>Sign out</span></button>
     </mat-menu>
   }

@@ -1,0 +1,117 @@
+<section class="usage-view" [attr.aria-busy]="loading()">
+  <header class="page-header">
+    <div class="page-heading">
+      <h2 class="page-title"><mat-icon>query_stats</mat-icon>LLM Usage</h2>
+      <p class="page-subtitle">{{ timezone }}</p>
+    </div>
+    <div class="page-actions">
+      <button mat-icon-button type="button" aria-label="Refresh usage" title="Refresh usage" (click)="load()" [disabled]="loading()">
+        <mat-icon [class.spinning-icon]="loading()">refresh</mat-icon>
+      </button>
+      <button mat-icon-button type="button" aria-label="Download SVG" title="Download SVG" (click)="download()"
+        [disabled]="!data() || loading() || !totals().requests">
+        <mat-icon>download</mat-icon>
+      </button>
+    </div>
+  </header>
+  <form class="usage-filters" (submit)="$event.preventDefault(); load()">
+    <label>From<input type="datetime-local" name="from" [value]="from()" (change)="setFrom($event)" required></label>
+    <label>To<input type="datetime-local" name="to" [value]="to()" (change)="setTo($event)" required></label>
+    <label>Deployment<select name="deployment" (change)="deployment.set(value($event))">
+      <option value="" [selected]="!deployment()">All deployments</option>
+      @for (name of data()?.deployments ?? []; track name) { <option [value]="name" [selected]="deployment() === name">{{ name }}</option> }
+    </select></label>
+    <label>Purpose<select name="purpose" (change)="setPurpose($event)">
+      <option value="" [selected]="!purpose()">All purposes</option>
+      @for (item of purposes; track item.value) { <option [value]="item.value" [selected]="purpose() === item.value">{{ item.label }}</option> }
+    </select></label>
+    <button mat-stroked-button type="submit" [disabled]="loading()">Apply</button>
+    <label class="usage-recent">Recent<select aria-label="Recent date range" (change)="recent(+value($event))">
+      @if (recentDays() === null) { <option value="" selected disabled>Custom</option> }
+      @for (days of [1, 7, 30, 365]; track days) {
+        <option [value]="days" [selected]="recentDays() === days">{{ days === 1 ? '24 hours' : days === 365 ? '1 year' : days + ' days' }}</option>
+      }
+    </select></label>
+  </form>
+  @if (error()) { <p class="usage-error" role="alert">{{ error() }}</p> }
+  @if (loading() && !data()) { <p class="usage-loading" role="status">Loading usage...</p> }
+  @if (data(); as usage) {
+    <dl class="usage-metrics">
+      <div><dt>Chat input</dt><dd>{{ totals().input | number }}</dd></div>
+      <div><dt>Chat output</dt><dd>{{ totals().output | number }}</dd></div>
+      <div><dt>Embedding input</dt><dd>{{ totals().embedding | number }}</dd></div>
+      <div><dt>Requests</dt><dd>{{ totals().requests | number }}</dd></div>
+      <div><dt>Failed</dt><dd [class.warning]="totals().failed > 0">{{ totals().failed | number }}</dd></div>
+      <div><dt>Rate limited</dt><dd [class.warning]="totals().throttled > 0">{{ totals().throttled | number }}</dd></div>
+      <div><dt>Unknown usage</dt><dd [class.warning]="totals().unknown > 0">{{ totals().unknown | number }}</dd></div>
+    </dl>
+    <div class="usage-chart-heading">
+      <span class="muted">Tokens / {{ bucketLabel() }}</span>
+      <div class="usage-legend">@for (item of series; track item.key) { <span><i [style.background]="item.color"></i>{{ item.label }}</span> }</div>
+    </div>
+  }
+  <div #plotHost class="usage-plot-host">
+    @if (data(); as usage) {
+      @if (totals().requests > 0) {
+        <svg #plot xmlns="http://www.w3.org/2000/svg" role="img" aria-label="LLM token usage by time"
+          [attr.viewBox]="'0 0 ' + width() + ' 280'" width="100%" height="280" font-family="Outfit, Segoe UI, sans-serif" (mouseleave)="hovered.set(null)">
+          <title>LLM usage: {{ usage.from }} to {{ usage.to }}</title>
+          <desc>Dark blue: chat input. Light blue: chat output. Amber: embedding input. Missing token usage is excluded from token totals.</desc>
+          <rect width="100%" height="100%" fill="#ffffff" />
+          @for (level of chart().levels; track $index) {
+            <line [attr.x1]="chart().left" [attr.x2]="chart().right" [attr.y1]="level.position" [attr.y2]="level.position" stroke="#e5e9ef" />
+            <text [attr.x]="chart().left - 9" [attr.y]="level.position + 4" text-anchor="end" font-size="11" fill="#64748b">{{ level.label }}</text>
+          }
+          @for (path of chart().paths; track $index) { <path [attr.d]="path" [attr.fill]="series[$index].color" /> }
+          @for (tick of chart().ticks; track $index) {
+            <text [attr.x]="tick.position" y="259" [attr.text-anchor]="$first ? 'start' : $last ? 'end' : 'middle'" font-size="11" fill="#64748b">{{ tick.label }}</text>
+          }
+          <g aria-hidden="true">
+            @for (bin of chart().bins; track bin.start) {
+              <rect [attr.x]="chart().left + $index * chart().binWidth" y="22" [attr.width]="chart().binWidth" height="214" fill="transparent"
+                (mouseenter)="hovered.set(bin)">
+                <title>{{ bin.start | date:'medium' }}: chat input {{ bin.input }}, chat output {{ bin.output }}, embedding input {{ bin.embedding }}, unknown {{ bin.unknown }}</title>
+              </rect>
+            }
+          </g>
+        </svg>
+      } @else {
+        <div class="usage-empty"><mat-icon>query_stats</mat-icon><span>No model requests in this date range.</span></div>
+      }
+    }
+  </div>
+  @if (data(); as usage) {
+    <div class="usage-detail">
+      @if (hovered(); as bin) {
+        <span>{{ bin.start | date:'medium' }} <b>{{ bin.input | number }}</b> input / <b>{{ bin.output | number }}</b> output /
+          <b>{{ bin.embedding | number }}</b> embedding @if (bin.unknown) { <span> / {{ bin.unknown }} unknown</span> }</span>
+      } @else { {{ usage.from | date:'medium' }} to {{ usage.to | date:'medium' }} }
+    </div>
+    <section class="usage-purposes">
+      <h3>By Purpose</h3>
+      <div class="purpose-table-wrap">
+        <table aria-label="Token usage by purpose">
+          <thead><tr><th scope="col">Purpose</th><th scope="col">Chat input</th><th scope="col">Chat output</th><th scope="col">Embedding input</th>
+            <th scope="col">Total tokens</th><th scope="col">Requests</th><th scope="col">Failed</th><th scope="col">Unknown usage</th></tr></thead>
+          <tbody>
+            @for (row of purposeTotals(); track row.value) {
+              @if (!appliedPurpose() || appliedPurpose() === row.value) {
+                <tr><th scope="row">{{ row.label }}</th><td>{{ row.input | number }}</td><td>{{ row.output | number }}</td><td>{{ row.embedding | number }}</td>
+                  <td class="purpose-total">{{ row.total | number }}</td><td>{{ row.requests | number }}</td>
+                  <td [class.warning]="row.failed > 0">{{ row.failed | number }}</td><td [class.warning]="row.unknown > 0">{{ row.unknown | number }}</td></tr>
+              }
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <div class="usage-capacity">
+      <h3>Current Capacity</h3>
+      <div class="capacity-row">
+        <div class="capacity-name"><strong>Azure AI Foundry</strong>
+          <span class="muted">{{ usage.capacity.chatDeployment || 'chat unset' }} / {{ usage.capacity.embeddingDeployment || 'embedding unset' }}</span></div>
+        <div><span class="muted">In flight</span><strong>{{ usage.capacity.active }} / {{ usage.capacity.maxConcurrency }}</strong></div>
+      </div>
+    </div>
+  }
+</section>

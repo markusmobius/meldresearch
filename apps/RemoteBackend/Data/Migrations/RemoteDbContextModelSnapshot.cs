@@ -83,6 +83,49 @@ namespace MeldResearch.RemoteBackend.Data.Migrations
                     b.ToTable("devices", (string)null);
                 });
 
+            modelBuilder.Entity("MeldResearch.RemoteBackend.Data.InferenceUsageEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("AtMs")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("CompletionTokens")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Deployment")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("DurationMs")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Operation")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("PromptTokens")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("StatusCode")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AtMs");
+
+                    b.ToTable("inference_usage", (string)null);
+                });
+
             modelBuilder.Entity("MeldResearch.RemoteBackend.Data.SignInCodeEntity", b =>
                 {
                     b.Property<string>("CodeHash")

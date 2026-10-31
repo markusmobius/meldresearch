@@ -11,7 +11,7 @@ using MeldResearch.Research;
 
 namespace MeldResearch.RemoteBackend.Endpoints;
 
-internal sealed record BrowserSession(string Name, string Email, string SignOutToken);
+internal sealed record BrowserSession(string Name, string Email, string SignOutToken, bool Superuser);
 
 internal static class RemoteEndpoints
 {
@@ -141,11 +141,35 @@ internal static class RemoteEndpoints
         }).ExcludeFromDescription();
         // The toolbar's account menu on static pages (Docs, Privacy, Team). Same-origin only: the global Origin check and
         // the browser's same-origin policy keep the sign-out token from other sites.
-        app.MapGet("/api/session", Results<Ok<BrowserSession>, NoContent> (HttpContext context, IAntiforgery antiforgery) =>
+        app.MapGet("/api/session", Results<Ok<BrowserSession>, NoContent> (HttpContext context, IAntiforgery antiforgery, RemoteOptions options) =>
             context.User.Identity?.IsAuthenticated == true
                 ? TypedResults.Ok(new BrowserSession(context.User.FindFirstValue(ClaimTypes.Name) ?? "",
-                    context.User.FindFirstValue(ClaimTypes.Email) ?? "", antiforgery.GetAndStoreTokens(context).RequestToken!))
+                    context.User.FindFirstValue(ClaimTypes.Email) ?? "", antiforgery.GetAndStoreTokens(context).RequestToken!,
+                    options.IsSuperuser(context.User)))
                 : TypedResults.NoContent()).ExcludeFromDescription();
+
+        // LLM usage (as in Project Meld), only for superusers; everyone else gets the same 404 as an unknown page.
+        app.MapGet("/usage", async Task<ContentHttpResult> (HttpContext context, IAccountService accounts, RemoteOptions options,
+            InferenceUsageStore usage, IFoundryService foundry, CancellationToken ct) =>
+        {
+            await RequireSuperuserAsync(context, accounts, options, ct);
+            var now = DateTimeOffset.UtcNow;
+            var recent = await usage.QueryAsync(now.AddDays(-1), now, null, null, foundry.Capacity, ct);
+            return Page(context, "LLM Usage", $"<app-meld-usage>{UsageFallback(recent)}</app-meld-usage>", options, heading: false);
+        }).ExcludeFromDescription();
+        app.MapGet("/api/usage", async Task<Ok<InferenceUsageResponse>> (HttpContext context, IAccountService accounts, RemoteOptions options,
+            InferenceUsageStore usage, IFoundryService foundry, string? from, string? to, string? deployment, string? purpose, CancellationToken ct) =>
+        {
+            await RequireSuperuserAsync(context, accounts, options, ct);
+            var end = to is null ? DateTimeOffset.UtcNow : ParseTime(to);
+            var start = from is null ? end.AddDays(-1) : ParseTime(from);
+            InferencePurpose? kind = null;
+            if (!string.IsNullOrEmpty(purpose))
+                kind = Enum.TryParse<InferencePurpose>(purpose, ignoreCase: true, out var parsed) && Enum.IsDefined(parsed) && !int.TryParse(purpose, out _)
+                    ? parsed : throw new ResearchFailure(400, "invalid_usage_purpose", "Choose a known purpose.");
+            if (deployment is { Length: > 128 }) throw new ResearchFailure(400, "invalid_usage_deployment", "Choose a known deployment.");
+            return TypedResults.Ok(await usage.QueryAsync(start, end, string.IsNullOrEmpty(deployment) ? null : deployment, kind, foundry.Capacity, ct));
+        }).WithName("GetInferenceUsage").WithSummary("Superusers only: Foundry token usage by time, deployment, operation and purpose.");
 
         app.MapGet("/account", async Task<ContentHttpResult> (
             HttpContext context, IAccountService accounts, RemoteOptions options, CancellationToken ct) =>
@@ -257,6 +281,42 @@ internal static class RemoteEndpoints
             .WithName("GetDesktopInstaller").WithSummary("Download the desktop install script for Windows or macOS, bound to this server.");
     }
 
+    private static async Task RequireSuperuserAsync(HttpContext context, IAccountService accounts, RemoteOptions options, CancellationToken ct)
+    {
+        if (!options.IsSuperuser(context.User) || await accounts.FindAsync(context.User, ct) is null)
+            throw new ResearchFailure(404, "not_found", "This page does not exist.");
+    }
+
+    private static DateTimeOffset ParseTime(string value) =>
+        DateTimeOffset.TryParse(value, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out var time)
+            ? time.ToUniversalTime() : throw new ResearchFailure(400, "invalid_usage_range", "Use ISO 8601 times for the usage range.");
+
+    /// <summary>Without JavaScript the dashboard shows the last 24 hours by purpose; the Angular component replaces it.</summary>
+    private static string UsageFallback(InferenceUsageResponse usage)
+    {
+        var rows = Enum.GetValues<InferencePurpose>().Select(purpose =>
+        {
+            var items = usage.Buckets.Where(item => item.Purpose == purpose).ToArray();
+            long input = items.Where(item => item.Operation == InferenceOperation.Chat).Sum(item => item.PromptTokens);
+            long embedding = items.Where(item => item.Operation == InferenceOperation.Embedding).Sum(item => item.PromptTokens);
+            long output = items.Sum(item => item.CompletionTokens);
+            return $"<tr><th scope=\"row\">{E(PurposeLabel(purpose))}</th><td>{input:N0}</td><td>{output:N0}</td><td>{embedding:N0}</td>" +
+                $"<td>{items.Sum(item => item.Requests):N0}</td><td>{items.Sum(item => item.FailedRequests):N0}</td></tr>";
+        });
+        return "<h2>LLM Usage</h2><p>Last 24 hours (UTC). Enable JavaScript for the chart and filters.</p>" +
+            "<table><thead><tr><th scope=\"col\">Purpose</th><th scope=\"col\">Chat input</th><th scope=\"col\">Chat output</th>" +
+            "<th scope=\"col\">Embedding input</th><th scope=\"col\">Requests</th><th scope=\"col\">Failed</th></tr></thead><tbody>" +
+            string.Concat(rows) + "</tbody></table>";
+    }
+
+    private static string PurposeLabel(InferencePurpose purpose) => purpose switch
+    {
+        InferencePurpose.ProfileImport => "Profile import",
+        InferencePurpose.ProfileUpdate => "Profile updates",
+        InferencePurpose.ResearcherMatching => "Researcher matching",
+        _ => "Other"
+    };
+
     private static async Task<(DesktopUpdateManifest Manifest, string Envelope)> PublishedUpdateAsync(
         string runtime, RemoteOptions options, CancellationToken ct)
     {
@@ -355,7 +415,8 @@ internal static class RemoteEndpoints
         if (context.User.Identity?.IsAuthenticated == true)
         {
             string name = context.User.FindFirstValue(ClaimTypes.Name) ?? "", email = context.User.FindFirstValue(ClaimTypes.Email) ?? "";
-            meta = $"<meta name=\"meld-account\" content=\"{E(name)}\" data-email=\"{E(email)}\">";
+            bool superuser = context.RequestServices.GetRequiredService<RemoteOptions>().IsSuperuser(context.User);
+            meta = $"<meta name=\"meld-account\" content=\"{E(name)}\" data-email=\"{E(email)}\"{(superuser ? " data-superuser=\"true\"" : "")}>";
             signOutForm = "<form id=\"meld-sign-out\" method=\"post\" action=\"/auth/signout\" hidden>" +
                 Token(context, context.RequestServices.GetRequiredService<IAntiforgery>()) + "</form>";
             fallbackAccount = $"<span class=\"site-account\">{E(name)} <button form=\"meld-sign-out\">Sign out</button></span>";

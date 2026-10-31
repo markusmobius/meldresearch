@@ -10,15 +10,17 @@ internal interface IResearcherService
 }
 
 /// <summary>
-/// Matches the signed-in account to an OpenAlex author (ported from Project Meld). A search starts only on the user's
-/// request; the remote service proposes candidates; only the user confirms one. The confirmed author's public works are
-/// stored in the encrypted local research state and refreshed weekly. A result is discarded if the account or the
+/// Matches the signed-in account to an OpenAlex author (ported from Project Meld). A name search runs while the user
+/// waits; the remote service proposes candidates; only the user confirms one. Importing the confirmed author's public
+/// works is a queued job: the state is persisted, so it resumes after a restart, retries with backoff and refreshes
+/// weekly. Works are stored in the encrypted local research state. A result is discarded if the account or the
 /// researcher state changed while it was being fetched.
 /// </summary>
 internal sealed class ResearcherService(IResearchStore store, IResearchRemote remote, ILogger<ResearcherService> logger,
     TimeProvider clock) : BackgroundService, IResearcherService
 {
     internal static readonly TimeSpan RefreshInterval = TimeSpan.FromDays(7);
+    internal static readonly TimeSpan SearchTimeout = TimeSpan.FromMinutes(2);
     private readonly SemaphoreSlim _wake = new(0, 1);
 
     public async Task DecideAsync(ResearcherDecisionRequest request, CancellationToken ct)
@@ -26,6 +28,11 @@ internal sealed class ResearcherService(IResearchStore store, IResearchRemote re
         var state = await store.ReadAsync(ct);
         var account = state.Credential?.Account.Id ??
             throw new ResearchFailure(409, "meld_account_required", "Sign in to your Meld account first.");
+        if (request.Action == "search")
+        {
+            await SearchAsync(state, request, ct);
+            return;
+        }
         await store.ChangeAsync(current =>
         {
             if (current.Credential?.Account.Id != account) throw new ResearchFailure(409, "research_state_changed", "The account changed. Reload and try again.");
@@ -36,11 +43,6 @@ internal sealed class ResearcherService(IResearchStore store, IResearchRemote re
             ResearcherState next;
             switch (request.Action)
             {
-                case "search":
-                    string name = request.SearchName?.Trim() ?? "";
-                    if (name.Length is < 2 or > 160) throw new ResearchFailure(400, "invalid_researcher_name", "Enter a researcher name of 2-160 characters.");
-                    next = new(account, (existing?.Version ?? 0) + 1, "searching", name, [], null, [], null, now, null);
-                    break;
                 case "confirm":
                     var candidate = existing?.Candidates.FirstOrDefault(item => item.Id == request.AuthorId);
                     if (existing is not { Status: "choice" } || candidate is null)
@@ -72,6 +74,43 @@ internal sealed class ResearcherService(IResearchStore store, IResearchRemote re
         Wake();
     }
 
+    /// <summary>
+    /// Searches OpenAlex while the user waits. A failed search changes nothing, so a confirmed author and its publications
+    /// stay.
+    /// </summary>
+    private async Task SearchAsync(LocalResearchState state, ResearcherDecisionRequest request, CancellationToken ct)
+    {
+        string name = request.SearchName?.Trim() ?? "";
+        if (name.Length is < 2 or > 160) throw new ResearchFailure(400, "invalid_researcher_name", "Enter a researcher name of 2-160 characters.");
+        var credential = state.Credential!;
+        if (credential.ExpiresAt <= clock.GetUtcNow()) throw new ResearchFailure(409, "meld_account_required", "Sign in to your Meld account again.");
+        var existing = state.Researchers?.FirstOrDefault(item => item.AccountId == credential.Account.Id);
+        if (request.BaseVersion is { } version && existing is not null && version != existing.Version)
+            throw new ResearchFailure(409, "researcher_changed", "Your researcher choice changed. Reload before choosing again.");
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(SearchTimeout);
+        ResearcherSearchResponse found;
+        try { found = await remote.SearchResearcherAsync(credential.Token, new(name), timeout.Token); }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        { throw new ResearchFailure(504, "openalex_search_timeout", "The OpenAlex search took too long. Try again."); }
+        var candidates = found.Candidates.Take(5).ToArray();
+
+        await store.ChangeAsync(current =>
+        {
+            var latest = current.Researchers?.FirstOrDefault(item => item.AccountId == credential.Account.Id);
+            if (current.Credential?.Account.Id != credential.Account.Id || latest?.Version != existing?.Version)
+                throw new ResearchFailure(409, "researcher_changed", "Your researcher choice changed while searching. Search again.");
+            // A successful search replaces the current author, as the search form warns.
+            var next = existing is null
+                ? new ResearcherState(credential.Account.Id, 1, "", name, [], null, [], null, null, null)
+                : existing with { Version = existing.Version + 1, SearchName = name };
+            next = next with { Status = candidates.Length > 0 ? "choice" : "unmatched", Candidates = candidates, Researcher = null,
+                Works = [], UpdatedAt = null, DueAt = null, LastError = null, Failures = 0 };
+            return current with { Researchers = Replace(current.Researchers, next) };
+        }, ct);
+    }
+
     public async Task<PublicationsResponse> PublicationsAsync(CancellationToken ct)
     {
         var state = await store.ReadAsync(ct);
@@ -99,7 +138,7 @@ internal sealed class ResearcherService(IResearchStore store, IResearchRemote re
         }
     }
 
-    /// <summary>Processes the signed-in account's due search or import, if any.</summary>
+    /// <summary>Processes the signed-in account's due import, if any (and a search queued by an earlier version).</summary>
     internal async Task RunOnceAsync(CancellationToken ct)
     {
         var state = await store.ReadAsync(ct);
