@@ -46,13 +46,20 @@
               </article>
             } @empty {
               @if (current.projects.length) {
-                <p class="feed-state">{{ current.busy ? 'The first import is running. Updates will appear when analysis finishes.' : 'No research updates yet. Monitoring will check for meaningful project changes.' }}</p>
+                <p class="feed-state">
+                  @if (current.processing?.kind === 'import') {
+                    Building your private profile from {{ current.processing?.name }} ({{ current.processing?.filesDone }} of {{ current.processing?.filesTotal }} files).
+                    The first import establishes what the project already says; Updates appear when included projects change.
+                  } @else {
+                    No updates yet. Meld checks your included projects once a day and reports meaningful research changes here.
+                  }
+                </p>
               }
             }
             @if (current.totalUpdates > current.updates.length) {
               <p class="feed-state">Showing the latest {{ current.updates.length }} updates. Earlier updates remain in the encrypted local store.</p>
             } @else if (current.updates.length) {
-              <p class="feed-state feed-end">Caught up. Initial imports describe existing knowledge, not work that happened today.</p>
+              <p class="feed-state feed-end">Caught up.</p>
             }
           </div>
         </section>

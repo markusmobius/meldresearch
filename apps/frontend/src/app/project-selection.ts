@@ -3,6 +3,7 @@ import { Component, computed, inject, input, output, signal } from '@angular/cor
 import { MatButtonModule } from '@angular/material/button';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { OverleafApi, OverleafProject, describeFailure } from './overleaf-api';
 import { ResearchApi, ResearchProject, ResearchStatus } from './research-api';
 import { ProjectChoice, isRecent, projectChoice } from './project-decisions';
@@ -10,7 +11,7 @@ import { ProjectChoice, isRecent, projectChoice } from './project-decisions';
 /** Account → Overleaf → Projects: an active include/exclude choice per recent project, optional choices for older ones. */
 @Component({
   selector: 'app-project-selection',
-  imports: [DatePipe, NgTemplateOutlet, MatButtonModule, MatExpansionModule, MatIconModule],
+  imports: [DatePipe, NgTemplateOutlet, MatButtonModule, MatExpansionModule, MatIconModule, MatProgressBarModule],
   templateUrl: './project-selection.html',
   styleUrl: './project-selection.css',
 })
@@ -32,6 +33,21 @@ export class ProjectSelection {
   choice(id: string): ProjectChoice { return projectChoice(this.status(), id); }
   isRecentProject(project: OverleafProject): boolean { return isRecent(project); }
   monitored(id: string): ResearchProject | undefined { return this.status()?.projects.find(project => project.projectId === id); }
+
+  phaseLabel(project: ResearchProject): string {
+    if (!project.enabled) return 'Paused';
+    switch (project.phase) {
+      case 'waiting': return 'Waiting for its first read';
+      case 'checking': return 'Reading Overleaf...';
+      case 'queued': return `Queued \u00b7 ${project.filesTotal} ${project.filesTotal === 1 ? 'file' : 'files'}`;
+      case 'importing': return `Importing ${project.filesDone} of ${project.filesTotal} files`;
+      case 'updating': return `Processing changes ${project.filesDone} of ${project.filesTotal}`;
+      case 'error': return 'Needs attention';
+      default: return project.profile ? 'Up to date' : 'Imported';
+    }
+  }
+
+  async checkNow(): Promise<void> { await this.run('Checking included projects...', () => this.api.sync()); }
 
   /** Choosing Include is the explicit consent to process that project under the current notice. */
   async decide(project: OverleafProject, included: boolean): Promise<void> {

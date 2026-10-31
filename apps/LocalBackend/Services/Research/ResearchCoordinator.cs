@@ -49,21 +49,43 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         var updates = projects.SelectMany(project => project.Updates).OrderByDescending(update => update.ObservedAt).ToArray();
         var signIn = _signIn is { } pending && pending.ExpiresAt > clock.GetUtcNow() && state.Credential is null ? pending : null;
         var researcher = state.Researchers?.FirstOrDefault(item => item.AccountId == account);
+        string? active;
+        lock (_cycleGate) active = _active?.ProjectId;
+        bool busy = Volatile.Read(ref _busy) != 0;
+        var queue = projects.Where(project => project.Enabled && project.Pending is not null).OrderBy(project => project.PendingSince).ToArray();
+        var running = queue.FirstOrDefault(project => project.ProjectId == active) ?? (busy ? queue.FirstOrDefault() : null);
+        ProcessingStatusResponse? processing = null;
+        if (running is not null)
+        {
+            var (done, total) = ProcessingPlan.Progress(running);
+            processing = new(running.ProjectId, running.Name, running.ImportComplete ? "update" : "import", done, total, queue.Length - 1);
+        }
+        string Phase(MonitoredProject project) =>
+            project.ErrorCode is not null ? "error"
+            : project.Pending is not null ? (project == running ? (project.ImportComplete ? "updating" : "importing") : "queued")
+            : project.ProjectId == active ? "checking"
+            : !project.ImportComplete ? "waiting" : "ready";
         return new(state.Credential?.Account, state.Credential?.ExpiresAt,
             signIn is null ? null : new(signIn.SignInUrl, signIn.ExpiresAt),
             state.AccountError, Volatile.Read(ref _busy) != 0, options.Dummy,
             new Uri(options.RemoteOrigin, "privacy.html").AbsoluteUri, ResearchEvidence.ConsentVersion,
             options.PollSeconds, state.PendingRevocations.Count,
-            projects.Select(project => new MonitoredProjectResponse(project.ProjectId, project.Name, project.Enabled,
-                project.ConsentVersion != ResearchEvidence.ConsentVersion, project.Snapshot?.Revision, project.Summary,
-                project.Facts.Count, project.LastAttemptAt, project.LastSuccessAt, project.ErrorCode, project.Error,
-                project.Explanation, project.UnprocessedFiles)).ToArray(), updates.Take(100).ToArray(), updates.Length,
+            projects.Select(project =>
+            {
+                var (done, total) = ProcessingPlan.Progress(project);
+                return new MonitoredProjectResponse(project.ProjectId, project.Name, project.Enabled,
+                    project.ConsentVersion != ResearchEvidence.ConsentVersion, project.Baseline?.Revision ?? project.Snapshot?.Revision,
+                    project.Profile?.Description ?? project.Summary, project.Profile?.Contributions.Count ?? project.Facts.Count,
+                    project.LastAttemptAt, project.LastSuccessAt, project.ErrorCode, project.Error, project.Explanation, project.UnprocessedFiles,
+                    project.Profile, Phase(project), done, total, project.LastSweepAt,
+                    project.Enabled && project.LastSweepAt is { } swept ? swept + options.SweepInterval : null);
+            }).ToArray(), updates.Take(100).ToArray(), updates.Length,
             (state.Decisions ?? []).Where(decision => decision.AccountId == account)
                 .Select(decision => new ProjectDecisionResponse(decision.ProjectId, decision.Included, decision.DecidedAt)).ToArray(),
             account is null ? null : source.Latest,
             researcher is null ? null : new(researcher.Version, researcher.Status, researcher.SearchName, researcher.Candidates,
                 researcher.Researcher, researcher.Works.Count, researcher.UpdatedAt,
-                researcher.Status == "ready" ? researcher.DueAt : null, researcher.LastError));
+                researcher.Status == "ready" ? researcher.DueAt : null, researcher.LastError), processing);
     }
 
     public async Task<AccountLinkResponse> BeginLinkAsync(string callbackUri, CancellationToken ct)
@@ -111,7 +133,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             {
                 Credential = new(verified, token, result.ExpiresAt), PendingLink = null, AccountError = null
             }, ct);
-            RequestSync();
+            Wake();
         }
         catch (ResearchFailure failure)
         {
@@ -208,7 +230,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 Decisions = decision is { } included ? Decide(current.Decisions, account.Account.Id, projectId, included) : current.Decisions
             };
         }, ct);
-        if (enabled) RequestSync();
+        if (enabled) Wake();
     }
 
     public async Task ForgetAsync(string projectId, CancellationToken ct)
@@ -224,9 +246,16 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         }, ct);
     }
 
+    /// <summary>A manual check: read every included project again now, even if its daily check is not due.</summary>
     public void RequestSync()
     {
         Interlocked.Exchange(ref _force, 1);
+        Wake();
+    }
+
+    /// <summary>Runs the worker now for whatever is due, such as a newly included project or queued steps.</summary>
+    private void Wake()
+    {
         if (_wake.CurrentCount == 0)
         {
             try { _wake.Release(); }
@@ -246,12 +275,16 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         }
         catch (Exception error) when (error is not OperationCanceledException)
         { logger.LogWarning("Stale account messages could not be cleared ({Type}).", error.GetType().Name); }
+        try { PruneTexts(await store.ReadAsync(stoppingToken)); }
+        catch (Exception error) when (error is not OperationCanceledException)
+        { logger.LogWarning("Unused research texts could not be pruned ({Type}).", error.GetType().Name); }
         while (!stoppingToken.IsCancellationRequested)
         {
             bool force = Interlocked.Exchange(ref _force, 0) != 0;
+            bool more = false;
             using var cycle = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
             lock (_cycleGate) _cycle = cycle;
-            try { await RunCycleAsync(force, cycle.Token); }
+            try { more = await RunCycleAsync(force, cycle.Token); }
             catch (OperationCanceledException) when (cycle.IsCancellationRequested)
             { logger.LogInformation("Research cycle stopped; uncommitted results were discarded."); }
             catch (Exception error) when (error is ResearchFailure or ApiFailure or IOException or CryptographicException or System.Text.Json.JsonException)
@@ -270,30 +303,29 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 lock (_cycleGate) _cycle = null;
                 Interlocked.Exchange(ref _busy, 0);
             }
+            // Queued summary steps continue straight away; otherwise wait for the next poll or a wake-up.
+            if (more) continue;
             try { await _wake.WaitAsync(TimeSpan.FromSeconds(options.PollSeconds), stoppingToken); }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
         }
     }
 
-    internal async Task RunCycleAsync(bool force, CancellationToken ct)
+    /// <summary>
+    /// One pass of the worker: sweeps that are due (they read Overleaf through the browser), then up to
+    /// <paramref name="maxSteps"/> queued summary steps (they need only the stored texts and Foundry). Returns true while
+    /// queued steps remain. All progress is committed per step, so a restart resumes where it stopped.
+    /// </summary>
+    internal async Task<bool> RunCycleAsync(bool force, CancellationToken ct, int maxSteps = 8)
     {
         await FlushRevocationsAsync(ct);
         var state = await store.ReadAsync(ct);
-        if (state.Credential is null) return;
+        if (state.Credential is null) return false;
         var credential = RequireCredential(state);
-        var selected = state.Projects.Where(project => project.AccountId == credential.Account.Id && project.Enabled &&
-            project.ConsentVersion == ResearchEvidence.ConsentVersion).ToArray();
-        if (selected.Length == 0) return;
-        if (!source.Available)
-        {
-            foreach (var project in selected)
-                await ChangeProjectAsync(project, item => item with
-                {
-                    ErrorCode = "browser_unavailable", FailureCount = 0,
-                    Error = "The browser connection is unavailable or busy. Keep your normal browser running; monitoring will retry automatically."
-                }, ct);
-            return;
-        }
+        var now = clock.GetUtcNow();
+        var selected = Selected(state, credential.Account.Id);
+        var due = selected.Where(project => force || SweepDue(project, now)).ToArray();
+        bool queued = selected.Any(project => project.Pending is not null && Due(project, now));
+        if (due.Length == 0 && !queued) return false;
         Interlocked.Exchange(ref _busy, 1);
         var identity = await remote.AccountAsync(credential.Token, ct);
         if (identity.Id != credential.Account.Id) throw AccountChanged();
@@ -301,93 +333,192 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         if (!configuration.FoundryConfigured)
             throw new ResearchFailure(503, "foundry_not_configured", "Configure the remote Foundry deployments before processing research.");
         await store.ChangeAsync(current => current.Credential?.Account.Id == credential.Account.Id ? current with { AccountError = null } : current, ct);
+        if (due.Length != 0) await SweepAsync(credential, due, force, ct);
+        for (int step = 0; step < maxSteps; step++)
+            if (!await StepAsync(credential, ct)) return false;
+        return true;
+    }
+
+    private bool SweepDue(MonitoredProject project, DateTimeOffset now) => Due(project, now) && project.Pending is null &&
+        (project.LastSweepAt is not { } swept || now - swept >= options.SweepInterval || !project.ImportComplete);
+    private static bool Due(MonitoredProject project, DateTimeOffset now) => project.NextAttemptAt is not { } next || next <= now;
+    private static MonitoredProject[] Selected(LocalResearchState state, Guid account) =>
+        state.Projects.Where(project => project.AccountId == account && project.Enabled &&
+            project.ConsentVersion == ResearchEvidence.ConsentVersion).ToArray();
+
+    /// <summary>Reads each due project once: unchanged metadata or content costs nothing; changed files are queued.</summary>
+    private async Task SweepAsync(LinkedCredential credential, IReadOnlyList<MonitoredProject> due, bool force, CancellationToken ct)
+    {
+        if (!source.Available)
+        {
+            foreach (var project in due)
+                await ChangeProjectAsync(project, item => item with
+                {
+                    ErrorCode = "browser_unavailable", FailureCount = 0,
+                    Error = "The browser connection is unavailable. Keep your normal browser running; Meld checks again automatically."
+                }, ct);
+            return;
+        }
         var accessible = await source.ProjectsAsync(ct);
-        foreach (var selectedProject in selected)
+        foreach (var project in due)
         {
             ct.ThrowIfCancellationRequested();
-            var latest = await store.ReadAsync(ct);
-            var project = latest.Projects.FirstOrDefault(item => item.AccountId == credential.Account.Id && item.ProjectId == selectedProject.ProjectId);
-            if (latest.Credential?.Account.Id != credential.Account.Id || project is not { Enabled: true } ||
-                project.ConsentVersion != ResearchEvidence.ConsentVersion) continue;
-            var now = clock.GetUtcNow();
-            if (!force && project.LastAttemptAt is { } attempted &&
-                now - attempted < TimeSpan.FromSeconds(options.PollSeconds * Math.Pow(2, Math.Min(project.FailureCount, 4)))) continue;
-            using var work = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            work.CancelAfter(ProjectDeadline);
-            lock (_cycleGate) _active = (project.ProjectId, work);
-            var outer = ct;
-            ct = work.Token;
-            try
+            await RunForProjectAsync(project, ct, async token =>
             {
+                var now = clock.GetUtcNow();
                 var metadata = accessible.FirstOrDefault(item => item.Id == project.ProjectId) ??
                     throw new ResearchFailure(409, "overleaf_project_unavailable", "The project is missing, archived, or no longer accessible. Its saved knowledge was retained.");
-                if (!force && project.Error is null && project.Snapshot is { SourceUpdatedAt: not null } known &&
-                    metadata.UpdatedAt == known.SourceUpdatedAt && now - known.ObservedAt < TimeSpan.FromHours(1))
+                if (!force && project.ImportComplete && project.Pending is null && project.Error is null &&
+                    project.Baseline?.SourceUpdatedAt is { } known && known == metadata.UpdatedAt)
                 {
-                    await ChangeProjectAsync(project, item => item with { Name = metadata.Name, LastAttemptAt = now }, ct);
-                    continue;
+                    await ChangeProjectAsync(project, item => item with { Name = metadata.Name, LastSweepAt = now }, token);
+                    return;
                 }
-                await ChangeProjectAsync(project, item => item with { LastAttemptAt = now }, ct);
-                var snapshot = await source.SnapshotAsync(metadata, ct);
-                var previous = project.Snapshot is null ? null : ResearchEvidence.WithAnalyzedTextOnly(project.Snapshot);
-                if (previous is null && snapshot.Files.All(file => file.Text is null))
+                var snapshot = await source.SnapshotAsync(metadata, token);
+                foreach (var file in snapshot.Files.Where(file => file.Text is not null))
+                    await store.WriteTextAsync(file.Sha256, file.Text!, token);
+                var manifest = new ProjectManifest(snapshot.Revision, snapshot.ObservedAt, snapshot.SourceUpdatedAt,
+                    snapshot.Files.Select(file => new ManifestFile(file.Path, file.Sha256, file.Bytes, file.Text is not null)).ToArray());
+                if (project.Profile is null && !manifest.Files.Any(file => file.Analyzed))
                     throw new ResearchFailure(422, "no_supported_research_text", "This project has no supported UTF-8 .tex, .md, or .txt sources. Bibliographies, PDFs and images are not analyzed in this version.");
-                if (previous?.Revision == snapshot.Revision || !ResearchEvidence.HasTextChanges(previous, snapshot))
+                int unanalyzed = manifest.Files.Count(file => !file.Analyzed);
+                var work = ProcessingPlan.Work(project.Processed, manifest);
+                if (work.Count == 0)
                 {
-                    await CommitAsync(credential, project, item => item with
+                    await CommitAsync(credential, project, item => Clean(item) with
                     {
-                        Name = metadata.Name, Snapshot = snapshot, LastSuccessAt = now, Error = null, ErrorCode = null, FailureCount = 0,
-                        Explanation = "No supported text changes. No model calls were made.",
-                        UnprocessedFiles = snapshot.Files.Count(file => file.Text is null)
-                    }, ct);
-                    continue;
+                        Name = metadata.Name, Baseline = manifest, Pending = null, PendingOrder = null, PendingSince = null,
+                        ImportComplete = item.Profile is not null, LastSweepAt = now, LastSuccessAt = now, UnprocessedFiles = unanalyzed,
+                        Explanation = "No supported text changes. No model calls were made."
+                    }, token);
+                    return;
                 }
-                IReadOnlyList<ResearchFactContext> candidates = [];
-                if (previous is { } before && project.Facts.Count != 0)
+                manifest = manifest with { EditTimes = await source.EditTimesAsync(project.ProjectId, token) };
+                var order = ProcessingPlan.Order(work, manifest);
+                await CommitAsync(credential, project, item => Clean(item) with
                 {
-                    var paths = ResearchEvidence.ChangedPaths(before, snapshot).ToHashSet(StringComparer.Ordinal);
-                    string query = string.Join("\n", snapshot.Files.Concat(before.Files)
-                        .Where(file => file.Text is not null && paths.Contains(file.Path)).Select(file => file.Path + "\n" + file.Text));
-                    // This bounded excerpt ranks candidates only; the model still receives the complete bounded snapshots.
-                    query = query[..Math.Min(query.Length, 12000)];
-                    var vector = await remote.EmbedAsync(credential.Token, new([query]), ct);
-                    candidates = ResearchReducer.Candidates(before, snapshot, project.Facts, vector);
-                }
-                var request = new AnalyzeResearchRequest(previous, snapshot, project.Summary, candidates);
-                var result = await remote.AnalyzeAsync(credential.Token, request, ct);
-                var reduction = ResearchReducer.Apply(request, result, project.Facts);
-                await CommitAsync(credential, project, item => item with
-                {
-                    Name = metadata.Name, Snapshot = snapshot, Summary = result.Analysis.ProjectSummary,
-                    Facts = reduction.Facts, Updates = [.. item.Updates, .. reduction.Updates], LastSuccessAt = now,
-                    ErrorCode = null, Error = null, FailureCount = 0, Explanation = result.Analysis.Explanation,
-                    UnprocessedFiles = snapshot.Files.Count(file => file.Text is null)
-                }, ct);
-                logger.LogInformation("Research cycle committed {Count} update(s). Project names and evidence omitted.", reduction.Updates.Count);
-            }
-            catch (Exception error) when (error is ResearchFailure or ApiFailure or InvalidDataException)
-            {
-                string code = error is ResearchFailure failure ? failure.Code : error is ApiFailure api ? api.Code : "invalid_research_archive";
-                string detail = error is ResearchFailure or ApiFailure ? error.Message : "Overleaf returned an invalid archive. Existing research was retained.";
-                logger.LogWarning("Research project processing failed: {Code}. Evidence omitted.", code);
-                await RecordErrorAsync(project, code, detail, outer);
-            }
-            catch (OperationCanceledException) when (work.IsCancellationRequested && !outer.IsCancellationRequested)
-            {
-                // Paused, excluded or forgotten while processing (nothing to record), or it ran out of time.
-                if (await StillSelectedAsync(project, outer))
-                {
-                    logger.LogWarning("Research project processing timed out. Evidence omitted.");
-                    await RecordErrorAsync(project, "research_timeout", "Processing this project took too long. Existing research was retained; Meld retries automatically.", outer);
-                }
-            }
-            finally
-            {
-                lock (_cycleGate) if (_active?.Token == work) _active = null;
-                ct = outer;
-            }
+                    Name = metadata.Name, Pending = manifest, PendingOrder = order, PendingSince = item.PendingSince ?? now,
+                    LastSweepAt = now, UnprocessedFiles = unanalyzed
+                }, token);
+                logger.LogInformation("Queued {Count} changed file(s) for summary processing. Names and evidence omitted.", order.Count);
+            });
         }
     }
+
+    /// <summary>Folds the next queued file of the earliest queued project into its summary. Returns false when nothing is queued.</summary>
+    private async Task<bool> StepAsync(LinkedCredential credential, CancellationToken ct)
+    {
+        var state = await store.ReadAsync(ct);
+        if (state.Credential?.Account.Id != credential.Account.Id) return false;
+        var now = clock.GetUtcNow();
+        var project = Selected(state, credential.Account.Id).Where(item => item.Pending is not null && Due(item, now))
+            .OrderBy(item => item.PendingSince).FirstOrDefault();
+        if (project is null) return false;
+        await RunForProjectAsync(project, ct, async token =>
+        {
+            var pending = project.Pending!;
+            string? path = ProcessingPlan.Next(project);
+            if (path is null)
+            {
+                bool firstImport = !project.ImportComplete;
+                var finished = await CommitAsync(credential, project, item => item with
+                {
+                    Baseline = pending, Pending = null, PendingOrder = null, PendingSince = null, ImportComplete = item.Profile is not null,
+                    LastSuccessAt = clock.GetUtcNow(),
+                    Explanation = firstImport ? "Initial import complete: the summary now reflects every supported file." : item.Explanation
+                }, token);
+                PruneTexts(finished);
+                return;
+            }
+            var processed = project.Processed ?? new Dictionary<string, string>();
+            var file = pending.Files.FirstOrDefault(item => item.Path == path && item.Analyzed);
+            processed.TryGetValue(path, out var before);
+            bool initial = !project.ImportComplete || project.Profile is null;
+            // Identical copies (for example earlier submission folders) and deletions during the first import need no model call.
+            if ((initial && file is null) || (file is not null && before is null && processed.Values.Contains(file.Sha256)))
+            {
+                await CommitStepAsync(credential, project, path, before, file?.Sha256, null, [], token);
+                return;
+            }
+            string? current = file is null ? null : await store.ReadTextAsync(file.Sha256, token) ?? throw MissingText();
+            string? previous = initial || before is null ? null : await store.ReadTextAsync(before, token) ?? throw MissingText();
+            var request = new ProfileStepRequest(project.ProjectId, project.Name, initial, project.Profile, new(path, previous, current));
+            var response = await remote.ProfileStepAsync(credential.Token, request, token);
+            ProfileEvidence.ValidateResponse(request, response);
+            var observed = clock.GetUtcNow();
+            DateTimeOffset? edited = pending.EditTimes is { } times && times.TryGetValue(path, out var time) ? time : pending.SourceUpdatedAt;
+            var updates = response.Updates.Select(update => new ResearchUpdate(Guid.NewGuid(), project.ProjectId, project.Name,
+                file is null ? ResearchUpdateKind.Removal : ResearchUpdateKind.Change, update.Title, update.Summary, observed, edited,
+                project.Baseline?.Revision, pending.Revision, Guid.NewGuid(), update.Evidence, null)).ToArray();
+            await CommitStepAsync(credential, project, path, before, file?.Sha256, response, updates, token);
+            if (updates.Length != 0)
+                logger.LogInformation("Summary step committed {Count} update(s). Names and evidence omitted.", updates.Length);
+        });
+        return true;
+    }
+
+    /// <summary>Runs one project's work with its own deadline and cancellation, recording failures on that project only.</summary>
+    private async Task RunForProjectAsync(MonitoredProject project, CancellationToken ct, Func<CancellationToken, Task> action)
+    {
+        using var work = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        work.CancelAfter(ProjectDeadline);
+        lock (_cycleGate) _active = (project.ProjectId, work);
+        try { await action(work.Token); }
+        catch (Exception error) when (error is ResearchFailure or ApiFailure or InvalidDataException)
+        {
+            string code = error is ResearchFailure failure ? failure.Code : error is ApiFailure api ? api.Code : "invalid_research_archive";
+            string detail = error is ResearchFailure or ApiFailure ? error.Message : "Overleaf returned an invalid archive. Existing research was retained.";
+            if (code == "research_state_changed") return;
+            logger.LogWarning("Research project processing failed: {Code}. Evidence omitted.", code);
+            await RecordErrorAsync(project, code, detail, ct);
+        }
+        catch (OperationCanceledException) when (work.IsCancellationRequested && !ct.IsCancellationRequested)
+        {
+            // Paused, excluded or forgotten while processing (nothing to record), or it ran out of time.
+            if (await StillSelectedAsync(project, ct))
+            {
+                logger.LogWarning("Research project processing timed out. Evidence omitted.");
+                await RecordErrorAsync(project, "research_timeout", "Processing this project took too long. Existing research was retained; Meld retries automatically.", ct);
+            }
+        }
+        finally { lock (_cycleGate) if (_active?.Token == work) _active = null; }
+    }
+
+    /// <summary>Clears what the earlier whole-snapshot pipeline stored, so the encrypted state stays small.</summary>
+    private static MonitoredProject Clean(MonitoredProject project) => project.Snapshot is null && project.Facts.Count == 0 && project.Summary is null
+        ? project with { ErrorCode = null, Error = null, FailureCount = 0, NextAttemptAt = null }
+        : project with { Snapshot = null, Summary = null, Facts = [], ErrorCode = null, Error = null, FailureCount = 0, NextAttemptAt = null };
+
+    private Task<LocalResearchState> CommitStepAsync(LinkedCredential credential, MonitoredProject project, string path, string? before,
+        string? after, ProfileStepResponse? response, IReadOnlyList<ResearchUpdate> updates, CancellationToken ct) =>
+        CommitAsync(credential, project, item =>
+        {
+            var processed = new Dictionary<string, string>(item.Processed ?? new Dictionary<string, string>(), StringComparer.Ordinal);
+            // Another step or a pause changed this file's state meanwhile: discard this result.
+            if ((processed.TryGetValue(path, out var stored) ? stored : null) != before) throw AccountChanged();
+            if (after is null) processed.Remove(path); else processed[path] = after;
+            return item with
+            {
+                Processed = processed, Profile = response?.Profile ?? item.Profile, Updates = [.. item.Updates, .. updates],
+                Explanation = response?.Explanation ?? item.Explanation, LastAttemptAt = clock.GetUtcNow(),
+                ErrorCode = null, Error = null, FailureCount = 0, NextAttemptAt = null
+            };
+        }, ct);
+
+    /// <summary>Deletes stored texts that no project's processed or pending files reference.</summary>
+    private void PruneTexts(LocalResearchState state)
+    {
+        var keep = state.Projects.SelectMany(project => (project.Processed?.Values ?? []).Concat(
+            new[] { project.Pending, project.Baseline }.Where(manifest => manifest is not null)
+                .SelectMany(manifest => manifest!.Files.Where(file => file.Analyzed).Select(file => file.Sha256))))
+            .ToHashSet(StringComparer.Ordinal);
+        try { store.PruneTexts(keep); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        { logger.LogWarning("Unused research texts could not be pruned ({Type}).", error.GetType().Name); }
+    }
+
+    private static ResearchFailure MissingText() => new(500, "research_text_missing",
+        "A stored project text is missing. Meld reads the project again on its next check.");
 
     private async Task<bool> StillSelectedAsync(MonitoredProject project, CancellationToken ct) =>
         (await store.ReadAsync(ct)).Projects.Any(item => item.AccountId == project.AccountId && item.ProjectId == project.ProjectId && item.Enabled);
@@ -399,7 +530,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             var current = state.Projects.FirstOrDefault(item => item.AccountId == previous.AccountId && item.ProjectId == previous.ProjectId);
             if (state.Credential?.Account.Id != credential.Account.Id || state.Credential.Token != credential.Token ||
                 current is not { Enabled: true } || current.ConsentVersion != ResearchEvidence.ConsentVersion ||
-                current.Snapshot?.Revision != previous.Snapshot?.Revision) throw AccountChanged();
+                current.Pending?.Revision != previous.Pending?.Revision) throw AccountChanged();
             return state with { Projects = Replace(state.Projects, change(current)) };
         }, ct);
 
@@ -411,8 +542,12 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         }, ct);
 
     private Task<LocalResearchState> RecordErrorAsync(MonitoredProject project, string code, string detail, CancellationToken ct) =>
-        ChangeProjectAsync(project, item => item with { LastAttemptAt = clock.GetUtcNow(), ErrorCode = code, Error = detail,
-            FailureCount = Math.Min(item.FailureCount + 1, 10) }, ct);
+        ChangeProjectAsync(project, item => item with
+        {
+            LastAttemptAt = clock.GetUtcNow(), ErrorCode = code, Error = detail, FailureCount = Math.Min(item.FailureCount + 1, 10),
+            // 1, 2, 4 ... minutes, at most a day; a manual check retries straight away.
+            NextAttemptAt = clock.GetUtcNow() + TimeSpan.FromMinutes(Math.Min(Math.Pow(2, Math.Min(item.FailureCount, 11)), 1440))
+        }, ct);
 
     private async Task FlushRevocationsAsync(CancellationToken ct)
     {

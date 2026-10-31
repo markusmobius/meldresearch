@@ -4,12 +4,17 @@ import { firstValueFrom } from 'rxjs';
 import { OverleafProject } from './overleaf-api';
 
 export interface AccountLink { signInUrl: string; expiresAt: string; }
+export interface ProjectProfile { title: string; description: string; contributions: ReadonlyArray<string>; topics: ReadonlyArray<string>; }
+export type ProjectPhase = 'waiting' | 'checking' | 'queued' | 'importing' | 'updating' | 'ready' | 'error';
 export interface ResearchProject {
   projectId: string; name: string; enabled: boolean; consentRequired: boolean;
   revision: string | null; summary: string | null; factCount: number;
   lastAttemptAt: string | null; lastSuccessAt: string | null; errorCode: string | null;
   error: string | null; explanation: string | null; unprocessedFiles: number;
+  profile: ProjectProfile | null; phase: ProjectPhase; filesDone: number; filesTotal: number;
+  lastSweepAt: string | null; nextSweepAt: string | null;
 }
+export interface ProcessingStatus { projectId: string; name: string; kind: 'import' | 'update'; filesDone: number; filesTotal: number; queued: number; }
 export interface ResearchUpdate {
   id: string; projectId: string; projectName: string; kind: 'initialImport' | 'change' | 'correction' | 'removal';
   title: string; summary: string; observedAt: string; sourceUpdatedAt: string | null;
@@ -41,6 +46,7 @@ export interface ResearchStatus {
   decisions: ReadonlyArray<ProjectDecision>;
   overleafProjects: { projects: ReadonlyArray<OverleafProject>; fetchedAt: string } | null;
   researcher: ResearcherStatus | null;
+  processing: ProcessingStatus | null;
 }
 
 @Injectable({ providedIn: 'root' })

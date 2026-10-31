@@ -27,6 +27,7 @@
 
       @if (view() === 'about-me') {
         <div class="page-container about-me">
+          <app-private-profile [status]="research()"></app-private-profile>
           <app-publications [researcher]="research()?.researcher ?? null"></app-publications>
         </div>
       }

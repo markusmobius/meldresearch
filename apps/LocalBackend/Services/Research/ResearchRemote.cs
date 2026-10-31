@@ -4,8 +4,11 @@ using MeldResearch.Research;
 
 namespace MeldResearch.LocalBackend.Services.Research;
 
-internal sealed record ResearchOptions(Uri RemoteOrigin, bool Dummy, int PollSeconds)
+internal sealed record ResearchOptions(Uri RemoteOrigin, bool Dummy, int PollSeconds, TimeSpan? SweepEvery = null)
 {
+    /// <summary>How often included projects are read again for changes; a manual check reads them at once.</summary>
+    public TimeSpan SweepInterval => SweepEvery ?? TimeSpan.FromHours(24);
+
     public static ResearchOptions Load(IConfiguration configuration, IHostEnvironment environment)
     {
         bool dummy = configuration.GetValue<bool>("Dummy");
@@ -17,7 +20,9 @@ internal sealed record ResearchOptions(Uri RemoteOrigin, bool Dummy, int PollSec
             throw new InvalidOperationException("Use an HTTPS remote origin. Dummy and loopback HTTP are development-only.");
         int poll = configuration.GetValue("ResearchPollSeconds", 300);
         if (poll is < 30 or > 3600) throw new InvalidOperationException("ResearchPollSeconds must be between 30 and 3600.");
-        return new(origin, dummy, poll);
+        double hours = configuration.GetValue("ResearchSweepHours", 24.0);
+        if (hours is < 0.1 or > 168) throw new InvalidOperationException("ResearchSweepHours must be between 0.1 and 168.");
+        return new(origin, dummy, poll, TimeSpan.FromHours(hours));
     }
 }
 
@@ -27,8 +32,7 @@ internal interface IResearchRemote
     Task<RedeemSignInResponse> RedeemSignInAsync(RedeemSignInRequest request, CancellationToken ct);
     Task<MeldAccountResponse> AccountAsync(string token, CancellationToken ct);
     Task RevokeAsync(string token, CancellationToken ct);
-    Task<AnalyzeResearchResponse> AnalyzeAsync(string token, AnalyzeResearchRequest request, CancellationToken ct);
-    Task<ResearchEmbeddingResponse> EmbedAsync(string token, ResearchEmbeddingRequest request, CancellationToken ct);
+    Task<ProfileStepResponse> ProfileStepAsync(string token, ProfileStepRequest request, CancellationToken ct);
     Task<ResearcherSearchResponse> SearchResearcherAsync(string token, ResearcherSearchRequest request, CancellationToken ct);
     Task<ResearcherWorksResponse> ResearcherWorksAsync(string token, ResearcherWorksRequest request, CancellationToken ct);
 }
@@ -42,10 +46,8 @@ internal sealed class ResearchRemote(ResearchOptions options, IHttpClientFactory
         CallAsync<MeldAccountResponse>("api/account", HttpMethod.Get, null, token, ct);
     public async Task RevokeAsync(string token, CancellationToken ct) =>
         _ = await CallAsync<JsonElement>("api/account/device", HttpMethod.Delete, null, token, ct);
-    public Task<AnalyzeResearchResponse> AnalyzeAsync(string token, AnalyzeResearchRequest request, CancellationToken ct) =>
-        CallAsync<AnalyzeResearchResponse>("api/research/analyze", HttpMethod.Post, request, token, ct);
-    public Task<ResearchEmbeddingResponse> EmbedAsync(string token, ResearchEmbeddingRequest request, CancellationToken ct) =>
-        CallAsync<ResearchEmbeddingResponse>("api/research/embeddings", HttpMethod.Post, request, token, ct);
+    public Task<ProfileStepResponse> ProfileStepAsync(string token, ProfileStepRequest request, CancellationToken ct) =>
+        CallAsync<ProfileStepResponse>("api/research/profile-step", HttpMethod.Post, request, token, ct);
     public Task<ResearcherSearchResponse> SearchResearcherAsync(string token, ResearcherSearchRequest request, CancellationToken ct) =>
         CallAsync<ResearcherSearchResponse>("api/researcher/candidates", HttpMethod.Post, request, token, ct);
     public Task<ResearcherWorksResponse> ResearcherWorksAsync(string token, ResearcherWorksRequest request, CancellationToken ct) =>

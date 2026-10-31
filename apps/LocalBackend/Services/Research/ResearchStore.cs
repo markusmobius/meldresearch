@@ -6,10 +6,24 @@ internal sealed record LinkedCredential(MeldAccountResponse Account, string Toke
 /// <summary>Obsolete device-code link state. Kept only so research state written by earlier versions still loads.</summary>
 internal sealed record PendingDeviceLink(string DeviceCode, string Verifier, string VerificationUri, string UserCode,
     DateTimeOffset ExpiresAt, DateTimeOffset NextPollAt);
+/// <summary>
+/// A monitored project. Snapshot, Summary and Facts belong to the earlier whole-snapshot pipeline and are cleared when the
+/// project is first processed file by file. Profile is the running summary; Processed maps each analyzed path to the hash
+/// whose text the summary already reflects. Pending is a newer observed manifest still being worked through in
+/// PendingOrder; together they form the persistent work queue, so processing resumes after a restart.
+/// </summary>
 internal sealed record MonitoredProject(Guid AccountId, string ProjectId, string Name, bool Enabled, string ConsentVersion,
     ResearchSnapshot? Snapshot, string? Summary, IReadOnlyList<ResearchFact> Facts, IReadOnlyList<ResearchUpdate> Updates,
     DateTimeOffset? LastAttemptAt, DateTimeOffset? LastSuccessAt, string? ErrorCode, string? Error,
-    string? Explanation, int UnprocessedFiles, int FailureCount);
+    string? Explanation, int UnprocessedFiles, int FailureCount,
+    ProjectProfile? Profile = null, IReadOnlyDictionary<string, string>? Processed = null, ProjectManifest? Baseline = null,
+    ProjectManifest? Pending = null, IReadOnlyList<string>? PendingOrder = null, DateTimeOffset? PendingSince = null,
+    bool ImportComplete = false, DateTimeOffset? LastSweepAt = null, DateTimeOffset? NextAttemptAt = null);
+
+/// <summary>An observed project's files by hash; the text of analyzed files is in the encrypted text store.</summary>
+internal sealed record ProjectManifest(string Revision, DateTimeOffset ObservedAt, DateTimeOffset? SourceUpdatedAt,
+    IReadOnlyList<ManifestFile> Files, IReadOnlyDictionary<string, DateTimeOffset>? EditTimes = null);
+internal sealed record ManifestFile(string Path, string Sha256, long Bytes, bool Analyzed);
 internal sealed record LocalResearchState(int Version, LinkedCredential? Credential, PendingDeviceLink? PendingLink,
     string? AccountError, IReadOnlyList<MonitoredProject> Projects, IReadOnlyList<LinkedCredential> PendingRevocations,
     IReadOnlyList<ProjectDecision>? Decisions = null, IReadOnlyList<ResearcherState>? Researchers = null);
@@ -29,6 +43,9 @@ internal interface IResearchStore
 {
     Task<LocalResearchState> ReadAsync(CancellationToken ct);
     Task<LocalResearchState> ChangeAsync(Func<LocalResearchState, LocalResearchState> change, CancellationToken ct);
+    Task WriteTextAsync(string sha256, string text, CancellationToken ct);
+    Task<string?> ReadTextAsync(string sha256, CancellationToken ct);
+    void PruneTexts(IReadOnlySet<string> keep);
 }
 
 internal sealed class ResearchStore(ILocalVault vault) : IResearchStore, IDisposable
@@ -52,5 +69,8 @@ internal sealed class ResearchStore(ILocalVault vault) : IResearchStore, IDispos
         }
         finally { _gate.Release(); }
     }
+    public Task WriteTextAsync(string sha256, string text, CancellationToken ct) => vault.WriteTextAsync(sha256, text, ct);
+    public Task<string?> ReadTextAsync(string sha256, CancellationToken ct) => vault.ReadTextAsync(sha256, ct);
+    public void PruneTexts(IReadOnlySet<string> keep) => vault.PruneTexts(keep);
     public void Dispose() => _gate.Dispose();
 }

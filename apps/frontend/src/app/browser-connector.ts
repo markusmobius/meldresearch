@@ -3,7 +3,7 @@ import { ExtensionSetup } from './overleaf-api';
 
 export type ConnectorCommand = 'status' | 'ensure' | 'connect' | 'disconnect' | 'signIn' | 'reload';
 
-/** True when dotted version <paramref name="actual"/> is lower than <paramref name="required"/>, e.g. 0.3.0 < 0.4.0. */
+/** True when dotted version <paramref name="actual"/> is lower than <paramref name="required"/>, e.g. 0.3.0 < 0.5.0. */
 export function olderVersion(actual: string, required: string): boolean {
   const left = actual.split('.').map(Number), right = required.split('.').map(Number);
   for (let index = 0; index < Math.max(left.length, right.length); index++) {

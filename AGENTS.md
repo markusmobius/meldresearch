@@ -42,9 +42,12 @@ instruction file. Start with the [README](README.md) for setup and release detai
   before monitoring. Preserve account isolation and server-side authorization.
 - Compare supported source content, not ZIP order/timestamps. Unchanged supported
   content must make **zero inference calls**, including after a restart.
-- Initial imports describe existing knowledge, not an event that happened today.
-  Changed/deleted source can revise or remove earlier facts. Foundry decides
-  novelty and no-change outcomes; embeddings select relevant prior facts.
+- Projects are summarized file by file into a <= 5,000-character JSON profile,
+  earliest edited first (Overleaf history via the connector). The initial import
+  builds the baseline and produces no Updates; daily checks (and Check now) fold in
+  changed files, and meaningful summary changes become cited Updates. The pending
+  manifest, order and per-file processed hashes are the persistent queue: commit per
+  file, resume after restart, never reprocess an unchanged hash or identical copy.
 - Models select source line ranges; the server copies and validates actual
   citation text. Preserve grounding, evidence limits and visible validation errors.
 - The remote backend persists accounts, devices, one-time app sign-in codes and the
@@ -62,7 +65,7 @@ instruction file. Start with the [README](README.md) for setup and release detai
   `/api/sign-in/redeem`. Keep the redirect loopback-only, codes single-use and
   short-lived, and the verifier on the local machine; do not reintroduce an
   approval code step or accept other redirect targets.
-- Commit revisions, facts and Updates atomically. Failed processing must not
+- Commit each file step (summary, processed hash, Updates) atomically. Failed processing must not
   advance the stored revision. Pause, deletion, cancellation and account changes
   must not allow an in-flight result to restore removed data.
 - Keep the existing minimal API/service patterns, antiforgery and strict
@@ -164,7 +167,7 @@ Use .NET 10, Node 24/npm and PowerShell 7. Run from this repository's root, e.g.
   restore the removed application Playwright approach. Use the normal browser
   and connector; never execute downloaded TeX.
 - Current Chrome identity: `pejcljoimoeklelcfbfddnkimlkjgfhe`; extension version
-  `0.4.0`, native protocol `2`. Identity derives from the public manifest key,
+  `0.5.0`, native protocol `2`. Identity derives from the public manifest key,
   not a secret signing key. Update related identity/handshake checks together;
   compatible extension releases need not have identical version numbers.
 - Bump the connector manifest version whenever extension files change: installed
@@ -201,7 +204,7 @@ node .\tests\research.e2e.mjs --public-pages-only
   configured inference and consumes quota; use it for processing changes, not
   merely public CSS/documentation changes.
 - `MeldResearch.RemoteBackend --foundry-smoke-test` is the cheaper live LLM check
-  (one chat, two embedding calls; see [README](README.md#foundry-setup-and-llm-smoke-test)).
+  (two chat steps, one embedding call; see [README](README.md#foundry-setup-and-llm-smoke-test)).
   Use it after Foundry client, prompt/schema or deployment changes, and on the
   server to verify its managed identity. It consumes quota and prints no content.
   Keep Foundry chat calls stateless with `store: false`, matching Project Meld.

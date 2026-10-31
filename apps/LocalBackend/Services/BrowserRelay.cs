@@ -141,7 +141,7 @@ internal sealed class BrowserRelay(ILogger<BrowserRelay> logger) : IBrowserRelay
             {
                 await SendAsync(socket, new("request", transfer.Id, operation, projectId), deadline.Token);
                 contentType = await ReceiveAsync(socket, transfer, destination,
-                    operation == "listProjects" ? WireProtocol.MaxHtmlBytes : WireProtocol.MaxArchiveBytes, deadline.Token);
+                    operation == "downloadProject" ? WireProtocol.MaxArchiveBytes : WireProtocol.MaxHtmlBytes, deadline.Token);
                 await destination.FlushAsync(deadline.Token);
             }
             retained = true;

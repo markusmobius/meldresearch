@@ -5,6 +5,27 @@
       Your profile stays on this computer. <a href="/privacy.html" target="_blank" rel="noopener noreferrer">Privacy and data use</a></p>
     @if (error()) { <p class="alert" role="alert">{{ error() }}</p> }
     @if (action()) { <p class="muted" role="status">{{ action() }}</p> }
+    @if (current.projects.length) {
+      <div class="processing" role="status">
+        <mat-icon>{{ current.processing ? 'autorenew' : 'task_alt' }}</mat-icon>
+        <div class="processing-text">
+          @if (current.processing; as running) {
+            <strong>{{ running.kind === 'import' ? 'Initial import' : 'Processing changes' }}: {{ running.name }}</strong>
+            <span>{{ running.filesDone }} of {{ running.filesTotal }} files
+              @if (running.queued) { &middot; {{ running.queued }} more {{ running.queued === 1 ? 'project' : 'projects' }} queued }</span>
+            <mat-progress-bar mode="determinate" [value]="running.filesTotal ? 100 * running.filesDone / running.filesTotal : 0"
+              [attr.aria-label]="'Processed ' + running.filesDone + ' of ' + running.filesTotal + ' files'"></mat-progress-bar>
+          } @else if (current.busy) {
+            <strong>Checking included projects for changes</strong>
+          } @else {
+            <strong>Included projects are up to date</strong>
+            <span>Meld checks them once a day; unchanged projects make no model calls.</span>
+          }
+        </div>
+        <button mat-stroked-button class="check-now" (click)="checkNow()" [disabled]="!!action() || current.busy || !sourceReady()">
+          <mat-icon>refresh</mat-icon>Check now</button>
+      </div>
+    }
 
     <div class="list-head">
       <h3>Updated in the last six months</h3>
@@ -45,14 +66,17 @@
           <mat-expansion-panel class="project-card" [expanded]="!!project.error || project.consentRequired">
             <mat-expansion-panel-header>
               <mat-panel-title>{{ project.name }}</mat-panel-title>
-              <mat-panel-description>{{ project.enabled ? 'Monitoring' : 'Paused' }} &middot; {{ project.factCount }} facts</mat-panel-description>
+              <mat-panel-description>{{ phaseLabel(project) }}</mat-panel-description>
             </mat-expansion-panel-header>
             @if (project.summary) { <p class="project-summary">{{ project.summary }}</p> }
-            @if (project.lastSuccessAt) { <p class="muted">Last content check {{ project.lastSuccessAt | date:'medium' }}</p> }
+            @if (project.lastSweepAt) {
+              <p class="muted">Last checked {{ project.lastSweepAt | date:'medium' }}
+                @if (project.nextSweepAt && project.phase === 'ready') { &middot; next check {{ project.nextSweepAt | date:'medium' }} }</p>
+            }
             @if (project.error) { <p class="alert" role="alert">{{ project.error }}</p> }
             @if (project.consentRequired) { <p class="alert">The processing notice changed. Choose Resume to continue under the current notice.</p> }
             @if (project.explanation) { <p class="muted">{{ project.explanation }}</p> }
-            @if (project.unprocessedFiles) { <p class="muted">{{ project.unprocessedFiles }} non-text files were tracked by hash but not sent to the model.</p> }
+            @if (project.unprocessedFiles) { <p class="muted">{{ project.unprocessedFiles }} other files (bibliographies, figures, PDFs or oversized files) are tracked by hash but not sent to the model.</p> }
             <div class="controls">
               @if (project.enabled) {
                 <button mat-button (click)="pause(project.projectId)" [disabled]="!!action()"><mat-icon>pause</mat-icon>Pause</button>
@@ -86,7 +110,7 @@
       <strong>{{ project.name }}</strong>
       <small>
         @if (project.updatedAt) { Updated {{ project.updatedAt | date:'mediumDate' }} }
-        @if (decided === 'included') { &middot; {{ watched?.error ? 'Needs attention' : watched?.enabled ? 'Monitoring' : 'Paused' }} }
+        @if (decided === 'included' && watched) { &middot; <span class="phase" [attr.data-phase]="watched.phase">{{ phaseLabel(watched) }}</span> }
       </small>
     </div>
     <div class="decision-actions" role="group" [attr.aria-label]="'Profile choice for ' + project.name">

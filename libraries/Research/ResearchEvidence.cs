@@ -7,7 +7,8 @@ public static class ResearchEvidence
 {
     public const int MaxFiles = 2000;
     public const int MaxFileTextBytes = 128 * 1024;
-    public const int MaxProjectTextBytes = 256 * 1024;
+    /// <summary>Bounds local storage only: each model request carries a single file of at most <see cref="MaxFileTextBytes"/>.</summary>
+    public const int MaxProjectTextBytes = 16 * 1024 * 1024;
     public const int MaxFacts = 200;
     public const int MaxChanges = 12;
     public const int MaxRequestBytes = 3 * 1024 * 1024;
@@ -77,61 +78,6 @@ public static class ResearchEvidence
             throw InvalidEvidence();
     }
 
-    public static void ValidateRequest(AnalyzeResearchRequest request)
-    {
-        if (request.Current is null || request.KnownFacts is null || request.KnownFacts.Count > MaxFacts ||
-            request.PreviousSummary?.Length > 8000)
-            throw InvalidEvidence();
-        ValidateSnapshot(request.Current);
-        if (request.Previous is { } previous)
-        {
-            ValidateSnapshot(previous);
-            if (previous.ProjectId != request.Current.ProjectId) throw InvalidEvidence();
-        }
-        else if (request.KnownFacts.Count != 0) throw InvalidEvidence();
-        if (request.KnownFacts.Any(fact => fact is null) ||
-            request.KnownFacts.Select(fact => fact.Id).Distinct().Count() != request.KnownFacts.Count ||
-            request.KnownFacts.Any(fact => fact.Id == Guid.Empty || !ShortText(fact.Title, 240) ||
-                !ShortText(fact.Summary, 3000) || !ValidTags(fact.Tags) || fact.Evidence is null || fact.Evidence.Count > 6))
-            throw InvalidEvidence();
-    }
-
-    public static void ValidateAnalysis(AnalyzeResearchRequest request, ResearchAnalysis analysis)
-    {
-        if (!ShortText(analysis.ProjectSummary, 8000) || !ShortText(analysis.Explanation, 3000) ||
-            analysis.Changes is null || analysis.Changes.Count > MaxChanges)
-            throw InvalidAnalysis("invalid_summary_or_change_count");
-        var changed = ChangedPaths(request.Previous, request.Current).ToHashSet(StringComparer.Ordinal);
-        var seen = new HashSet<Guid>();
-        foreach (var change in analysis.Changes)
-        {
-            if (change is null || !Enum.IsDefined(change.Operation) || !ShortText(change.Title, 240) ||
-                !ShortText(change.Summary, 3000) || !ValidTags(change.Tags) ||
-                change.Evidence is null || change.Evidence.Count is 0 or > 6)
-                throw InvalidAnalysis("invalid_change_fields");
-            if (change.Operation == FactOperation.Add)
-            {
-                if (change.ExistingFactId is not null) throw InvalidAnalysis("addition_references_existing_fact");
-            }
-            else if (change.ExistingFactId is not { } id || !seen.Add(id) ||
-                !request.KnownFacts.Any(fact => fact.Id == id) || request.Previous is null)
-                throw InvalidAnalysis("unknown_or_repeated_existing_fact");
-            foreach (var citation in change.Evidence)
-            {
-                if (citation is null) throw InvalidAnalysis("missing_citation");
-                var snapshot = citation.Version == EvidenceVersion.Current ? request.Current : request.Previous;
-                var file = snapshot?.Files.FirstOrDefault(file => file.Path == citation.Path);
-                if (!Enum.IsDefined(citation.Version) || !ShortText(citation.Quote, 8000) ||
-                    file?.Text is null || !file.Text.Contains(citation.Quote, StringComparison.Ordinal))
-                    throw InvalidAnalysis("citation_not_verbatim");
-            }
-            if (!change.Evidence.Any(citation => changed.Contains(citation.Path)) ||
-                (change.Operation != FactOperation.Remove &&
-                    !change.Evidence.Any(citation => citation.Version == EvidenceVersion.Current)))
-                throw InvalidAnalysis("citation_not_grounded_in_change");
-        }
-    }
-
     public static void ValidateEmbeddings(IReadOnlyList<IReadOnlyList<float>> vectors, int expected)
     {
         if (vectors.Count != expected || vectors.Any(vector => vector.Count is 0 or > 8192 ||
@@ -164,6 +110,4 @@ public static class ResearchEvidence
         tags is { Count: <= 12 } && tags.All(tag => ShortText(tag, 80));
     private static ResearchFailure InvalidEvidence() => new(400, "invalid_research_evidence",
         "The research evidence is invalid or exceeds the supported source limits.");
-    private static ResearchFailure InvalidAnalysis(string reason) => new(502, "ungrounded_research_analysis",
-        $"Foundry returned invalid or ungrounded research updates ({reason}). The previous project state was preserved.");
 }

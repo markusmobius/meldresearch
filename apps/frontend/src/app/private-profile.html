@@ -1,0 +1,43 @@
+<section class="private-profile" aria-labelledby="private-profile-heading">
+  <header class="profile-head">
+    <h2 id="private-profile-heading"><mat-icon>lock</mat-icon>Private profile</h2>
+    <span class="profile-note">Built from your included Overleaf projects. Stored only on this computer.</span>
+  </header>
+  @for (entry of entries(); track entry.project.projectId) {
+    <article class="profile-project">
+      @if (entry.project.profile; as profile) {
+        <div class="project-head"><h3>{{ profile.title }}</h3><span class="project-source">{{ entry.project.name }}</span></div>
+        <p class="description">{{ profile.description }}</p>
+        @if (profile.contributions.length) {
+          <ul class="contributions">
+            @for (item of profile.contributions; track $index) { <li>{{ item }}</li> }
+          </ul>
+        }
+        @if (profile.topics.length) {
+          <div class="topics">@for (topic of profile.topics; track $index) { <span class="topic">{{ topic }}</span> }</div>
+        }
+      } @else {
+        <div class="project-head"><h3>{{ entry.project.name }}</h3></div>
+      }
+      @if (entry.project.phase === 'importing' || entry.project.phase === 'queued' || entry.project.phase === 'waiting' || entry.project.phase === 'checking') {
+        <p class="progress-note" role="status"><mat-icon>autorenew</mat-icon>
+          {{ entry.project.phase === 'importing' ? 'Building this summary: ' + entry.project.filesDone + ' of ' + entry.project.filesTotal + ' files'
+            : entry.project.phase === 'queued' ? 'Queued for processing' : 'Reading the project from Overleaf' }}</p>
+        @if (entry.project.phase === 'importing' && entry.project.filesTotal) {
+          <mat-progress-bar mode="determinate" [value]="100 * entry.project.filesDone / entry.project.filesTotal"></mat-progress-bar>
+        }
+      }
+      @if (entry.updates.length) {
+        <h4>Updates</h4>
+        <ul class="updates">
+          @for (update of entry.updates; track update.id) {
+            <li><span class="update-date">{{ (update.sourceUpdatedAt ?? update.observedAt) | date:'mediumDate' }}</span>
+              <strong>{{ update.title }}</strong> &ndash; {{ update.summary }}</li>
+          }
+        </ul>
+      }
+    </article>
+  } @empty {
+    <p class="muted empty">Include Overleaf projects under <a href="/#account">Account &rarr; Overleaf &rarr; Projects</a> to build your private profile.</p>
+  }
+</section>

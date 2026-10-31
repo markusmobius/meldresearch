@@ -1,6 +1,6 @@
 # Chrome Web Store listing copy
 
-Prepared for a **private tester-group release**, version 0.4.0. Publisher: **Meld Research**.
+Prepared for a **private tester-group release**, version 0.5.0. Publisher: **Meld Research**.
 Public support and privacy contact: **markusmobius@gmail.com**.
 This document is submission material, not an assertion that a listing exists.
 
@@ -32,7 +32,7 @@ Your Overleaf originals are not edited. The connector does not read or decrypt
 browser cookie databases, export authentication cookies, or ask for your Overleaf
 password. If you link a Meld account and explicitly enable monitoring, the companion
 sends selected text through Meld's remote service to Azure AI Foundry for research
-updates and embeddings. This is not entirely on-device processing.
+updates. This is not entirely on-device processing.
 
 The extension handles Overleaf website content locally: project metadata and
 selected ZIP contents are transferred to the Meld Research companion on the same
@@ -88,7 +88,7 @@ meaningful updates through the companion's explicitly authorized Foundry process
 | `scripting` | Injects only packaged, read-only scripts into an Overleaf tab to make authenticated first-party HTTPS reads and filter metadata before it leaves that tab. |
 | `storage` | Persists the user's Connect/Disconnect (auto-connect) preference in the local browser profile. It does not store project contents or authentication tokens. |
 | `alarms` | Retries the local native-host connection while enabled, including after service-worker suspension or a desktop restart. The alarm itself does not read Overleaf. |
-| `https://www.overleaf.com/*` | Finds and reuses an Overleaf tab, performs the project-list and selected-project ZIP reads, detects completion of sign-in, and, while the popup is open, checks only whether Overleaf redirects to its sign-in page. No other remote website is granted access. |
+| `https://www.overleaf.com/*` | Finds and reuses an Overleaf tab, performs the project-list and selected-project ZIP reads, reads each included project's edit history keeping only file paths and last-edit times, detects completion of sign-in, and, while the popup is open, checks only whether Overleaf redirects to its sign-in page. No other remote website is granted access. |
 
 External messaging is limited to the local Meld page on `localhost` or
 `127.0.0.1`; the worker independently checks ports 6001/6010 and rejects subframes.

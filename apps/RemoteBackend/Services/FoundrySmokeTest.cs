@@ -91,12 +91,16 @@ internal static class FoundrySmokeTest
             try
             {
                 var stopwatch = Stopwatch.StartNew();
-                var result = await foundry.AnalyzeAsync(new(null, Snapshot(), null, []), ct);
-                if (result.Analysis.Changes.Count == 0 || result.Embeddings.Count != result.Analysis.Changes.Count(change => change.Operation != FactOperation.Remove))
-                    throw new ResearchFailure(502, "empty_initial_import", "The synthetic initial import produced no grounded Updates.");
-                output.WriteLine($"PASS: research analysis, strict schema and grounded citations validated, " +
-                    $"{result.Analysis.Changes.Count} change(s), {stopwatch.Elapsed.TotalSeconds:F1}s.");
-                if (options.ShowResponse) output.WriteLine(JsonSerializer.Serialize(result.Analysis, ResearchJson.Options));
+                string source = SyntheticSource.ReplaceLineEndings("\n");
+                var initial = await foundry.ProfileStepAsync(new(SyntheticProject, "Synthetic smoke test", true, null,
+                    new("main.tex", null, source)), ct);
+                var update = await foundry.ProfileStepAsync(new(SyntheticProject, "Synthetic smoke test", false, initial.Profile,
+                    new("main.tex", source, source + "\n" + SyntheticChange.ReplaceLineEndings("\n"))), ct);
+                if (update.Updates.Count == 0)
+                    throw new ResearchFailure(502, "empty_update", "The synthetic change produced no grounded Update.");
+                output.WriteLine($"PASS: summary steps, strict schema and grounded citations validated, " +
+                    $"{update.Updates.Count} update(s), {stopwatch.Elapsed.TotalSeconds:F1}s.");
+                if (options.ShowResponse) output.WriteLine(JsonSerializer.Serialize(update, ResearchJson.Options));
 
                 stopwatch.Restart();
                 var vectors = await foundry.EmbedAsync(new(["Synthetic cache example.", "Synthetic testing example."]), ct);
@@ -119,13 +123,11 @@ internal static class FoundrySmokeTest
         }
     }
 
-    private static ResearchSnapshot Snapshot()
-    {
-        string text = SyntheticSource.ReplaceLineEndings("\n");
-        var file = new ResearchFile("main.tex", ResearchEvidence.Hash(text), Encoding.UTF8.GetByteCount(text), text);
-        return new("5e1f0a5e1f0a5e1f0a5e1f0a", "Synthetic smoke test", ResearchEvidence.Revision([file]),
-            DateTimeOffset.UtcNow, null, [file]);
-    }
+    private const string SyntheticProject = "5e1f0a5e1f0a5e1f0a5e1f0a";
+    internal const string SyntheticChange = """
+        \section{Replication}
+        The preregistered replication with 200 participants is complete; task completion improved from 50\% to 63\%.
+        """;
 
     private static string Authentication(IConfiguration configuration) =>
         !string.IsNullOrWhiteSpace(configuration["Foundry:ApiKey"]) ? "API key"

@@ -95,10 +95,10 @@ describe('Browser connector messaging', () => {
   });
 
   it('compares dotted connector versions numerically', () => {
-    expect(olderVersion('0.3.0', '0.4.0')).toBe(true);
+    expect(olderVersion('0.3.0', '0.5.0')).toBe(true);
     expect(olderVersion('0.9.0', '0.10.0')).toBe(true);
-    expect(olderVersion('0.4', '0.4.0')).toBe(false);
-    expect(olderVersion('0.5.0', '0.4.0')).toBe(false);
-    expect(olderVersion('dev', '0.4.0')).toBe(false);
+    expect(olderVersion('0.5', '0.5.0')).toBe(false);
+    expect(olderVersion('0.6.0', '0.5.0')).toBe(false);
+    expect(olderVersion('dev', '0.5.0')).toBe(false);
   });
 });

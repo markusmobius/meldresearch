@@ -57,7 +57,7 @@
       }
       const validId = /^[a-f0-9]{32}$/.test(message.id ?? '');
       const list = message.operation === 'listProjects';
-      const download = message.operation === 'downloadProject' && /^[a-f0-9]{24}$/.test(message.projectId ?? '');
+      const download = ['downloadProject', 'projectHistory'].includes(message.operation) && /^[a-f0-9]{24}$/.test(message.projectId ?? '');
       if (!validId || (!list && !download) || location.origin !== 'https://www.overleaf.com') {
         port.postMessage({ type: 'error', id: message.id, error: 'invalid_request' });
         return;

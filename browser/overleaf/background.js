@@ -151,8 +151,8 @@ async function startRequest(message) {
     return;
   }
   if (!/^[a-f0-9]{32}$/.test(message.id ?? '') ||
-      !['listProjects', 'downloadProject'].includes(message.operation) ||
-      (message.operation === 'downloadProject' && !/^[a-f0-9]{24}$/.test(message.projectId ?? ''))) {
+      !['listProjects', 'downloadProject', 'projectHistory'].includes(message.operation) ||
+      (message.operation !== 'listProjects' && !/^[a-f0-9]{24}$/.test(message.projectId ?? ''))) {
     failConnection('invalid_request');
     return;
   }

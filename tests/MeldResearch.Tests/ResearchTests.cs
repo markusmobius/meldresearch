@@ -15,8 +15,6 @@ public sealed class ResearchTests : IDisposable
         var file = new ResearchFile(path, ResearchEvidence.Hash(text), Encoding.UTF8.GetByteCount(text), text);
         return new("0123456789abcdef01234567", "Synthetic research", ResearchEvidence.Revision([file]), Now, null, [file]);
     }
-    private static ResearchChange Add(string quote) => new(FactOperation.Add, null, "Synthetic pilot",
-        quote, ["research"], [new("main.tex", quote, EvidenceVersion.Current)]);
 
     [Fact]
     public void MetadataAndZipPackagingDoNotChangeTheContentRevision()
@@ -28,66 +26,74 @@ public sealed class ResearchTests : IDisposable
         Assert.False(ResearchEvidence.HasTextChanges(snapshot, renamed));
     }
 
+    private static readonly ProjectProfile Profile = new("Synthetic pilot", "A synthetic pilot study.", ["40 participants."], ["pilot"]);
+    private static ProfileStepRequest Step(bool initial, string? before, string? after) =>
+        new("0123456789abcdef01234567", "Synthetic research", initial, initial ? null : Profile, new("main.tex", before, after));
+    private static ProfileUpdate Update(string quote, EvidenceVersion version = EvidenceVersion.Current) =>
+        new("Pilot doubled", "The pilot grew.", [new("main.tex", quote, version)]);
+
     [Fact]
-    public void InitialImportIsGroundedAndDoesNotInventAResearchEventDate()
+    public void SummaryStepsAreGroundedInTheSuppliedFileAndInitialStepsReportNothing()
     {
-        var snapshot = Snapshot("The pilot has 40 participants.");
-        var request = new AnalyzeResearchRequest(null, snapshot, null, []);
-        var result = new AnalyzeResearchResponse(new("An existing pilot.", "Initial baseline.", [Add(snapshot.Files[0].Text!)]),
-            "synthetic-chat", "synthetic-embedding", [new float[] { 1, 0 }]);
-        var reduced = ResearchReducer.Apply(request, result, []);
-        var update = Assert.Single(reduced.Updates);
-        Assert.Equal(ResearchUpdateKind.InitialImport, update.Kind);
-        Assert.Equal(snapshot.ObservedAt, update.ObservedAt);
-        Assert.Null(update.SourceUpdatedAt);
-        Assert.Null(update.PreviousRevision);
-        Assert.Equal(snapshot.ProjectId, update.ProjectId);
+        var update = Step(false, "The pilot has 40 participants.", "The pilot has 80 participants.");
+        ProfileEvidence.ValidateRequest(update);
+        ProfileEvidence.ValidateResponse(update, new(Profile, [Update("80 participants")], "Revised.", "chat"));
+        Assert.Throws<ResearchFailure>(() => ProfileEvidence.ValidateResponse(update, new(Profile, [Update("120 participants")], "Invented.", "chat")));
+        // A revision must rest on the current text, not only on what was removed.
+        Assert.Throws<ResearchFailure>(() => ProfileEvidence.ValidateResponse(update,
+            new(Profile, [Update("40 participants", EvidenceVersion.Previous)], "Old only.", "chat")));
+        var deleted = Step(false, "The pilot has 40 participants.", null);
+        ProfileEvidence.ValidateResponse(deleted, new(Profile, [Update("40 participants", EvidenceVersion.Previous)], "Removed.", "chat"));
+
+        var initial = Step(true, null, "The pilot has 40 participants.");
+        ProfileEvidence.ValidateRequest(initial);
+        Assert.Throws<ResearchFailure>(() => ProfileEvidence.ValidateResponse(initial, new(Profile, [Update("40 participants")], "Baseline.", "chat")));
+        Assert.Throws<ResearchFailure>(() => ProfileEvidence.ValidateRequest(Step(true, "before", "after")));
+        Assert.Throws<ResearchFailure>(() => ProfileEvidence.ValidateRequest(Step(false, "before", "after") with { Profile = null }));
+        Assert.Throws<ResearchFailure>(() => ProfileEvidence.ValidateRequest(Step(true, null, "x") with { File = new("refs.bib", null, "x") }));
     }
 
     [Fact]
-    public void DeltaRevisesExistingKnowledgeAndPreservesItsPreviousSummary()
+    public void SummariesAreLimitedToFiveThousandCharactersAsJson()
     {
-        var previous = Snapshot("The pilot has 40 participants.");
-        var current = Snapshot("The pilot has 80 participants.");
-        var fact = new ResearchFact(Guid.NewGuid(), "Pilot", previous.Files[0].Text!, [],
-            [new("main.tex", previous.Files[0].Text!, EvidenceVersion.Current)], previous.Revision, "embedding", [1f, 0f]);
-        var context = new ResearchFactContext(fact.Id, fact.Title, fact.Summary, [], fact.Evidence);
-        var request = new AnalyzeResearchRequest(previous, current, "A pilot.", [context]);
-        var change = new ResearchChange(FactOperation.Revise, fact.Id, "Larger pilot", current.Files[0].Text!, [],
-            [new("main.tex", current.Files[0].Text!, EvidenceVersion.Current)]);
-        var result = ResearchReducer.Apply(request, new(new("A larger pilot.", "Participant count revised.", [change]),
-            "chat", "embedding", [new float[] { 0, 1 }]), [fact]);
-        Assert.Equal(fact.Id, Assert.Single(result.Facts).Id);
-        Assert.Equal(fact.Summary, Assert.Single(result.Updates).PreviousSummary);
-        Assert.Equal(current.Files[0].Text, result.Facts[0].Summary);
+        Assert.True(ProfileEvidence.ValidProfile(Profile));
+        var large = Profile with { Description = new string('d', 1500), Contributions = Enumerable.Repeat(new string('c', 400), 12).ToArray() };
+        Assert.True(ProfileEvidence.Length(large) > ProfileEvidence.MaxProfileCharacters);
+        Assert.False(ProfileEvidence.ValidProfile(large));
     }
 
     [Fact]
-    public void RemovalCannotLeaveSupersededKnowledgeInTheCurrentFacts()
+    public void FilesAreOrderedByEarliestEditWithUnknownTimesFirstAndDeletionsLast()
     {
-        var previous = Snapshot("The intervention improves outcomes.");
-        var current = Snapshot("The earlier improvement claim was withdrawn.");
-        var id = Guid.NewGuid();
-        var fact = new ResearchFact(id, "Improvement", previous.Files[0].Text!, [],
-            [new("main.tex", previous.Files[0].Text!, EvidenceVersion.Current)], previous.Revision, "embedding", [1f]);
-        var request = new AnalyzeResearchRequest(previous, current, null,
-            [new(id, fact.Title, fact.Summary, [], fact.Evidence)]);
-        var change = new ResearchChange(FactOperation.Remove, id, "Claim withdrawn", current.Files[0].Text!, [],
-            [new("main.tex", current.Files[0].Text!, EvidenceVersion.Current)]);
-        var result = ResearchReducer.Apply(request, new(new("The claim is withdrawn.", "Correction.", [change]), "chat", "embedding", []), [fact]);
-        Assert.Empty(result.Facts);
-        Assert.Equal(ResearchUpdateKind.Removal, Assert.Single(result.Updates).Kind);
+        var manifest = new ProjectManifest("revision", Now, null,
+        [
+            new("main.tex", new string('a', 64), 1, true), new("sections/b.tex", new string('b', 64), 1, true),
+            new("sections/a.tex", new string('c', 64), 1, true), new("old/copy.tex", new string('d', 64), 1, true),
+            new("refs.bib", new string('e', 64), 1, false)
+        ], new Dictionary<string, DateTimeOffset> { ["sections/b.tex"] = Now.AddDays(-2), ["sections/a.tex"] = Now.AddDays(-1) });
+        var processed = new Dictionary<string, string> { ["sections/a.tex"] = new string('c', 64), ["gone.tex"] = new string('f', 64) };
+        var work = ProcessingPlan.Work(processed, manifest);
+        Assert.Equal(["main.tex", "old/copy.tex", "sections/b.tex", "gone.tex"], ProcessingPlan.Order(work, manifest));
+        Assert.DoesNotContain("refs.bib", work);
     }
 
     [Fact]
-    public void RejectsInventedQuotesAndChangesNotSupportedByTheDelta()
+    public async Task StoresSourceTextsEncryptedByHashAndPrunesUnreferencedOnes()
     {
-        var snapshot = Snapshot("Synthetic source text.");
-        var request = new AnalyzeResearchRequest(null, snapshot, null, []);
-        Assert.Throws<ResearchFailure>(() => ResearchEvidence.ValidateAnalysis(request,
-            new("Summary.", "Explanation.", [Add("An invented result.")])));
-        Assert.Throws<ResearchFailure>(() => ResearchEvidence.ValidateAnalysis(request with { Previous = snapshot },
-            new("Summary.", "Explanation.", [Add(snapshot.Files[0].Text!)])));
+        using var vault = new LocalVault(_temporary.Path, System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+        string text = "PRIVATE-SOURCE-SENTINEL", hash = ResearchEvidence.Hash(text), other = ResearchEvidence.Hash("other");
+        await vault.WriteTextAsync(hash, text, CancellationToken.None);
+        await vault.WriteTextAsync(other, "other", CancellationToken.None);
+        await Assert.ThrowsAsync<ArgumentException>(() => vault.WriteTextAsync(hash, "tampered", CancellationToken.None));
+        string file = Path.Combine(_temporary.Path, "texts", hash + ".protected");
+        Assert.DoesNotContain(text, Encoding.UTF8.GetString(await File.ReadAllBytesAsync(file)));
+        Assert.Equal(text, await vault.ReadTextAsync(hash, CancellationToken.None));
+        // A blob moved to another hash's name fails authentication instead of returning the wrong text.
+        File.Copy(file, Path.Combine(_temporary.Path, "texts", other + ".protected"), true);
+        Assert.Equal("research_store_damaged", (await Assert.ThrowsAsync<ResearchFailure>(() => vault.ReadTextAsync(other, CancellationToken.None))).Code);
+        vault.PruneTexts(new HashSet<string> { hash });
+        Assert.Null(await vault.ReadTextAsync(other, CancellationToken.None));
+        Assert.Equal(text, await vault.ReadTextAsync(hash, CancellationToken.None));
     }
 
     [Fact]

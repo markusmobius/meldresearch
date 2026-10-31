@@ -9,16 +9,21 @@ public sealed record SetProjectMonitoringRequest(bool Enabled, string? ConsentVe
 public sealed record AccountLinkResponse(string SignInUrl, DateTimeOffset ExpiresAt);
 
 /// <summary>Local monitoring state, without credentials or stored embeddings.</summary>
+/// Phase: waiting (first read not done), checking (reading Overleaf), queued, importing, updating, ready or error.
 public sealed record MonitoredProjectResponse(string ProjectId, string Name, bool Enabled, bool ConsentRequired,
     string? Revision, string? Summary, int FactCount, DateTimeOffset? LastAttemptAt, DateTimeOffset? LastSuccessAt,
-    string? ErrorCode, string? Error, string? Explanation, int UnprocessedFiles);
+    string? ErrorCode, string? Error, string? Explanation, int UnprocessedFiles,
+    ProjectProfile? Profile, string Phase, int FilesDone, int FilesTotal, DateTimeOffset? LastSweepAt, DateTimeOffset? NextSweepAt);
+
+/// <summary>The project being processed now and how many others wait in the queue.</summary>
+public sealed record ProcessingStatusResponse(string ProjectId, string Name, string Kind, int FilesDone, int FilesTotal, int Queued);
 
 /// <summary>Updates-only application status. No source documents are sent by this status request.</summary>
 public sealed record ResearchStatusResponse(MeldAccountResponse? Account, DateTimeOffset? CredentialExpiresAt,
     AccountLinkResponse? PendingLink, string? AccountError, bool Busy, bool Dummy, string PrivacyUrl,
     string ConsentVersion, int PollSeconds, int PendingRevocations, IReadOnlyList<MonitoredProjectResponse> Projects,
     IReadOnlyList<ResearchUpdate> Updates, int TotalUpdates, IReadOnlyList<ProjectDecisionResponse> Decisions,
-    OverleafProjectsSnapshot? OverleafProjects, ResearcherStatusResponse? Researcher);
+    OverleafProjectsSnapshot? OverleafProjects, ResearcherStatusResponse? Researcher, ProcessingStatusResponse? Processing);
 
 /// <summary>Includes a project in the private profile (which starts monitoring, so it needs consent) or excludes it.</summary>
 public sealed record ProjectDecisionRequest(bool Included, string? ConsentVersion);

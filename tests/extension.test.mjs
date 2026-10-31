@@ -46,6 +46,33 @@ test('lists through a same-origin GET and exports no page tokens or extra metada
   } finally { await harness.close(); }
 });
 
+test('reads only paths and last-edit times from Overleaf history, paging back, and drops user details', async () => {
+  const pages = [
+    { updates: [
+      { meta: { end_ts: 3000, users: [{ email: 'collaborator@example.invalid' }] }, pathnames: ['main.tex'], project_ops: [] },
+      { meta: { end_ts: 2000 }, pathnames: ['main.tex', 'sections/a.tex'], project_ops: [{ add: { pathname: '/fig.tex' } }] },
+    ], nextBeforeTimestamp: 7 },
+    { updates: [{ meta: { end_ts: 1000 }, pathnames: ['old.tex'], project_ops: [] }] },
+  ];
+  let page = 0;
+  const { harness, host, messages } = await connected(async () =>
+    response(JSON.stringify(pages[page++]), { type: 'application/json', url: `https://www.overleaf.com/project/${projectId}/updates` }));
+  try {
+    host.postMessage({ type: 'request', id: requestId, operation: 'projectHistory', projectId });
+    await waitUntil(() => messages.some(message => message.type === 'complete'), 'history response');
+    assert.deepEqual(harness.requests.map(request => request.url), [
+      `https://www.overleaf.com/project/${projectId}/updates?min_count=100`,
+      `https://www.overleaf.com/project/${projectId}/updates?min_count=100&before=7`,
+    ]);
+    const exported = Buffer.concat(messages.filter(message => message.type === 'chunk')
+      .map(message => Buffer.from(message.data, 'base64'))).toString();
+    assert.equal(exported.includes('collaborator@example.invalid'), false);
+    assert.deepEqual(JSON.parse(exported), {
+      paths: { 'main.tex': 3000, 'sections/a.tex': 2000, 'fig.tex': 2000, 'old.tex': 1000 }, complete: true,
+    });
+  } finally { await harness.close(); }
+});
+
 test('streams binary downloads with acknowledgement backpressure', async () => {
   const bytes = Uint8Array.from({ length: 130000 }, (_, index) => index % 251);
   const { harness, host, messages } = await connected(async () => response(bytes, { type: 'application/zip' }),
@@ -128,7 +155,7 @@ test('automatically connects without a popup and creates a repeating reconnect a
     assert.equal(state.connected, true);
     assert.equal(state.enabled, true);
     assert.equal(state.protocolVersion, 2);
-    assert.equal(state.extensionVersion, '0.4.0');
+    assert.equal(state.extensionVersion, '0.5.0');
     assert.equal(harness.alarms.get('meld-native-reconnect').periodInMinutes, 1);
     assert.equal(harness.requests.length, 0, 'Connecting alone must not read Overleaf.');
     assert.equal(harness.tabActions.length, 0, 'Passive startup must not steal focus.');
@@ -357,7 +384,7 @@ test('the Meld page can ask the connector to reload into an updated copy, but un
     await new Promise(resolve => setTimeout(resolve, 200));
     assert.equal(harness.reloads.length, 0);
     const state = await harness.external({ type: 'reload' });
-    assert.equal(state.extensionVersion, '0.4.0', 'The reply is sent before the extension reloads.');
+    assert.equal(state.extensionVersion, '0.5.0', 'The reply is sent before the extension reloads.');
     await waitUntil(() => harness.reloads.length === 1, 'extension reload');
   } finally { await harness.close(); }
 });

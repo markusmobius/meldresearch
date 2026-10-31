@@ -50,12 +50,12 @@ internal static class RemoteEndpoints
             await accounts.RevokeAsync(context.Request.Headers.Authorization.ToString(), ct);
             return TypedResults.NoContent();
         }).WithName("RevokeLinkedDevice").WithSummary("Revoke the calling installation's credential.");
-        app.MapPost("/api/research/analyze", async Task<Ok<AnalyzeResearchResponse>> (
-            AnalyzeResearchRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, CancellationToken ct) =>
+        app.MapPost("/api/research/profile-step", async Task<Ok<ProfileStepResponse>> (
+            ProfileStepRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, CancellationToken ct) =>
         {
             await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
-            return TypedResults.Ok(await foundry.AnalyzeAsync(request, ct));
-        }).WithName("AnalyzeResearchDelta").WithSummary("Convert Overleaf evidence into grounded Updates using Foundry only.");
+            return TypedResults.Ok(await foundry.ProfileStepAsync(request, ct));
+        }).WithName("ProfileStep").WithSummary("Fold one Overleaf file into the project summary and report grounded Updates; nothing is stored.");
         app.MapPost("/api/research/embeddings", async Task<Ok<ResearchEmbeddingResponse>> (
             ResearchEmbeddingRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, CancellationToken ct) =>
         {

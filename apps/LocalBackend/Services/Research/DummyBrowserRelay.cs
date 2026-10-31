@@ -60,6 +60,15 @@ internal sealed class DummyBrowserRelay : IBrowserRelay
                 } } }, WireProtocol.Json, ct);
                 return new(path, "application/json");
             }
+            if (operation == "projectHistory" && projectId == ProjectId)
+            {
+                await JsonSerializer.SerializeAsync(stream, new
+                {
+                    paths = new Dictionary<string, long> { ["main.tex"] = DateTimeOffset.UtcNow.AddMinutes(-revision).ToUnixTimeMilliseconds() },
+                    complete = true
+                }, WireProtocol.Json, ct);
+                return new(path, "application/json");
+            }
             if (operation != "downloadProject" || projectId != ProjectId)
                 throw new InvalidOperationException("Unknown synthetic Overleaf operation.");
             using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))

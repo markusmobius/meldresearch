@@ -13,6 +13,7 @@ import { LocalPage, MeldToolbar } from './meld-toolbar';
 import { ProjectSelection } from './project-selection';
 import { ResearcherSetup } from './researcher-setup';
 import { PublicationsList } from './publications';
+import { PrivateProfile } from './private-profile';
 import { includedCount, researcherDone, undecidedRecent } from './project-decisions';
 
 export type SetupTab = 'meld' | 'overleaf' | 'openalex';
@@ -33,7 +34,7 @@ interface InstallPromptEvent extends Event {
 
 @Component({
   selector: 'app-root',
-  imports: [DatePipe, DecimalPipe, ResearchPanel, MeldToolbar, ProjectSelection, ResearcherSetup, PublicationsList, MatButtonModule, MatCardModule,
+  imports: [DatePipe, DecimalPipe, ResearchPanel, MeldToolbar, ProjectSelection, ResearcherSetup, PublicationsList, PrivateProfile, MatButtonModule, MatCardModule,
     MatExpansionModule, MatIconModule, MatSidenavModule],
   templateUrl: './app.html',
   styleUrl: './app.css',
@@ -131,6 +132,8 @@ export class App implements OnInit {
   readonly view = computed<LocalPage>(() => this.setupKnown() && this.setupComplete() ? this.page() : 'account');
   readonly overleafLabel = computed(() => {
     if (!this.verified() || this.connectorStale()) return this.connectionLabel();
+    const processing = this.research()?.processing;
+    if (processing) return `${processing.kind === 'import' ? 'Importing' : 'Updating'} ${processing.filesDone}/${processing.filesTotal} files`;
     const undecided = this.undecided().length;
     if (undecided) return `${undecided} ${undecided === 1 ? 'project' : 'projects'} to decide`;
     const included = this.includedProjects();

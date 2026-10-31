@@ -13,7 +13,7 @@ describe('Project selection', () => {
     credentialExpiresAt: null, pendingLink: null, accountError: null, busy: false, dummy: false,
     privacyUrl: 'https://www.meldresearch.org/privacy.html', consentVersion: 'overleaf-foundry-2026-10',
     pollSeconds: 300, pendingRevocations: 0, projects: [], updates: [], totalUpdates: 0,
-    decisions: [], overleafProjects: null, researcher: null,
+    decisions: [], overleafProjects: null, researcher: null, processing: null,
   };
   const projects = [
     { id: recentId, name: '<img src=x> Recent project', updatedAt: new Date(Date.now() - 86400000).toISOString() },
@@ -67,14 +67,16 @@ describe('Project selection', () => {
 
   it('shows decisions and treats previously monitored projects as included', () => {
     const monitored = { projectId: recentId, name: 'Recent', enabled: true, consentRequired: false, revision: null, summary: null,
-      factCount: 2, lastAttemptAt: null, lastSuccessAt: null, errorCode: null, error: null, explanation: null, unprocessedFiles: 0 };
+      factCount: 2, lastAttemptAt: null, lastSuccessAt: null, errorCode: null, error: null, explanation: null, unprocessedFiles: 0,
+      profile: null, phase: 'importing' as const, filesDone: 2, filesTotal: 5, lastSweepAt: null, nextSweepAt: null };
     const fixture = screen({ ...base, projects: [monitored],
       decisions: [{ projectId: olderId, included: false, decidedAt: '2026-10-01T00:00:00Z' }] });
     const element: HTMLElement = fixture.nativeElement;
     expect(element.querySelector('.decision-row .include')?.classList.contains('selected')).toBe(true);
     expect(element.querySelector('.all-decided')).not.toBeNull();
     expect(element.querySelector('.older-projects .exclude')?.classList.contains('selected')).toBe(true);
-    expect(element.querySelector('.project-card')?.textContent).toContain('2 facts');
+    expect(element.querySelector('.project-card')?.textContent).toContain('Importing 2 of 5 files');
+    expect(element.querySelector('.decision-row .phase')?.textContent).toContain('Importing 2 of 5 files');
     fixture.destroy();
   });
 });

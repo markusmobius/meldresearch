@@ -38,10 +38,10 @@ public sealed class ConnectorFolderTests : IDisposable
         Assert.Equal(stable, Service(first).GetSetup().DevelopmentDirectory);
         Assert.Equal("old", File.ReadAllText(Path.Combine(stable, "popup.js")));
 
-        string second = Release("bbbbbbbbbbbb", "0.4.0", ("popup.js", "new"), ("icons/new.png", "y"));
+        string second = Release("bbbbbbbbbbbb", "0.5.0", ("popup.js", "new"), ("icons/new.png", "y"));
         Assert.Equal(stable, Service(second).GetSetup().DevelopmentDirectory);
         Assert.Equal("new", File.ReadAllText(Path.Combine(stable, "popup.js")));
-        Assert.Contains("0.4.0", File.ReadAllText(Path.Combine(stable, "manifest.json")));
+        Assert.Contains("0.5.0", File.ReadAllText(Path.Combine(stable, "manifest.json")));
         Assert.True(File.Exists(Path.Combine(stable, "icons", "new.png")));
         Assert.False(File.Exists(Path.Combine(stable, "icons", "old.png")), "Files removed from a release are removed.");
         Assert.Empty(Directory.EnumerateFiles(stable, "*.partial", SearchOption.AllDirectories));
@@ -50,7 +50,7 @@ public sealed class ConnectorFolderTests : IDisposable
     [Fact]
     public void DevelopmentRunsUseTheConnectorSourceFolderDirectly()
     {
-        string release = Release("dev", "0.4.0");
+        string release = Release("dev", "0.5.0");
         var service = new ExtensionSetupService(null!, new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["ConnectorDirectory"] = release }).Build(),
             NullLogger<ExtensionSetupService>.Instance);

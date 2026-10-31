@@ -163,18 +163,18 @@
               feed types: no workplace news, colleague sharing, or other sources.</p>
             <h3>What an Update Contains</h3>
             <ul>
-              <li><strong>Initial import:</strong> the first analysis of a project describes knowledge that already existed. It is
-                labelled as an import, not as work that happened today.</li>
-              <li><strong>Update:</strong> a meaningful addition or revision found in changed source content.</li>
-              <li><strong>Knowledge removed:</strong> deleted or rewritten source that invalidates an earlier fact.</li>
+              <li><strong>Update:</strong> a meaningful addition or revision found in a changed file.</li>
+              <li><strong>Knowledge removed:</strong> a deleted or rewritten file that withdraws an earlier claim.</li>
+              <li>The first import of a project builds your private profile and produces no Updates: it describes what the project
+                already says, not work that happened today.</li>
             </ul>
             <p>Choose <strong>Review</strong> to inspect the complete cited evidence: the exact source lines behind each claim.
               Dates show when Meld observed the evidence. Check the cited lines before relying on an Update; a citation is not a
               guarantee that a model's interpretation is correct.</p>
             <h3>Checking for Changes</h3>
-            <p>Monitored projects are checked automatically, normally every five minutes, while Meld and your browser are running.
-              The refresh button in the Feed requests a content check now. Unchanged content makes no model calls, and
-              formatting-only edits can be analyzed without producing a new Update.</p>
+            <p>Included projects are checked once a day while Meld and your browser are running. The refresh button in the Feed,
+              or <strong>Check now</strong> in Account &rarr; Overleaf &rarr; Projects, checks them at once. Unchanged content makes no
+              model calls, and formatting-only edits can be analyzed without producing a new Update.</p>
           </section>
 
           <section class="doc-section" id="projects">
@@ -188,14 +188,15 @@
               <li><strong>Select Overleaf projects:</strong> the list comes from your signed-in Overleaf account through the connector.
                 Archived and deleted projects are not included.</li>
               <li><strong>Consent:</strong> choosing <strong>Include</strong> allows that project's text to be sent through Meld's remote service to Azure AI Foundry for
-                              update extraction and embeddings. If the notice changes, Meld asks you to resume each project before continuing.</li>
+                              building your private profile and Updates. If the notice changes, Meld asks you to resume each project before continuing.</li>
               <li><strong>Pause:</strong> stop processing a project without deleting the knowledge already collected.</li>
               <li><strong>Forget local research:</strong> delete that project's local index and Updates for your account and exclude it
                 from your profile. Overleaf originals and manual ZIP downloads are unchanged.</li>
               <li><strong>Download ZIP:</strong> save a local snapshot of a project. ZIP files are ordinary, unencrypted files.</li>
             </ul>
-            <p>Only UTF-8 <code>.tex</code>, <code>.md</code>, and <code>.txt</code> sources are analyzed. Bibliographies (<code>.bib</code>), PDFs
-              and images are tracked by hash but not sent to the model.</p>
+            <p>Only UTF-8 <code>.tex</code>, <code>.md</code>, and <code>.txt</code> sources of up to 128 KB are analyzed. Bibliographies
+              (<code>.bib</code>), PDFs, images and larger files are tracked by hash but not sent to the model. The Projects tab shows
+              which project is importing or updating, how many files are done, and what is queued.</p>
           </section>
 
           <section class="doc-section" id="account">
@@ -225,8 +226,8 @@
               <li><strong>Read Overleaf:</strong> request project lists and snapshots of selected projects from the connector,
                 validate ZIP contents, and read supported source text without extracting or executing archive files.</li>
               <li><strong>Detect change:</strong> compare supported source content, not ZIP order or timestamps.</li>
-              <li><strong>Build knowledge:</strong> send changes with relevant prior facts to Azure AI Foundry and keep the resulting
-                facts, embeddings, and Updates.</li>
+              <li><strong>Build your profile:</strong> send one file at a time, with the current project summary, to Azure AI Foundry
+                and keep the updated summary and any Updates.</li>
               <li><strong>Keep itself current:</strong> install signed releases side by side and restart into them, returning to
                 the previous version if a new one does not start.</li>
             </ul>
@@ -264,22 +265,23 @@
 
           <section class="doc-section" id="under-the-hood">
             <h2>Background Processing</h2>
-            <p>The local assistant runs a monitoring loop for the projects you selected. Processing waits for sign-in and
+            <p>The local assistant works through a queue for the projects you included. Processing waits for sign-in and
               consent; pausing or disconnecting stops it.</p>
-            <h3>1. Read Selected Projects</h3>
-            <p>While the app and browser are running, the assistant checks selected projects, normally every five minutes, and
-              requests snapshots through the connector when needed. It periodically verifies unchanged timestamps and supports an
-              explicit content check.</p>
+            <h3>1. Read Included Projects</h3>
+            <p>Each included project is read once a day, or at once when you choose Check now. Unchanged Overleaf metadata needs no
+              download. The connector also reads, from the project's Overleaf history, when each file was last edited (paths and
+              times only).</p>
             <h3>2. Compare Source Content</h3>
-            <p>Supported source files are hashed. When nothing supported changed, the check ends with <strong>zero model calls</strong>,
-              including after a restart.</p>
-            <h3>3. Analyze Changes</h3>
-            <p>For the first import or a changed project, embeddings select relevant prior facts and Azure AI Foundry decides whether
-              changes add, revise, or remove knowledge, or do not warrant an Update.</p>
-            <h3>4. Commit Atomically</h3>
-            <p>The new revision, facts, and Updates are saved together. A failed analysis does not advance the stored revision, so
-              the next check retries. Pausing, forgetting, or disconnecting during processing prevents an in-flight result from
-              restoring removed data.</p>
+            <p>Supported files are hashed. Files whose content the summary already reflects, and identical copies in other folders,
+              cause <strong>zero model calls</strong>, including after a restart.</p>
+            <h3>3. Summarize File by File</h3>
+            <p>Changed files are queued, earliest edited first. Each step sends one file and the project's current summary (at most
+              5,000 characters) to Azure AI Foundry, which returns the updated summary; after the first import it also reports each
+              meaningful change as an Update.</p>
+            <h3>4. Commit Each Step</h3>
+            <p>Every file step saves the summary, the file's hash and its Updates together, so a restart resumes at the next file. A
+              failed step changes nothing and is retried later without blocking other projects. Pausing, forgetting, or disconnecting
+              during processing prevents an in-flight result from restoring removed data.</p>
             <h3>Failures, Offline Use, and Visibility</h3>
             <p>Failures are shown on the project in Account &rarr; Overleaf &rarr; Projects rather than replaced by invented results. Previously collected Updates
               remain readable when Overleaf or the network is unavailable.</p>
@@ -287,12 +289,12 @@
 
           <section class="doc-section" id="novelty-citations">
             <h2>Novelty &amp; Citations</h2>
-            <p>Foundry decides what is new; embeddings decide which earlier knowledge it sees. No local heuristic replaces the
-              model's decision.</p>
+            <p>Foundry decides what is new by comparing each changed file with the current project summary. No local heuristic
+              replaces the model's decision.</p>
             <div class="doc-card-grid">
               <div class="doc-card"><div class="doc-card-header"><span class="material-icons" aria-hidden="true">auto_awesome</span>
                 <h3>Novelty</h3></div>
-                <p>Initial imports summarize existing knowledge. Later analyses compare changes with relevant prior facts and report
+                <p>The first import builds the summary. Later steps compare a file's before and after text with the summary and report
                   additions, revisions, or removals, or nothing at all.</p></div>
               <div class="doc-card"><div class="doc-card-header"><span class="material-icons" aria-hidden="true">format_quote</span>
                 <h3>Grounded citations</h3></div>

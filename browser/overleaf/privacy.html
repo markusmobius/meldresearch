@@ -21,7 +21,7 @@
       <header class="page-header">
         <div class="page-heading">
           <h1 class="page-title"><span class="material-icons site-only" aria-hidden="true">shield</span>Privacy &amp; Controls</h1>
-          <p class="page-subtitle">Last updated: October 2026 &middot; Meld Research and its Overleaf connector, version 0.4.0</p>
+          <p class="page-subtitle">Last updated: October 2026 &middot; Meld Research and its Overleaf connector, version 0.5.0</p>
         </div>
       </header>
 
@@ -41,15 +41,15 @@
           <section class="privacy-section" data-privacy-section="boundaries">
             <h2><span class="material-icons site-only" aria-hidden="true">storage</span> Where Your Data Goes</h2>
             <ul>
-              <li><strong>Your computer:</strong> the desktop companion stores indexed source text, project knowledge, embeddings,
+              <li><strong>Your computer:</strong> the desktop companion stores source text, project summaries (your private profile),
                 Update history, and installation credentials in an encrypted research store, plus project snapshots you download.
                 The research store is not uploaded to the Meld website.</li>
               <li><strong>Overleaf:</strong> the connector reads projects through your normal signed-in browser session. Meld does not
                 ask for your Overleaf password or export your login cookies.</li>
-              <li><strong>Azure AI Foundry:</strong> after you consent for a project, the companion sends bounded research text, prior
-                knowledge, and relevant changes through the configured Meld service to the configured Azure AI Foundry chat and
-                embedding deployments. The resulting grounded Updates and vectors are returned to your computer. Processing runs in
-                the background without a separate prompt for each model request.</li>
+              <li><strong>Azure AI Foundry:</strong> after you include a project, the companion sends it one file at a time (and, for
+                a changed file, its previous version) together with the project's current summary through the configured Meld service
+                to the configured Azure AI Foundry chat deployment. The updated summary and grounded Updates are returned to your
+                computer. Processing runs in the background without a separate prompt for each model request.</li>
               <li><strong>The Meld website:</strong> keeps your account and approved installations in its own database. The remote
                 Meld application does not persist a project archive or log research payloads.</li>
               <li><strong>Google:</strong> authenticates your Meld account. Google sign-in occurs in the normal browser; Meld does not
@@ -70,13 +70,18 @@
                 collaborators put in them.</li>
               <li><strong>Overleaf tab information:</strong> the connector checks matching Overleaf tab URLs and loading state to reuse a
                 tab or detect completion of sign-in. It does not record your general browsing history or inspect unrelated websites.</li>
+              <li><strong>Overleaf project history:</strong> for an included project, the connector reads the project's Overleaf
+                edit history inside the Overleaf tab and passes on only each file's path and the time it was last edited, so files
+                can be processed in the order they were written. Collaborator names, emails and the edits themselves are discarded
+                in the tab.</li>
               <li><strong>Overleaf sign-in status:</strong> while the connector popup is open, it requests your Overleaf project page
                 to learn only whether Overleaf redirects to its sign-in page. The page content is discarded unread and nothing is sent
                 to Meld.</li>
               <li><strong>A local preference:</strong> whether the connector is connected or disconnected is saved in this browser
                 profile. Connection state is held in memory.</li>
-              <li><strong>Research processing:</strong> selected UTF-8 source text, file paths and hashes, before/after snapshots,
-                extracted facts, citations, and embeddings. PDF and image contents are not analyzed by this version.</li>
+              <li><strong>Research processing:</strong> UTF-8 .tex, .md and .txt source text of included projects, file paths, hashes
+                and last-edit times, each project's summary (at most 5,000 characters), Updates and their citations. Bibliographies,
+                PDF and image contents are not analyzed by this version.</li>
               <li><strong>Profile choices and publications:</strong> whether you included or excluded each Overleaf project in your
                 private profile, the name you searched on OpenAlex, the offered author candidates, the author you confirmed, and that
                 author's public OpenAlex works (titles, authors, venues, years, DOIs and available abstracts).</li>
@@ -89,9 +94,9 @@
                 Other Meld pages do not load Google scripts.</li>
             </ul>
             <p>Project-list reads occur when the local Meld page connects or reconnects, after sign-in recovery, or when you choose
-              Refresh projects. If you enable monitoring, the desktop companion periodically checks selected projects, normally every
-              five minutes, and requests snapshots when needed. It also verifies unchanged timestamps periodically and supports an
-              explicit content check. It does not automatically ingest the whole Overleaf account.</p>
+              Refresh projects. For included projects the desktop companion reads the project once a day, or at once when you
+              choose Check now, and downloads a snapshot only when Overleaf reports a change. It does not automatically ingest the
+              whole Overleaf account.</p>
             <p>The browser sends its normal authentication cookies to Overleaf for these requests. The connector does not use a
               cookies permission, read or decrypt browser cookie databases, export session tokens, or send authentication cookies to
               the desktop companion. The complete project-list HTML page and unused account metadata are not exported from the tab.</p>
@@ -154,7 +159,7 @@
             <h2><span class="material-icons site-only" aria-hidden="true">delete_outline</span> Your Controls and Deletion</h2>
             <p><strong>Pause monitoring</strong> stops a selected project's research processing. <strong>Disconnect account</strong>
               stops local processing and requests remote credential revocation, retrying if the service is unavailable.
-              <strong>Forget local research</strong> removes that project's indexed sources, knowledge, and update history for the
+              <strong>Forget local research</strong> removes that project's summary, processing state, and update history for the
               linked account.</p>
             <p><strong>Disconnect</strong> in the connector popup, or <strong>Pause auto-connect</strong> in Meld, stops the browser
               connection and remains in effect after browser restarts. You can also disable or remove the extension in Chrome. These

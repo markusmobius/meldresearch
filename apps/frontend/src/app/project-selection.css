@@ -26,6 +26,15 @@
 .project-card mat-panel-title { font-weight: 600; }
 .project-card mat-panel-description { flex: 0 0 auto; font-size: 12px; }
 .project-summary { font-size: 14px; line-height: 1.6; }
+.processing { display: flex; align-items: center; gap: 12px; margin: 0 0 16px; padding: 10px 12px; border: 1px solid #d6e7e0;
+  border-radius: 10px; background: #f3faf7; }
+.processing > mat-icon { color: #084d42; flex: none; }
+.processing-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; font-size: 13px; }
+.processing-text span { color: #475569; }
+.processing-text mat-progress-bar { margin-top: 4px; }
+.check-now { flex: none; height: 32px; font-size: 13px; }
+.phase[data-phase="error"] { color: #b91c1c; }
+.phase[data-phase="importing"], .phase[data-phase="updating"] { color: #084d42; font-weight: 600; }
 .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .demo-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
 .empty { padding: 12px 0; }

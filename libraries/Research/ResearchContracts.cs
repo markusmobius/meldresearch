@@ -22,7 +22,6 @@ public sealed class ResearchFailure(int status, string code, string message) : E
     public string Code { get; } = code;
 }
 
-public enum FactOperation { Add, Revise, Remove }
 public enum EvidenceVersion { Current, Previous }
 public enum ResearchUpdateKind { InitialImport, Change, Correction, Removal }
 
@@ -36,28 +35,9 @@ public sealed record ResearchSnapshot(string ProjectId, string ProjectName, stri
 /// <summary>An exact quotation from a named file in the current or previous project snapshot.</summary>
 public sealed record ResearchCitation(string Path, string Quote, EvidenceVersion Version);
 
-/// <summary>Existing project knowledge presented to the model for semantic matching and correction.</summary>
-public sealed record ResearchFactContext(Guid Id, string Title, string Summary, IReadOnlyList<string> Tags,
-    IReadOnlyList<ResearchCitation> Evidence);
-
-/// <summary>A source-neutral fact with Overleaf provenance and a Foundry embedding.</summary>
+/// <summary>Knowledge from the earlier whole-snapshot pipeline. Kept only so state written by earlier versions still loads.</summary>
 public sealed record ResearchFact(Guid Id, string Title, string Summary, IReadOnlyList<string> Tags,
     IReadOnlyList<ResearchCitation> Evidence, string Revision, string EmbeddingModel, IReadOnlyList<float> Embedding);
-
-/// <summary>Evidence for a baseline import or a content delta; it is data, never executable instructions.</summary>
-public sealed record AnalyzeResearchRequest(ResearchSnapshot? Previous, ResearchSnapshot Current,
-    string? PreviousSummary, IReadOnlyList<ResearchFactContext> KnownFacts);
-
-/// <summary>A model-proposed addition, revision, or removal of existing research knowledge.</summary>
-public sealed record ResearchChange(FactOperation Operation, Guid? ExistingFactId, string Title,
-    string Summary, IReadOnlyList<string> Tags, IReadOnlyList<ResearchCitation> Evidence);
-
-/// <summary>Structured Foundry analysis of the project and its meaningful changes.</summary>
-public sealed record ResearchAnalysis(string ProjectSummary, string Explanation, IReadOnlyList<ResearchChange> Changes);
-
-/// <summary>Validated analysis and embeddings; the remote service does not persist project evidence.</summary>
-public sealed record AnalyzeResearchResponse(ResearchAnalysis Analysis, string ChatModel, string EmbeddingModel,
-    IReadOnlyList<IReadOnlyList<float>> Embeddings);
 
 /// <summary>Bounded text to embed using the server's configured Foundry embedding deployment.</summary>
 public sealed record ResearchEmbeddingRequest(IReadOnlyList<string> Input);

@@ -11,13 +11,21 @@ internal interface ILocalVault
 {
     Task<LocalResearchState> ReadAsync(CancellationToken ct);
     Task WriteAsync(LocalResearchState state, CancellationToken ct);
+    /// <summary>Stores source text by its SHA-256, encrypted like the state. Writing the same text twice is harmless.</summary>
+    Task WriteTextAsync(string sha256, string text, CancellationToken ct);
+    /// <summary>Reads stored source text, verifying its hash; null if it is not stored.</summary>
+    Task<string?> ReadTextAsync(string sha256, CancellationToken ct);
+    /// <summary>Deletes stored texts that no project references any more.</summary>
+    void PruneTexts(IReadOnlySet<string> keep);
 }
 
 internal sealed class LocalVault : ILocalVault, IDisposable
 {
     private const int MaximumBytes = 64 * 1024 * 1024;
     private static readonly byte[] Magic = "MELDRS01"u8.ToArray();
+    private static readonly byte[] TextMagic = "MELDTX01"u8.ToArray();
     private readonly string _path;
+    private readonly string _texts;
     private readonly byte[] _key;
 
     public LocalVault() : this(Path.Combine(RuntimeFiles.Root, "research"), null) { }
@@ -26,6 +34,8 @@ internal sealed class LocalVault : ILocalVault, IDisposable
     {
         RuntimeFiles.CreatePrivateDirectory(directory);
         _path = Path.Combine(directory, "research.protected");
+        _texts = Path.Combine(directory, "texts");
+        RuntimeFiles.CreatePrivateDirectory(_texts);
         _key = key?.ToArray() ?? LoadKey(directory);
         if (_key.Length != 32) throw new CryptographicException("The local research key is invalid.");
     }
@@ -75,6 +85,60 @@ internal sealed class LocalVault : ILocalVault, IDisposable
             if (File.Exists(temporary)) File.Delete(temporary);
         }
     }
+
+    public async Task WriteTextAsync(string sha256, string text, CancellationToken ct)
+    {
+        string path = TextPath(sha256);
+        byte[] bytes = Encoding.UTF8.GetBytes(text);
+        if (ResearchEvidence.Hash(bytes) != sha256) throw new ArgumentException("The text does not match its hash.", nameof(text));
+        if (File.Exists(path)) return;
+        byte[] encrypted = new byte[bytes.Length + 36];
+        TextMagic.CopyTo(encrypted, 0);
+        RandomNumberGenerator.Fill(encrypted.AsSpan(8, 12));
+        using (var aes = new AesGcm(_key, 16))
+            aes.Encrypt(encrypted.AsSpan(8, 12), bytes, encrypted.AsSpan(36), encrypted.AsSpan(20, 16), Associated(sha256));
+        string temporary = path + "." + Guid.NewGuid().ToString("N") + ".partial";
+        try
+        {
+            await using (var stream = RuntimeFiles.CreatePrivateFile(temporary))
+                await stream.WriteAsync(encrypted, ct);
+            File.Move(temporary, path, true);
+        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+    }
+
+    public async Task<string?> ReadTextAsync(string sha256, CancellationToken ct)
+    {
+        string path = TextPath(sha256);
+        if (!File.Exists(path)) return null;
+        byte[] encrypted = await File.ReadAllBytesAsync(path, ct);
+        if (encrypted.Length < 36 || !encrypted.AsSpan(0, 8).SequenceEqual(TextMagic)) throw Damaged();
+        byte[] plaintext = new byte[encrypted.Length - 36];
+        try
+        {
+            using var aes = new AesGcm(_key, 16);
+            aes.Decrypt(encrypted.AsSpan(8, 12), encrypted.AsSpan(36), encrypted.AsSpan(20, 16), plaintext, Associated(sha256));
+        }
+        catch (CryptographicException) { throw Damaged(); }
+        if (ResearchEvidence.Hash(plaintext) != sha256) throw Damaged();
+        return new UTF8Encoding(false, true).GetString(plaintext);
+    }
+
+    public void PruneTexts(IReadOnlySet<string> keep)
+    {
+        foreach (string path in Directory.EnumerateFiles(_texts, "*.protected"))
+        {
+            if (!keep.Contains(Path.GetFileNameWithoutExtension(path)))
+            {
+                try { File.Delete(path); }
+                catch (IOException) { /* Retried by the next prune. */ }
+            }
+        }
+    }
+
+    private string TextPath(string sha256) => sha256 is { Length: 64 } && sha256.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f')
+        ? Path.Combine(_texts, sha256 + ".protected") : throw new ArgumentException("Invalid text hash.", nameof(sha256));
+    private static byte[] Associated(string sha256) => [.. TextMagic, .. Encoding.ASCII.GetBytes(sha256)];
 
     private static byte[] LoadKey(string directory)
     {

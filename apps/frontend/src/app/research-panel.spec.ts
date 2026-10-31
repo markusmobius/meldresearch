@@ -15,7 +15,7 @@ describe('Research Updates onboarding', () => {
     credentialExpiresAt: null, pendingLink: null, accountError: null, busy: false, dummy: false,
     privacyUrl: 'https://www.meldresearch.org/privacy.html', consentVersion: 'overleaf-foundry-2026-10',
     pollSeconds: 300, pendingRevocations: 0, projects: [], updates: [], totalUpdates: 0,
-    decisions: [], overleafProjects: null, researcher: null,
+    decisions: [], overleafProjects: null, researcher: null, processing: null,
   };
   beforeEach(() => {
     vi.resetAllMocks();

@@ -160,7 +160,7 @@ available in Live mode. Listing/manual ZIP downloads remain available separately
 from account-gated model processing.
 
 The source manifest now uses the supplied Chrome draft public key:
-**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.4.0**, wire protocol **2**.
+**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.5.0**, wire protocol **2**.
 It is a public identity key, not a signing secret.
 
 Until the private listing is approved, remove the old development-ID unpacked
@@ -190,32 +190,44 @@ instead of the feed. **Bump the manifest version whenever connector files change
 the version is what Meld compares. A store-published connector updates through the
 Chrome Web Store instead.
 
-## Updates-only ingestion
+## File-by-file profiles and Updates
 
 - Monitoring is off until an existing Meld account is linked and the current
-  processing-consent version is explicitly accepted for each selected project.
-- The default check interval is five minutes. Metadata suppresses unnecessary
-  downloads; content is also rechecked hourly and on explicit request.
-- File hashes, not ZIP timestamps or ZIP byte order, identify content revisions.
-- Initial imports establish existing knowledge; observation time is not presented
-  as the date the underlying research happened.
-- Delta analysis receives current/before text and relevant existing facts.
-  Foundry embeddings rank semantic candidates; they do not decide a novelty
-  threshold. Foundry decides additions, revisions, removals, or no meaningful change.
+  processing-consent version is accepted by choosing **Include** for a project.
+- **Initial import.** Meld downloads the project ZIP and folds its supported files
+  into a running JSON summary of at most 5,000 characters, **one file per model
+  request**, earliest edited file first. Edit times come from Overleaf's project
+  history through the connector (paths and times only); files older than the
+  available history, or every file if the history is unavailable, come first, main
+  document before deeper folders. The import produces the baseline summary and
+  **no Updates**.
+- **Daily checks.** Each included project is read again once a day
+  (`ResearchSweepHours`, default 24) or at once with **Check now**. Unchanged
+  Overleaf metadata needs no download; unchanged file hashes need no model call.
+  Changed files are folded in the same way, now with the file's before/after text,
+  and each meaningful change becomes a dated **Update** in the private profile and
+  the Feed. Deleted files can remove claims.
+- **Queue.** Pending work is part of the encrypted state: the observed manifest,
+  the order and, per file, the hash the summary already reflects. Every file step
+  commits atomically, so a restart resumes at the next file and never repeats one.
+  Account → Overleaf → Projects shows what is importing or updating and the queue.
+  A failed step backs off (1 minute doubling to a day) without blocking other
+  projects; **Check now** retries at once.
+- File hashes, not ZIP timestamps or ZIP byte order, identify content. Identical
+  copies (for example earlier submission folders) are folded in once.
 - The model selects source line ranges; the server copies the exact source text
-  rather than trusting the model to reproduce quotations. Every accepted change
-  must refer to changed evidence. Invalid citations, unknown fact IDs, malformed results, and
-  failed embeddings are errors, not empty successful updates.
-- Knowledge, feed entries, and the processed revision commit together. Failure,
-  cancellation, account switching, pausing, and deletion cannot commit stale
-  in-flight results. Source-access failures do not erase saved knowledge.
-- Unchanged supported text makes no inference calls. Format-only changes may
-  require model analysis but need not produce an update.
-- PDFs, images and `.bib` bibliographies are tracked by hash but not analyzed. This release
-  supports UTF-8 `.tex`, `.md`, and `.txt`: 128 KiB per text file, 256 KiB total text,
-  2,000 file entries, 200 active facts, and at most 12 changes per analysis.
-- The UI shows the latest 100 updates; earlier entries remain stored. The
-  encrypted test-release store is bounded at 64 MiB and fails explicitly at capacity.
+  rather than trusting the model to reproduce quotations. Updates must cite the
+  current file (or, for a deleted file, its previous text). Invalid citations,
+  oversized summaries and malformed results are errors, not empty successes.
+- Pausing, excluding, forgetting or switching accounts discards an in-flight step;
+  failures never advance the stored progress or erase saved knowledge.
+- Source text is kept in an encrypted, content-addressed store next to the state
+  (`research/texts`), so the state file stays small; unreferenced texts are pruned.
+- UTF-8 `.tex`, `.md` and `.txt` files of up to 128 KiB are analyzed. Bibliographies,
+  PDFs, images, larger or non-UTF-8 files are tracked by hash only. A project may
+  hold up to 16 MiB of analyzed text and 2,000 files.
+- The UI shows the latest 100 updates; earlier entries remain stored.
+- Not yet built (phase 2): the public profile and News suggestions from Updates.
 
 The browser must be running for fresh reads. Saved research remains local; model
 processing also requires remote connectivity. Revocation retries are explicit if

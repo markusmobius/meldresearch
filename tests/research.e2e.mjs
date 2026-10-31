@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
-import { mkdtemp, mkdir, rm, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, readFile, readdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -187,24 +187,26 @@ async function verifyModelFlow(local, remote, localProcess, localArgs, localBase
   assert.equal((await local(`/api/research/projects/${projectId}`, {
     method: 'PUT', body: { enabled: true, consentVersion: state.consentVersion }, csrf: true,
   })).status, 204);
-  state = await statusUntil(local, state => !state.busy && state.projects[0]?.revision && state.totalUpdates > 0, 'real Foundry initial import');
-  assert.ok(state.updates.every(update => update.kind === 'initialImport'));
-  assert.ok(state.updates.every(update => update.evidence.length > 0));
+  state = await statusUntil(local, state => !state.busy && state.projects[0]?.phase === 'ready' && state.projects[0]?.profile,
+    'real Foundry file-by-file initial import');
+  assert.equal(state.totalUpdates, 0, 'The initial import builds the summary; it is not news.');
+  assert.ok(state.projects[0].profile.title && state.projects[0].profile.description);
   const firstRevision = state.projects[0].revision, firstCount = state.totalUpdates;
   const counts = await (await remote('/api/development/inference-counts')).json();
-  assert.ok(counts.chatRequests >= 1 && counts.embeddingRequests >= 1, 'The check must exercise real configured inference.');
-  const lastCheck = state.projects[0].lastSuccessAt;
+  assert.ok(counts.chatRequests >= 1, 'The check must exercise real configured inference.');
+  const lastCheck = state.projects[0].lastSweepAt;
   assert.equal((await local('/api/research/sync', { method: 'POST', body: {}, csrf: true })).status, 202);
-  state = await statusUntil(local, state => !state.busy && state.projects[0]?.lastSuccessAt !== lastCheck, 'unchanged content check');
+  state = await statusUntil(local, state => !state.busy && state.projects[0]?.lastSweepAt !== lastCheck, 'unchanged content check');
   assert.equal(state.projects[0].revision, firstRevision);
   assert.equal(state.totalUpdates, firstCount);
   assert.deepEqual(await (await remote('/api/development/inference-counts')).json(), counts,
-    'Unchanged file content must cause exactly zero chat and embedding calls.');
+    'Unchanged file content must cause exactly zero model calls.');
   assert.equal((await local('/api/development/overleaf/change', { method: 'POST', body: {}, csrf: true })).status, 200);
-  state = await statusUntil(local, state => !state.busy && state.projects[0]?.revision !== firstRevision &&
-    state.totalUpdates > firstCount, 'real Foundry delta processing');
-  assert.ok(state.updates.some(update => update.kind !== 'initialImport'));
-  assert.ok(state.projects[0].factCount > 0);
+  state = await statusUntil(local, state => !state.busy && state.projects[0]?.phase === 'ready' &&
+    state.projects[0]?.revision !== firstRevision && state.totalUpdates > firstCount, 'real Foundry delta processing');
+  assert.ok(state.updates.every(update => update.kind === 'change' && update.evidence.length > 0 &&
+    update.evidence.every(citation => citation.path === 'main.tex')), 'Updates cite the changed file verbatim.');
+  assert.ok(state.projects[0].profile.contributions.length > 0);
   const processedRevision = state.projects[0].revision, processedCount = state.totalUpdates;
   const countsBeforeRestart = await (await remote('/api/development/inference-counts')).json();
   localProcess.kill();
@@ -220,6 +222,10 @@ async function verifyModelFlow(local, remote, localProcess, localArgs, localBase
   const encrypted = await readFile(path.join(temporary, 'local', 'research', 'research.protected'));
   assert.equal(encrypted.includes(Buffer.from('synthetic-researcher')), false);
   assert.equal(encrypted.includes(Buffer.from('structured weekly feedback')), false);
+  const textsDirectory = path.join(temporary, 'local', 'research', 'texts');
+  for (const name of await readdir(textsDirectory))
+    assert.equal((await readFile(path.join(textsDirectory, name))).includes(Buffer.from('structured weekly feedback')), false,
+      'Stored source texts are encrypted.');
   assert.equal((await local('/api/research/account', { method: 'DELETE', csrf: true })).status, 204);
   const disconnected = await (await local('/api/research/status')).json();
   assert.equal(disconnected.account, null);
@@ -229,7 +235,7 @@ async function verifyModelFlow(local, remote, localProcess, localArgs, localBase
   const output = logs.join('');
   assert.equal(output.includes('structured weekly feedback'), false, 'Logs must omit source text.');
   assert.equal(output.includes('Bearer '), false, 'Logs must omit bearer credentials.');
-  console.log('Research E2E passed: public policy; account/proof/consent gates; real Foundry initial import and delta; exactly zero inference for unchanged content or restart; encrypted persistence; revocation and account isolation.');
+  console.log('Research E2E passed: public policy; account/proof/consent gates; real Foundry file-by-file initial import (no Updates) and a cited delta Update; exactly zero inference for unchanged content or restart; encrypted state and texts; revocation and account isolation.');
 }
 
 async function verifyGoogleSignIn() {

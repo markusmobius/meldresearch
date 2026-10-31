@@ -12,37 +12,39 @@ namespace MeldResearch.Tests;
 
 public sealed class FoundryTests
 {
+    private static readonly ProjectProfile Profile = new("Synthetic pilot", "A synthetic pilot study.", ["40 participants."], ["pilot"]);
+    private static ProfileStepRequest Initial(string text) =>
+        new("0123456789abcdef01234567", "Synthetic research", true, null, new("main.tex", null, text));
+    private static ProfileStepRequest Update(string before, string after) =>
+        new("0123456789abcdef01234567", "Synthetic research", false, Profile, new("main.tex", before, after));
+    private static string Json(ProjectProfile profile) => JsonSerializer.Serialize(profile, ResearchJson.Options);
+    private static HttpResponseMessage Step(ModelStep step) => Response(new { choices = new[] { new { finish_reason = "stop",
+        message = new { content = JsonSerializer.Serialize(step, ResearchJson.Options) } } } });
+
     [Fact]
-    public async Task UsesStructuredFoundryChatAndEmbeddingsAndValidatesTheExactOutput()
+    public async Task UsesStrictStatelessFoundryChatAndValidatesTheSummaryStep()
     {
-        var snapshot = ResearchTests.Snapshot("The synthetic pilot has 40 participants.");
-        var analysis = new ModelAnalysis("A synthetic pilot.", "Initial import.",
-            [new(FactOperation.Add, null, "Pilot", snapshot.Files[0].Text!, [],
-                [new("main.tex", 1, 1, EvidenceVersion.Current)])]);
         var routes = new List<string>();
+        string? sent = null;
         using var http = new HttpClient(new Handler(async request =>
         {
             routes.Add(request.RequestUri!.AbsolutePath);
             Assert.Equal("synthetic-test-only", request.Headers.GetValues("api-key").Single());
-            using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
-            if (routes.Count == 1)
-            {
-                Assert.Equal("synthetic-chat", body.RootElement.GetProperty("model").GetString());
-                Assert.False(body.RootElement.GetProperty("store").GetBoolean(), "Foundry chat must disable stored completions.");
-                Assert.Equal("json_schema", body.RootElement.GetProperty("response_format").GetProperty("type").GetString());
-                Assert.True(body.RootElement.GetProperty("response_format").GetProperty("json_schema").GetProperty("strict").GetBoolean());
-                return Response(new { choices = new[] { new { finish_reason = "stop",
-                    message = new { content = JsonSerializer.Serialize(analysis, ResearchJson.Options) } } } });
-            }
-            Assert.Equal("synthetic-embedding", body.RootElement.GetProperty("model").GetString());
-            return Response(new { data = new[] { new { index = 0, embedding = new[] { 1f, 0f } } } });
+            sent = await request.Content!.ReadAsStringAsync();
+            using var body = JsonDocument.Parse(sent);
+            Assert.Equal("synthetic-chat", body.RootElement.GetProperty("model").GetString());
+            Assert.False(body.RootElement.GetProperty("store").GetBoolean(), "Foundry chat must disable stored completions.");
+            Assert.True(body.RootElement.GetProperty("response_format").GetProperty("json_schema").GetProperty("strict").GetBoolean());
+            return Step(new(Profile, "Read the pilot.", []));
         }));
         using var foundry = Create(http);
-        var result = await foundry.AnalyzeAsync(new(null, snapshot, null, []), CancellationToken.None);
-        Assert.Equal(new[] { "/openai/v1/chat/completions", "/openai/v1/embeddings" }, routes);
-        Assert.Equal("synthetic-embedding", result.EmbeddingModel);
-        Assert.Equal(2, Assert.Single(result.Embeddings).Count);
-        Assert.Equal(snapshot.Files[0].Text, Assert.Single(Assert.Single(result.Analysis.Changes).Evidence).Quote);
+        var result = await foundry.ProfileStepAsync(Initial("The synthetic pilot has 40 participants."), CancellationToken.None);
+        Assert.Equal(["/openai/v1/chat/completions"], routes);
+        Assert.Equal(Json(Profile), Json(result.Profile));
+        Assert.Empty(result.Updates);
+        Assert.Equal("synthetic-chat", result.ChatModel);
+        Assert.Contains("1\\tThe synthetic pilot has 40 participants.",
+            JsonDocument.Parse(sent!).RootElement.GetProperty("messages")[1].GetProperty("content").GetString());
     }
 
     [Theory]
@@ -51,44 +53,52 @@ public sealed class FoundryTests
     [InlineData("First line.\r\nA meaningful synthetic result.\r\nLast line.", 1, 2, "First line.\r\nA meaningful synthetic result.")]
     public async Task BuildsVerbatimCitationsFromSelectedSourceLines(string text, int start, int end, string expected)
     {
-        var snapshot = ResearchTests.Snapshot(text);
-        var analysis = new ModelAnalysis("Synthetic.", "Initial import.",
-            [new(FactOperation.Add, null, "Synthetic", "A supported synthetic result.", [],
-                [new("main.tex", start, end, EvidenceVersion.Current)])]);
-        using var http = new HttpClient(new Handler(request => Task.FromResult(
-            request.RequestUri!.AbsolutePath.EndsWith("/embeddings", StringComparison.Ordinal)
-                ? Response(new { data = new[] { new { index = 0, embedding = new[] { 1f } } } })
-                : Response(new { choices = new[] { new { finish_reason = "stop",
-                    message = new { content = JsonSerializer.Serialize(analysis, ResearchJson.Options) } } } }))));
+        using var http = new HttpClient(new Handler(_ => Task.FromResult(Step(new(Profile, "A new result.",
+            [new("Result", "A supported synthetic result.", [new(start, end, EvidenceVersion.Current)])])))));
         using var foundry = Create(http);
-        var result = await foundry.AnalyzeAsync(new(null, snapshot, null, []), CancellationToken.None);
-        Assert.Equal(expected, Assert.Single(Assert.Single(result.Analysis.Changes).Evidence).Quote);
+        var result = await foundry.ProfileStepAsync(Update("First line.", text), CancellationToken.None);
+        var citation = Assert.Single(Assert.Single(result.Updates).Evidence);
+        Assert.Equal((expected, "main.tex"), (citation.Quote, citation.Path));
     }
 
     [Theory]
     [InlineData(0, 1)]
     [InlineData(2, 1)]
     [InlineData(1, 20)]
-    public async Task RejectsInvalidModelLineRangesBeforeEmbedding(int start, int end)
+    public async Task RejectsInvalidModelLineRanges(int start, int end)
     {
         int calls = 0;
-        var analysis = new ModelAnalysis("Synthetic.", "Initial import.",
-            [new(FactOperation.Add, null, "Synthetic", "Synthetic.", [], [new("main.tex", start, end, EvidenceVersion.Current)])]);
         using var http = new HttpClient(new Handler(_ =>
         {
             calls++;
-            return Task.FromResult(Response(new { choices = new[] { new { finish_reason = "stop",
-                message = new { content = JsonSerializer.Serialize(analysis, ResearchJson.Options) } } } }));
+            return Task.FromResult(Step(new(Profile, "Synthetic.", [new("Synthetic", "Synthetic.", [new(start, end, EvidenceVersion.Current)])])));
         }));
         using var foundry = Create(http);
-        var error = await Assert.ThrowsAsync<ResearchFailure>(() => foundry.AnalyzeAsync(
-            new(null, ResearchTests.Snapshot("A synthetic result."), null, []), CancellationToken.None));
+        var error = await Assert.ThrowsAsync<ResearchFailure>(() => foundry.ProfileStepAsync(
+            Update("Old.", "A synthetic result."), CancellationToken.None));
         Assert.Equal("invalid_source_citation", error.Code);
         Assert.Equal(1, calls);
     }
 
     [Fact]
-    public async Task ProviderErrorsDoNotFallbackOrBecomeAnEmptySuccessfulAnalysis()
+    public async Task InitialStepsNeverReportUpdatesAndOversizedSummariesAreShortenedOnce()
+    {
+        var huge = Profile with { Description = new string('d', 1500), Contributions = Enumerable.Repeat(new string('c', 400), 12).ToArray() };
+        int calls = 0;
+        using var http = new HttpClient(new Handler(_ => Task.FromResult(++calls == 1 ? Step(new(huge, "Too long.", [])) : Step(new(Profile, "Shorter.", [])))));
+        using var foundry = Create(http);
+        var result = await foundry.ProfileStepAsync(Initial("Synthetic."), CancellationToken.None);
+        Assert.Equal((2, Json(Profile)), (calls, Json(result.Profile)));
+
+        using var reporting = new HttpClient(new Handler(_ => Task.FromResult(Step(new(Profile, "Initial.",
+            [new("Not news", "An initial import is not an update.", [new(1, 1, EvidenceVersion.Current)])])))));
+        using var strict = Create(reporting);
+        Assert.Equal("ungrounded_research_analysis",
+            (await Assert.ThrowsAsync<ResearchFailure>(() => strict.ProfileStepAsync(Initial("Synthetic."), CancellationToken.None))).Code);
+    }
+
+    [Fact]
+    public async Task ProviderErrorsDoNotFallbackOrBecomeAnEmptySuccessfulStep()
     {
         int calls = 0;
         using var http = new HttpClient(new Handler(_ =>
@@ -97,8 +107,7 @@ public sealed class FoundryTests
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.TooManyRequests));
         }));
         using var foundry = Create(http);
-        var error = await Assert.ThrowsAsync<ResearchFailure>(() => foundry.AnalyzeAsync(
-            new(null, ResearchTests.Snapshot("Synthetic research."), null, []), CancellationToken.None));
+        var error = await Assert.ThrowsAsync<ResearchFailure>(() => foundry.ProfileStepAsync(Initial("Synthetic research."), CancellationToken.None));
         Assert.Equal(429, error.Status);
         Assert.Equal(1, calls);
     }
@@ -139,8 +148,7 @@ public sealed class FoundryTests
             ["Foundry:DevelopmentTokenSource"] = "https://credentials.example.invalid/api/inference/token"
         }).Build();
         using var foundry = new FoundryService(configuration, new Environment("Development"), http, null);
-        var error = await Assert.ThrowsAsync<ResearchFailure>(() => foundry.AnalyzeAsync(
-            new(null, ResearchTests.Snapshot("Synthetic research."), null, []), CancellationToken.None));
+        var error = await Assert.ThrowsAsync<ResearchFailure>(() => foundry.ProfileStepAsync(Initial("Synthetic research."), CancellationToken.None));
         Assert.Equal("foundry_configuration_mismatch", error.Code);
         Assert.Equal(1, calls);
     }
@@ -198,7 +206,7 @@ public sealed class FoundryTests
         Assert.Equal(3, calls);
         string printed = output.ToString();
         Assert.Contains("user-assigned managed identity", printed);
-        Assert.Contains("PASS: research analysis", printed);
+        Assert.Contains("PASS: summary steps", printed);
         Assert.Contains("PASS: embeddings, 2 vectors of 3 dimensions", printed);
         foreach (string hidden in new[] { "40 participants", "Synthetic pilot", "synthetic-managed-identity-token" })
             Assert.DoesNotContain(hidden, printed);
@@ -248,11 +256,12 @@ public sealed class FoundryTests
         if (request.RequestUri!.AbsolutePath.EndsWith("/embeddings", StringComparison.Ordinal))
             return Response(new { data = body.RootElement.GetProperty("input").EnumerateArray()
                 .Select((_, index) => new { index, embedding = new[] { 1f, 0f, 0f } }).ToArray() });
-        var analysis = new ModelAnalysis("Synthetic pilot study.", "Initial import.",
-            [new(FactOperation.Add, null, "Synthetic pilot", "A synthetic pilot with 40 participants.", ["pilot"],
-                [new("main.tex", 2, 2, EvidenceVersion.Current)])]);
-        return Response(new { choices = new[] { new { finish_reason = "stop",
-            message = new { content = JsonSerializer.Serialize(analysis, ResearchJson.Options) } } } });
+        // An update cites the replication paragraph the smoke test appends (the last line of the current text).
+        string user = body.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!;
+        bool update = user.Contains("\"mode\":\"update\"", StringComparison.Ordinal);
+        int last = JsonDocument.Parse(user).RootElement.GetProperty("file").GetProperty("currentLines").GetArrayLength();
+        return Step(new(new("Synthetic pilot", "A synthetic pilot study.", ["Weekly feedback improved completion."], ["pilot"]),
+            "Synthetic.", update ? [new("Replication", "A replication was completed.", [new(last, last, EvidenceVersion.Current)])] : []));
     }
 
     private sealed class Credential(Exception? failure = null) : TokenCredential

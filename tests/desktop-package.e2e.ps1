@@ -24,7 +24,7 @@ function Read-NativeBytes([IO.Stream]$Stream, [int]$Count) {
 try {
     [IO.Compression.ZipFile]::ExtractToDirectory([IO.Path]::GetFullPath($ArchivePath), $temporary)
     $metadata = Get-Content -LiteralPath ([IO.Path]::Combine($temporary, 'installation.json')) -Raw | ConvertFrom-Json
-    if ($metadata.ExtensionId -ne 'pejcljoimoeklelcfbfddnkimlkjgfhe' -or $metadata.ConnectorVersion -ne '0.4.0' -or
+    if ($metadata.ExtensionId -ne 'pejcljoimoeklelcfbfddnkimlkjgfhe' -or $metadata.ConnectorVersion -ne '0.5.0' -or
         $metadata.Version -notmatch '^[0-9a-f]{64}$' -or $metadata.Runtime -ne 'win-x64') {
         throw 'The packaged public identity, connector version or release identity is wrong.'
     }

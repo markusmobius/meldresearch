@@ -31,11 +31,59 @@
       controller.abort();
     }
 
+    // Reads only when each file was last edited, from Overleaf's project history. Only paths and times leave the tab;
+    // the history's user details and changes are discarded here.
+    async function* history() {
+      const paths = {};
+      let before = null;
+      let complete = false;
+      for (let page = 0; page < 40 && !complete; page++) {
+        const query = before === null ? '?min_count=100' : `?min_count=100&before=${before}`;
+        const response = await fetch(new URL(`/project/${projectId}/updates${query}`, origin).href, {
+          method: 'GET', credentials: 'include', cache: 'no-store', redirect: 'follow', signal: controller.signal,
+          headers: { Accept: 'application/json' },
+        });
+        const finalUrl = new URL(response.url);
+        if (finalUrl.origin !== origin || /^\/(?:login|register)(?:\/|$)/.test(finalUrl.pathname))
+          throw new ReadError('sign_in_required');
+        if (response.status !== 200) throw new ReadError('history_unavailable');
+        const text = await response.text();
+        if (text.length > 8 * 1024 * 1024) throw new ReadError('response_too_large');
+        let data;
+        try { data = JSON.parse(text); } catch { throw new ReadError('history_unavailable'); }
+        if (!Array.isArray(data?.updates)) throw new ReadError('history_unavailable');
+        // Updates arrive newest first, so the first time a path appears is its latest edit.
+        for (const update of data.updates) {
+          const time = Number(update?.meta?.end_ts);
+          if (!Number.isFinite(time)) continue;
+          const names = [...(Array.isArray(update.pathnames) ? update.pathnames : []),
+            ...(Array.isArray(update.project_ops) ? update.project_ops.flatMap(op =>
+              [op?.add?.pathname, op?.rename?.newPathname]) : [])];
+          for (const name of names) {
+            if (typeof name !== 'string' || name.length > 1024) continue;
+            const path = name.replace(/^\/+/, '');
+            if (path && !(path in paths) && Object.keys(paths).length < 5000) paths[path] = time;
+          }
+        }
+        const next = Number(data.nextBeforeTimestamp);
+        if (!Number.isInteger(next) || next <= 0) complete = true;
+        else before = next;
+      }
+      const bytes = new TextEncoder().encode(JSON.stringify({ paths, complete }));
+      yield { contentType: 'application/json' };
+      yield* chunks(bytes);
+    }
+
     async function* read() {
       try {
         const list = operation === 'listProjects';
         const download = operation === 'downloadProject' && /^[a-f0-9]{24}$/.test(projectId ?? '');
-        if ((!list && !download) || location.origin !== origin) throw new ReadError('invalid_request');
+        const edits = operation === 'projectHistory' && /^[a-f0-9]{24}$/.test(projectId ?? '');
+        if ((!list && !download && !edits) || location.origin !== origin) throw new ReadError('invalid_request');
+        if (edits) {
+          yield* history();
+          return;
+        }
         const path = list ? '/' : `/project/${projectId}/download/zip`;
         const limit = list ? 8 * 1024 * 1024 : 100 * 1024 * 1024;
         const response = await fetch(new URL(path, origin).href, {
