@@ -72,11 +72,23 @@ public static class ProfileEvidence
         }
     }
 
+    /// <summary>The sizes the model is asked to keep to (see <see cref="Problems"/>).</summary>
     public const int MaxTitle = 200, MaxDescription = 1500, MaxContribution = 500, MaxTopics = 12, MaxTopic = 80;
 
-    public static bool ValidProfile(ProjectProfile profile) => profile is not null && Problems(profile).Count == 0;
+    /// <summary>
+    /// Hard safety limits for a stored summary, about twice the targets. A summary over the targets is shortened once and
+    /// otherwise accepted as is; only one beyond these limits is trimmed (<see cref="Fit"/>).
+    /// </summary>
+    public const int HardMaxProfileCharacters = 12000, HardMaxTitle = 400, HardMaxDescription = 4000, HardMaxContributions = 30,
+        HardMaxContribution = 1000, HardMaxTopics = 24, HardMaxTopic = 160;
 
-    /// <summary>Each limit the summary breaks, phrased so the model can fix it; empty when the summary is valid.</summary>
+    public static bool ValidProfile(ProjectProfile profile) =>
+        profile is not null && Short(profile.Title, HardMaxTitle) && Short(profile.Description, HardMaxDescription) &&
+        profile.Contributions is { Count: <= HardMaxContributions } && profile.Contributions.All(item => Short(item, HardMaxContribution)) &&
+        profile.Topics is { Count: <= HardMaxTopics } && profile.Topics.All(item => Short(item, HardMaxTopic)) &&
+        Length(profile) <= HardMaxProfileCharacters;
+
+    /// <summary>Each target the summary exceeds, phrased so the model can fix it; empty when it keeps to all of them.</summary>
     public static IReadOnlyList<string> Problems(ProjectProfile profile)
     {
         var problems = new List<string>();
@@ -91,8 +103,8 @@ public static class ProfileEvidence
     }
 
     /// <summary>
-    /// Last resort when the model still breaks a limit: keep the most significant content (earlier items first) and shorten
-    /// long text at a sentence or word boundary, so a valid summary is stored instead of failing the step again and again.
+    /// Last resort for a summary beyond the hard limits: keep the most significant content (earlier items first) and shorten
+    /// long text at a sentence or word boundary to the targets, so a valid summary is stored instead of failing again and again.
     /// </summary>
     public static ProjectProfile Fit(ProjectProfile profile)
     {

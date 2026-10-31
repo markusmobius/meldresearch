@@ -33,8 +33,9 @@ public static class ResearchThemes
             request.Candidates is null || request.Candidates.Count is 0 or > MaxCandidates ||
             request.Candidates.Select(candidate => candidate?.Id).Distinct(StringComparer.Ordinal).Count() != request.Candidates.Count ||
             request.Candidates.Any(candidate => candidate is null || !IsThemeId(candidate.Id) || string.IsNullOrWhiteSpace(candidate.Title) ||
-                candidate.Title.Length > 200 || candidate.Description is null || candidate.Description.Length > 1500 ||
-                candidate.Topics is not { Count: <= 12 } || candidate.Topics.Any(topic => topic is null || topic.Length > 80)))
+                candidate.Title.Length > ProfileEvidence.HardMaxTitle || candidate.Description is null ||
+                candidate.Description.Length > ProfileEvidence.HardMaxDescription || candidate.Topics is not { Count: <= ProfileEvidence.HardMaxTopics } ||
+                candidate.Topics.Any(topic => topic is null || topic.Length > ProfileEvidence.HardMaxTopic)))
             throw new ResearchFailure(400, "invalid_theme_request", "The project grouping request is invalid.");
     }
 

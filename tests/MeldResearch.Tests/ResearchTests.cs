@@ -54,12 +54,19 @@ public sealed class ResearchTests : IDisposable
     }
 
     [Fact]
-    public void SummariesAreLimitedToFiveThousandCharactersAsJson()
+    public void SummariesTargetFiveThousandCharactersAndAreRejectedOnlyBeyondTheHardLimits()
     {
         Assert.True(ProfileEvidence.ValidProfile(Profile));
+        Assert.Empty(ProfileEvidence.Problems(Profile));
         var large = Profile with { Description = new string('d', 1500), Contributions = Enumerable.Repeat(new string('c', 400), 12).ToArray() };
         Assert.True(ProfileEvidence.Length(large) > ProfileEvidence.MaxProfileCharacters);
-        Assert.False(ProfileEvidence.ValidProfile(large));
+        // Over the target: reported as a problem to shorten, but acceptable as is.
+        Assert.Contains(ProfileEvidence.Problems(large), problem => problem.Contains("4500 characters as JSON"));
+        Assert.True(ProfileEvidence.ValidProfile(large));
+        var huge = large with { Contributions = Enumerable.Repeat(new string('c', 900), 20).ToArray() };
+        Assert.True(ProfileEvidence.Length(huge) > ProfileEvidence.HardMaxProfileCharacters);
+        Assert.False(ProfileEvidence.ValidProfile(huge));
+        Assert.True(ProfileEvidence.ValidProfile(ProfileEvidence.Fit(huge)));
     }
 
     [Fact]

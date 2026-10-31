@@ -42,7 +42,8 @@ instruction file. Start with the [README](README.md) for setup and release detai
   before monitoring. Preserve account isolation and server-side authorization.
 - Compare supported source content, not ZIP order/timestamps. Unchanged supported
   content must make **zero inference calls**, including after a restart.
-- Projects are summarized file by file into a <= 5,000-character JSON profile,
+- Projects are summarized file by file into a ~5,000-character JSON profile (one
+  summary-of-summary request if over target, accepted as is up to 12,000),
   earliest edited first (Overleaf history via the connector). The initial import
   builds the baseline and produces no Updates; daily checks (and Check now) fold in
   changed files, and meaningful summary changes become cited Updates. The pending
@@ -175,7 +176,7 @@ Use .NET 10, Node 24/npm and PowerShell 7. Run from this repository's root, e.g.
   restore the removed application Playwright approach. Use the normal browser
   and connector; never execute downloaded TeX.
 - Current Chrome identity: `pejcljoimoeklelcfbfddnkimlkjgfhe`; extension version
-  `0.5.3`, native protocol `2`. Identity derives from the public manifest key,
+  `0.5.4`, native protocol `2`. Identity derives from the public manifest key,
   not a secret signing key. Update related identity/handshake checks together;
   compatible extension releases need not have identical version numbers.
 - Bump the connector manifest version whenever extension files change: installed

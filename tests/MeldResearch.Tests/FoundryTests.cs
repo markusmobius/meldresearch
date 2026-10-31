@@ -245,32 +245,49 @@ public sealed class FoundryTests
     }
 
     [Fact]
-    public async Task ASummaryThatBreaksALimitIsAskedToBeFixedOnceThenFittedInsteadOfFailing()
+    public async Task AnOversizedSummaryGetsOneSummaryOfTheSummaryAndIsOtherwiseAcceptedAsIs()
     {
         var bodies = new List<string>();
         var tooLong = Profile with { Description = string.Join(" ", Enumerable.Repeat("A long synthetic sentence about the pilot.", 60)),
             Topics = [.. Enumerable.Range(1, 20).Select(index => "topic " + index)] };
+        var replies = new Queue<HttpResponseMessage>();
         using var http = new HttpClient(new Handler(async request =>
         {
             bodies.Add(await request.Content!.ReadAsStringAsync());
-            return Step(new(tooLong, "Read.", []));
+            return replies.Dequeue();
         }));
         using var foundry = Create(http);
-        var result = await foundry.ProfileStepAsync(Initial("Synthetic."), CancellationToken.None);
-        Assert.Equal(2, bodies.Count);
-        string retry = JsonDocument.Parse(bodies[1]).RootElement.GetProperty("messages")[3].GetProperty("content").GetString()!;
-        Assert.Contains("description must be one paragraph of 1-1500 characters", retry);
-        Assert.Contains("at most 12 topics (it has 20)", retry);
-        Assert.True(ProfileEvidence.ValidProfile(result.Profile));
-        Assert.True(result.Profile.Description.Length <= ProfileEvidence.MaxDescription);
-        Assert.Equal(12, result.Profile.Topics.Count);
-        Assert.StartsWith("A long synthetic sentence", result.Profile.Description);
 
-        // An empty title is a failed answer, not a long one: it is still rejected.
-        using var empty = new HttpClient(new Handler(_ => Task.FromResult(Step(new(Profile with { Title = "" }, "Read.", [])))));
-        using var failing = Create(empty);
+        // The shortening request carries only the summary and what is too long, not the file.
+        replies.Enqueue(Step(new(tooLong, "Read.", [])));
+        replies.Enqueue(Response(new { choices = new[] { new { finish_reason = "stop", message = new { content = JsonSerializer.Serialize(new { profile = Profile }, ResearchJson.Options) } } } }));
+        var shortened = await foundry.ProfileStepAsync(Initial("UNIQUE-FILE-TEXT."), CancellationToken.None);
+        Assert.Equal(2, bodies.Count);
+        Assert.Contains("UNIQUE-FILE-TEXT", bodies[0]);
+        Assert.DoesNotContain("UNIQUE-FILE-TEXT", bodies[1]);
+        Assert.Contains("at most 12 topics (it has 20)", bodies[1]);
+        Assert.Equal(Json(Profile), Json(shortened.Profile));
+
+        // Still too long after shortening: accepted as is, within the hard safety limits.
+        replies.Enqueue(Step(new(tooLong, "Read.", [])));
+        replies.Enqueue(Response(new { choices = new[] { new { finish_reason = "stop", message = new { content = JsonSerializer.Serialize(new { profile = tooLong }, ResearchJson.Options) } } } }));
+        var accepted = await foundry.ProfileStepAsync(Initial("Synthetic."), CancellationToken.None);
+        Assert.Equal(Json(tooLong), Json(accepted.Profile));
+
+        // Beyond the hard limits (and shortening failed): trimmed to the targets instead of failing.
+        var huge = tooLong with { Description = new string('x', 3000) + ". " + new string('y', 2000) };
+        replies.Enqueue(Step(new(huge, "Read.", [])));
+        replies.Enqueue(new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("{}", Encoding.UTF8, "application/json") });
+        var fitted = await foundry.ProfileStepAsync(Initial("Synthetic."), CancellationToken.None);
+        Assert.True(fitted.Profile.Description.Length <= ProfileEvidence.MaxDescription);
+        Assert.Equal(ProfileEvidence.MaxTopics, fitted.Profile.Topics.Count);
+
+        // An empty title is a failed answer, not a long one: it is still rejected, without a shortening call.
+        replies.Enqueue(Step(new(Profile with { Title = "" }, "Read.", [])));
+        int before = bodies.Count;
         Assert.Equal("ungrounded_research_analysis", (await Assert.ThrowsAsync<ResearchFailure>(() =>
-            failing.ProfileStepAsync(Initial("Synthetic."), CancellationToken.None))).Code);
+            foundry.ProfileStepAsync(Initial("Synthetic."), CancellationToken.None))).Code);
+        Assert.Equal(before + 1, bodies.Count);
     }
 
     [Fact]

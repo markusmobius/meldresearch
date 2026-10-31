@@ -165,7 +165,7 @@ that backend requires real Google OAuth configuration. No synthetic identity is
 available in Live mode.
 
 The source manifest now uses the supplied Chrome draft public key:
-**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.5.3**, wire protocol **2**.
+**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.5.4**, wire protocol **2**.
 It is a public identity key, not a signing secret.
 
 Until the private listing is approved, remove the old development-ID unpacked
@@ -200,8 +200,11 @@ Chrome Web Store instead.
 - Monitoring is off until an existing Meld account is linked and the current
   processing-consent version is accepted by choosing **Include** for a project.
 - **Initial import.** Meld downloads the project ZIP and folds its supported files
-  into a running JSON summary of at most 5,000 characters, **one file per model
-  request**, earliest edited file first. Edit times come from Overleaf's project
+  into a running JSON summary of about 5,000 characters, **one file per model
+  request**, earliest edited file first. A summary over its size targets gets one
+  cheap "summary of the summary" request (only the summary is sent); if that is
+  still too long it is accepted as is, and only one beyond the hard safety limits
+  (12,000 characters) is trimmed at sentence boundaries. Edit times come from Overleaf's project
   history through the connector (paths and times only); files older than the
   available history, or every file if the history is unavailable, come first, main
   document before deeper folders. The import produces the baseline summary and

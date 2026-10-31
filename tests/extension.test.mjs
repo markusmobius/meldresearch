@@ -155,7 +155,7 @@ test('automatically connects without a popup and creates a repeating reconnect a
     assert.equal(state.connected, true);
     assert.equal(state.enabled, true);
     assert.equal(state.protocolVersion, 2);
-    assert.equal(state.extensionVersion, '0.5.3');
+    assert.equal(state.extensionVersion, '0.5.4');
     assert.equal(harness.alarms.get('meld-native-reconnect').periodInMinutes, 1);
     assert.equal(harness.requests.length, 0, 'Connecting alone must not read Overleaf.');
     assert.equal(harness.tabActions.length, 0, 'Passive startup must not steal focus.');
@@ -384,7 +384,7 @@ test('the Meld page can ask the connector to reload into an updated copy, but un
     await new Promise(resolve => setTimeout(resolve, 200));
     assert.equal(harness.reloads.length, 0);
     const state = await harness.external({ type: 'reload' });
-    assert.equal(state.extensionVersion, '0.5.3', 'The reply is sent before the extension reloads.');
+    assert.equal(state.extensionVersion, '0.5.4', 'The reply is sent before the extension reloads.');
     await waitUntil(() => harness.reloads.length === 1, 'extension reload');
   } finally { await harness.close(); }
 });

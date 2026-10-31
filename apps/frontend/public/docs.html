@@ -277,7 +277,7 @@
             <p>Supported files are hashed. Files whose content the summary already reflects, and identical copies in other folders,
               cause <strong>zero model calls</strong>, including after a restart.</p>
             <h3>3. Summarize File by File</h3>
-            <p>Changed files are queued, earliest edited first. Each step sends one file and the project's current summary (at most
+            <p>Changed files are queued, earliest edited first. Each step sends one file and the project's current summary (about
               5,000 characters) to Azure AI Foundry, which returns the updated summary; after the first import it also reports each
               meaningful change as an Update.</p>
             <h3>4. Commit Each Step</h3>

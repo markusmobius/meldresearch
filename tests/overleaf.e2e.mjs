@@ -199,7 +199,7 @@ try {
   assert.ok(schema.paths['/api/extension'].get);
   const setup = await (await call('/api/extension')).json();
   assert.deepEqual(setup, {
-    extensionId, extensionVersion: '0.5.3', protocolVersion: 2,
+    extensionId, extensionVersion: '0.5.4', protocolVersion: 2,
     developmentDirectory: path.join(repo, 'browser', 'overleaf'),
     storeUrl: `https://chromewebstore.google.com/detail/${extensionId}`, storePublished: false,
   });
