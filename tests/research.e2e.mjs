@@ -313,7 +313,7 @@ async function verifyRemoteSession(base) {
   assert.equal(usage.status, 200);
   const usageBody = await usage.json();
   assert.equal(usageBody.bucketMinutes, 1);
-  assert.ok(Array.isArray(usageBody.buckets) && usageBody.capacity.maxConcurrency === 2);
+  assert.ok(Array.isArray(usageBody.buckets) && usageBody.capacity.maxConcurrency === 4);
   assert.equal((await browser('/api/usage?purpose=1')).status, 400, 'Purposes are named, not numbered.');
   const account = await browser('/account');
   assert.equal(account.status, 200);

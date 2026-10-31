@@ -220,6 +220,16 @@ Chrome Web Store instead.
   projects; **Check now** retries at once. Including (or resuming) a project stops
   the worker after its current file step, reads that project and processes it
   before older queued work.
+- **Parallel processing** (as Project Meld's inference queue). Up to
+  `ResearchParallelProjects` (default 3) projects are folded in at once; each
+  project's files stay strictly in order because every step builds on the previous
+  summary. The remote service admits at most `Foundry:MaxConcurrency` (default 4)
+  Foundry requests at a time and `Foundry:MaxConcurrencyPerAccount` (default 3) per
+  account; further requests wait up to `Foundry:QueueSeconds` (default 120) instead
+  of being refused. A Foundry 429 or 503 is retried up to three times after its
+  `Retry-After` (or 2, 4 s with jitter), and a 429 pauses all requests for that time.
+  If the service is still busy, the local app tries that project again in 30
+  seconds without reporting an error.
 - **Research cards.** About me groups included projects into research cards: once a
   project's first import finishes, Foundry decides from the summaries whether it
   continues an existing card (same question, model, data or paper; a shared field is
@@ -299,6 +309,9 @@ is no code to compare or approval step. No Google console changes are needed.
    `Foundry:ChatDeployment`, and `Foundry:EmbeddingDeployment`. Production uses
    managed identity (optional `Foundry:ManagedIdentityClientId`) or a secret-stored
    `Foundry:ApiKey`. Grant the identity inference access to the Foundry resource.
+   Optional admission limits: `Foundry:MaxConcurrency` (default 4),
+   `Foundry:MaxConcurrencyPerAccount` (3) and `Foundry:QueueSeconds` (120); keep them
+   within the deployment's tokens-per-minute quota.
    See [Foundry setup](#foundry-setup-and-llm-smoke-test).
 5. Set `OpenAlex:ApiKey` (`MELDRESEARCH_OpenAlex__ApiKey`, secret; server env file only)
    for researcher matching. Without it OpenAlex is called anonymously.

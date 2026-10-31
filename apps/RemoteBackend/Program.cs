@@ -65,6 +65,7 @@ builder.Services.AddSingleton(options);
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IAccountService, AccountService>();
 builder.Services.AddSingleton<InferenceUsageStore>();
+builder.Services.AddSingleton<InferenceGate>();
 builder.Services.AddSingleton<IFoundryService, FoundryService>();
 builder.Services.AddHttpClient("foundry", client => client.Timeout = Timeout.InfiniteTimeSpan)
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });

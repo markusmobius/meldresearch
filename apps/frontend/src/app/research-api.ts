@@ -18,6 +18,8 @@ export interface ProcessingStatus {
   projectId: string; name: string; kind: 'import' | 'update'; filesDone: number; filesTotal: number; queued: number;
   /** The file being folded into the project summary now (or next); null while a project is being read. */
   currentFile?: string | null;
+  /** Other projects being processed at the same time (projects run in parallel; each keeps its file order). */
+  alsoRunning?: ReadonlyArray<string> | null;
 }
 export interface ResearchUpdate {
   id: string; projectId: string; projectName: string; kind: 'initialImport' | 'change' | 'correction' | 'removal';

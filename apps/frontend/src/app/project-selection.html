@@ -11,7 +11,8 @@
         <mat-icon>{{ current.processing ? 'autorenew' : 'task_alt' }}</mat-icon>
         <div class="processing-text">
           @if (current.processing; as running) {
-            <strong>{{ running.kind === 'import' ? 'Initial import' : 'Processing changes' }}: {{ running.name }}</strong>
+            <strong>{{ running.kind === 'import' ? 'Initial import' : 'Processing changes' }}: {{ running.name }}
+              @if (running.alsoRunning?.length) { <span class="also-running">and {{ running.alsoRunning!.join(', ') }}</span> }</strong>
             <span>{{ running.filesDone }} of {{ running.filesTotal }} files
               @if (running.queued) { &middot; {{ running.queued }} more {{ running.queued === 1 ? 'project' : 'projects' }} queued }</span>
             <mat-progress-bar mode="determinate" [value]="running.filesTotal ? 100 * running.filesDone / running.filesTotal : 0"

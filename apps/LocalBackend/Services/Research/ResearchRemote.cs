@@ -4,7 +4,7 @@ using MeldResearch.Research;
 
 namespace MeldResearch.LocalBackend.Services.Research;
 
-internal sealed record ResearchOptions(Uri RemoteOrigin, bool Dummy, int PollSeconds, TimeSpan? SweepEvery = null)
+internal sealed record ResearchOptions(Uri RemoteOrigin, bool Dummy, int PollSeconds, TimeSpan? SweepEvery = null, int ParallelProjects = 3)
 {
     /// <summary>How often included projects are read again for changes; a manual check reads them at once.</summary>
     public TimeSpan SweepInterval => SweepEvery ?? TimeSpan.FromHours(24);
@@ -22,7 +22,10 @@ internal sealed record ResearchOptions(Uri RemoteOrigin, bool Dummy, int PollSec
         if (poll is < 30 or > 3600) throw new InvalidOperationException("ResearchPollSeconds must be between 30 and 3600.");
         double hours = configuration.GetValue("ResearchSweepHours", 24.0);
         if (hours is < 0.1 or > 168) throw new InvalidOperationException("ResearchSweepHours must be between 0.1 and 168.");
-        return new(origin, dummy, poll, TimeSpan.FromHours(hours));
+        // Different projects are independent, so several are folded in at once; each project's files stay in order.
+        int parallel = configuration.GetValue("ResearchParallelProjects", 3);
+        if (parallel is < 1 or > 8) throw new InvalidOperationException("ResearchParallelProjects must be between 1 and 8.");
+        return new(origin, dummy, poll, TimeSpan.FromHours(hours), parallel);
     }
 }
 

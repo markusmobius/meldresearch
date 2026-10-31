@@ -51,39 +51,45 @@ internal static class RemoteEndpoints
             return TypedResults.NoContent();
         }).WithName("RevokeLinkedDevice").WithSummary("Revoke the calling installation's credential.");
         app.MapPost("/api/research/profile-step", async Task<Ok<ProfileStepResponse>> (
-            ProfileStepRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, CancellationToken ct) =>
+            ProfileStepRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, InferenceGate gate, CancellationToken ct) =>
         {
-            await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            var account = await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            using var slot = await gate.EnterAsync(account.Id, ct);
             return TypedResults.Ok(await foundry.ProfileStepAsync(request, ct));
         }).WithName("ProfileStep").WithSummary("Fold one Overleaf file into the project summary and report grounded Updates; nothing is stored.");
         app.MapPost("/api/research/project-summary", async Task<Ok<ProjectSummaryResponse>> (
-            ProjectSummaryRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, CancellationToken ct) =>
+            ProjectSummaryRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, InferenceGate gate, CancellationToken ct) =>
         {
-            await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            var account = await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            using var slot = await gate.EnterAsync(account.Id, ct);
             return TypedResults.Ok(await foundry.SummarizeProjectAsync(request, ct));
         }).WithName("SummarizeProject").WithSummary("Describe one project in a paragraph from its main .tex file; nothing is stored.");
         app.MapPost("/api/research/theme-match", async Task<Ok<ThemeMatchResponse>> (
-            ThemeMatchRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, CancellationToken ct) =>
+            ThemeMatchRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, InferenceGate gate, CancellationToken ct) =>
         {
-            await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            var account = await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            using var slot = await gate.EnterAsync(account.Id, ct);
             return TypedResults.Ok(await foundry.MatchThemeAsync(request, ct));
         }).WithName("MatchResearchTheme").WithSummary("Decide whether a newly imported project belongs to an existing research card; nothing is stored.");
         app.MapPost("/api/research/theme-merge", async Task<Ok<ThemeMergeResponse>> (
-            ThemeMergeRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, CancellationToken ct) =>
+            ThemeMergeRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, InferenceGate gate, CancellationToken ct) =>
         {
-            await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            var account = await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            using var slot = await gate.EnterAsync(account.Id, ct);
             return TypedResults.Ok(await foundry.MergeThemeAsync(request, ct));
         }).WithName("MergeResearchTheme").WithSummary("Combine a research card's project summaries into one summary; nothing is stored.");
         app.MapPost("/api/research/embeddings", async Task<Ok<ResearchEmbeddingResponse>> (
-            ResearchEmbeddingRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, CancellationToken ct) =>
+            ResearchEmbeddingRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, InferenceGate gate, CancellationToken ct) =>
         {
-            await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            var account = await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            using var slot = await gate.EnterAsync(account.Id, ct);
             return TypedResults.Ok(await foundry.EmbedAsync(request, ct));
         }).WithName("EmbedResearch").WithSummary("Embed bounded research text using the configured Foundry deployment.");
         app.MapPost("/api/researcher/candidates", async Task<Ok<ResearcherSearchResponse>> (
-            ResearcherSearchRequest request, HttpContext context, IAccountService accounts, IResearcherResolver resolver, CancellationToken ct) =>
+            ResearcherSearchRequest request, HttpContext context, IAccountService accounts, IResearcherResolver resolver, InferenceGate gate, CancellationToken ct) =>
         {
-            await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            var account = await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            using var slot = await gate.EnterAsync(account.Id, ct);
             return TypedResults.Ok(new ResearcherSearchResponse(await resolver.ResolveAsync(request.Name ?? "", ct)));
         }).WithName("FindResearcherCandidates").WithSummary("Offer up to five OpenAlex authors for a name; nothing is stored.");
         app.MapPost("/api/researcher/works", async Task<Ok<ResearcherWorksResponse>> (

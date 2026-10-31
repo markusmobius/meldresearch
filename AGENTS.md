@@ -216,6 +216,10 @@ node .\tests\research.e2e.mjs --public-pages-only
   Use it after Foundry client, prompt/schema or deployment changes, and on the
   server to verify its managed identity. It consumes quota and prints no content.
   Keep Foundry chat calls stateless with `store: false`, matching Project Meld.
+  Inference admission also follows Project Meld: the remote service queues requests
+  (global and per-account limits, Retry-After retries, 429 cooldown) instead of
+  refusing them, and the local worker runs several projects in parallel while each
+  project's files stay in order.
 - Keep regression tests aligned with consent, account isolation, exact unchanged
   inference counts, grounded citations and persistence. Report what actually ran.
 

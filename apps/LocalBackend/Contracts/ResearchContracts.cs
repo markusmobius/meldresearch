@@ -17,7 +17,7 @@ public sealed record MonitoredProjectResponse(string ProjectId, string Name, boo
 
 /// <summary>The project the queue is working on; CurrentFile is the file being folded into its summary next (or now).</summary>
 public sealed record ProcessingStatusResponse(string ProjectId, string Name, string Kind, int FilesDone, int FilesTotal, int Queued,
-    string? CurrentFile = null);
+    string? CurrentFile = null, IReadOnlyList<string>? AlsoRunning = null);
 
 /// <summary>Updates-only application status. No source documents are sent by this status request.</summary>
 public sealed record ResearchStatusResponse(MeldAccountResponse? Account, DateTimeOffset? CredentialExpiresAt,

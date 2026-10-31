@@ -524,6 +524,26 @@ public sealed class ResearchCoordinatorTests
     private static MonitoredProject IncludedAs(string id, string name) => Included(id) with { Name = name };
 
     [Fact]
+    public async Task DifferentProjectsAreProcessedInParallelWhileEachKeepsItsFileOrder()
+    {
+        var store = new MemoryStore(new(1, Credential, null, null, [IncludedAs(ProjectId, "news-slant"), IncludedAs(SecondId, "news-slant-slides")], []));
+        var remote = new Remote();
+        using var coordinator = Coordinator(store, remote, TwoProjects());
+        Assert.True(await coordinator.RunCycleAsync(false, CancellationToken.None, maxSteps: 1));
+        // One round folds in the first file of both projects.
+        Assert.Equal(["a1.tex", "b1.tex"], remote.Requests.Select(request => request.File.Path).Order());
+        await Drain(coordinator);
+        Assert.Equal(["a1.tex", "a2.tex"], remote.Requests.Where(request => request.ProjectId == ProjectId).Select(request => request.File.Path));
+        Assert.All(store.State.Projects, project => Assert.True(project.ImportComplete));
+
+        using var serial = new ResearchCoordinator(new MemoryStore(new(1, Credential, null, null, [IncludedAs(ProjectId, "news-slant"), IncludedAs(SecondId, "news-slant-slides")], [])),
+            new Remote(), TwoProjects(), new(new Uri("https://meld.example.invalid"), false, 300, ParallelProjects: 1),
+            NullLogger<ResearchCoordinator>.Instance, TimeProvider.System);
+        Assert.True(await serial.RunCycleAsync(false, CancellationToken.None, maxSteps: 1));
+        Assert.Single((await serial.StatusAsync(CancellationToken.None)).Projects, project => project.FilesDone == 1);
+    }
+
+    [Fact]
     public async Task TheFirstImportedProjectGetsItsOwnCardWithoutAGroupingCall()
     {
         var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
@@ -547,9 +567,9 @@ public sealed class ResearchCoordinatorTests
         using var coordinator = Coordinator(store, remote, TwoProjects());
         await Drain(coordinator);
         var theme = Assert.Single(store.State.Themes!);
-        Assert.Equal([ProjectId, SecondId], theme.Members);
-        var match = Assert.Single(remote.Matches);
-        Assert.Equal("news-slant-slides", match.ProjectName);
+        // Both import in parallel; whichever finishes first starts the card and the other is matched to it.
+        Assert.Equal([ProjectId, SecondId], theme.Members.Order());
+        Assert.Single(remote.Matches);
         var merge = Assert.Single(remote.Merges);
         Assert.Equal(["news-slant", "news-slant-slides"], merge.Members.Select(member => member.ProjectName).Order());
         Assert.Equal("Combined research line", theme.Profile!.Title);
@@ -692,11 +712,11 @@ public sealed class ResearchCoordinatorTests
             new(new("Synthetic project", "Summary after " + request.File.Path, [request.File.Path], ["synthetic"]), updates, "Folded in.", "chat");
         public Task<ProfileStepResponse> ProfileStepAsync(string token, ProfileStepRequest request, CancellationToken ct)
         {
-            Calls++;
+            lock (Requests) Calls++;
             if (Failure is not null) throw Failure;
             During?.Invoke(request);
             ct.ThrowIfCancellationRequested();
-            Requests.Add(request);
+            lock (Requests) Requests.Add(request);
             return Task.FromResult((Step ?? (item => Summary(item, [])))(request));
         }
         public List<ThemeMatchRequest> Matches { get; } = [];

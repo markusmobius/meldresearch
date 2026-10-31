@@ -36,7 +36,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     private readonly object _cycleGate = new();
     private CancellationTokenSource? _cycle;
     // The project the cycle is processing now, so pausing or excluding another project does not interrupt it.
-    private (string ProjectId, CancellationTokenSource Token)? _active;
+    // Projects being processed right now (several at once), each with its own cancellation.
+    private readonly Dictionary<string, CancellationTokenSource> _active = new(StringComparer.Ordinal);
     private static readonly TimeSpan ProjectDeadline = TimeSpan.FromMinutes(10);
     // Held in memory only: a sign-in is a short browser round trip; after a restart the user simply signs in again.
     private PendingSignIn? _signIn;
@@ -66,22 +67,24 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         var updates = projects.SelectMany(project => project.Updates).OrderByDescending(update => update.ObservedAt).ToArray();
         var signIn = _signIn is { } pending && pending.ExpiresAt > clock.GetUtcNow() && state.Credential is null ? pending : null;
         var researcher = state.Researchers?.FirstOrDefault(item => item.AccountId == account);
-        string? active;
-        lock (_cycleGate) active = _active?.ProjectId;
+        HashSet<string> active;
+        lock (_cycleGate) active = [.. _active.Keys];
         bool busy = Volatile.Read(ref _busy) != 0;
         var queue = QueueOrder(projects.Where(project => project.Enabled && project.Pending is not null)).ToArray();
-        var running = queue.FirstOrDefault(project => project.ProjectId == active) ?? (busy ? queue.FirstOrDefault() : null);
+        var running = queue.Where(project => active.Contains(project.ProjectId)).ToArray();
+        if (running.Length == 0 && busy && queue.Length != 0) running = [queue[0]];
         ProcessingStatusResponse? processing = null;
-        if (running is not null)
+        if (running.Length != 0)
         {
-            var (done, total) = ProcessingPlan.Progress(running);
-            processing = new(running.ProjectId, running.Name, running.ImportComplete ? "update" : "import", done, total, queue.Length - 1,
-                ProcessingPlan.Next(running));
+            var first = running[0];
+            var (done, total) = ProcessingPlan.Progress(first);
+            processing = new(first.ProjectId, first.Name, first.ImportComplete ? "update" : "import", done, total, queue.Length - running.Length,
+                ProcessingPlan.Next(first), running.Skip(1).Select(project => project.Name).ToArray());
         }
         string Phase(MonitoredProject project) =>
             project.ErrorCode is not null ? "error"
-            : project.Pending is not null ? (project == running ? (project.ImportComplete ? "updating" : "importing") : "queued")
-            : project.ProjectId == active ? "checking"
+            : project.Pending is not null ? (running.Contains(project) ? (project.ImportComplete ? "updating" : "importing") : "queued")
+            : active.Contains(project.ProjectId) ? "checking"
             : !project.ImportComplete ? "waiting" : "ready";
         return new(state.Credential?.Account, state.Credential?.ExpiresAt,
             signIn is null ? null : new(signIn.SignInUrl, signIn.ExpiresAt),
@@ -481,7 +484,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             if (Volatile.Read(ref _urgent) != 0) return true;
             // Card work first, so a project joins its research card as soon as its import finishes.
             if (await ThemeStepAsync(credential, ct)) continue;
-            if (!await StepAsync(credential, ct)) return false;
+            if (!await StepRoundAsync(credential, ct)) return false;
         }
         return true;
     }
@@ -622,15 +625,25 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         }
     }
 
-    /// <summary>Folds the next queued file of the earliest queued project into its summary. Returns false when nothing is queued.</summary>
-    private async Task<bool> StepAsync(LinkedCredential credential, CancellationToken ct)
+    /// <summary>
+    /// Folds the next queued file of up to <see cref="ResearchOptions.ParallelProjects"/> queued projects into their summaries
+    /// at once: projects are independent, while each project's files stay in order. Returns false when nothing is queued.
+    /// </summary>
+    private async Task<bool> StepRoundAsync(LinkedCredential credential, CancellationToken ct)
     {
         var state = await store.ReadAsync(ct);
         if (state.Credential?.Account.Id != credential.Account.Id) return false;
         var now = clock.GetUtcNow();
-        var project = QueueOrder(Selected(state, credential.Account.Id).Where(item => item.Pending is not null && Due(item, now)))
-            .FirstOrDefault();
-        if (project is null) return false;
+        var projects = QueueOrder(Selected(state, credential.Account.Id).Where(item => item.Pending is not null && Due(item, now)))
+            .Take(options.ParallelProjects).ToArray();
+        if (projects.Length == 0) return false;
+        await Task.WhenAll(projects.Select(project => StepAsync(credential, project, ct)));
+        return true;
+    }
+
+    /// <summary>Folds the next queued file of one project into its summary, or finishes the project when none is left.</summary>
+    private async Task StepAsync(LinkedCredential credential, MonitoredProject project, CancellationToken ct)
+    {
         await RunForProjectAsync(project, ct, async token =>
         {
             var pending = project.Pending!;
@@ -671,7 +684,6 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             if (updates.Length != 0)
                 logger.LogInformation("Summary step committed {Count} update(s). Names and evidence omitted.", updates.Length);
         });
-        return true;
     }
 
     /// <summary>Runs one project's work with its own deadline and cancellation, recording failures on that project only.</summary>
@@ -679,8 +691,13 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     {
         using var work = CancellationTokenSource.CreateLinkedTokenSource(ct);
         work.CancelAfter(ProjectDeadline);
-        lock (_cycleGate) _active = (project.ProjectId, work);
+        lock (_cycleGate) _active[project.ProjectId] = work;
         try { await action(work.Token); }
+        catch (Exception error) when (error is ResearchFailure { Status: 429 } or ApiFailure { Status: 429 })
+        {
+            // Foundry or Meld's service is at capacity: wait briefly and try again, without reporting an error.
+            await ChangeProjectAsync(project, item => item with { NextAttemptAt = clock.GetUtcNow() + TimeSpan.FromSeconds(30) }, ct);
+        }
         catch (Exception error) when (error is ResearchFailure or ApiFailure or InvalidDataException)
         {
             string code = error is ResearchFailure failure ? failure.Code : error is ApiFailure api ? api.Code : "invalid_research_archive";
@@ -698,7 +715,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 await RecordErrorAsync(project, "research_timeout", "Processing this project took too long. Existing research was retained; Meld retries automatically.", ct);
             }
         }
-        finally { lock (_cycleGate) if (_active?.Token == work) _active = null; }
+        finally { lock (_cycleGate) if (_active.TryGetValue(project.ProjectId, out var current) && current == work) _active.Remove(project.ProjectId); }
     }
 
     /// <summary>Clears what the earlier whole-snapshot pipeline stored, so the encrypted state stays small.</summary>
@@ -799,7 +816,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     /// <summary>Stops in-flight work for one project only; the cycle continues with the other projects.</summary>
     private void CancelProject(string projectId)
     {
-        lock (_cycleGate) if (_active is { } active && active.ProjectId == projectId) active.Token.Cancel();
+        lock (_cycleGate) if (_active.TryGetValue(projectId, out var active)) active.Cancel();
     }
     public override void Dispose() { CancelCycle(); _wake.Dispose(); _accountGate.Dispose(); base.Dispose(); }
 }

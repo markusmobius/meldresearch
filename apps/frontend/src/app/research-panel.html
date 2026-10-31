@@ -27,6 +27,9 @@
                   @else { <span>Reading the project from Overleaf</span> }
                   @if (running.queued) { <span class="processing-queue">{{ running.queued }} more {{ running.queued === 1 ? 'project' : 'projects' }} queued</span> }
                 </span>
+                @if (running.alsoRunning?.length) {
+                  <span class="processing-line muted"><span class="processing-file" [title]="running.alsoRunning!.join(', ')">Also: {{ running.alsoRunning!.join(', ') }}</span></span>
+                }
               </span>
             </a>
             <mat-progress-bar mode="determinate" [value]="progressPercent()" aria-hidden="true"></mat-progress-bar>

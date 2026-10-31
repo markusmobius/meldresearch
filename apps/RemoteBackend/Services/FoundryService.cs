@@ -44,8 +44,14 @@ internal sealed class FoundryService : IFoundryService, IDisposable
     private readonly Uri? _tokenSource;
     private readonly string _chat;
     private readonly string _embedding;
-    private const int MaxConcurrency = 2;
-    private readonly SemaphoreSlim _capacity = new(MaxConcurrency, MaxConcurrency);
+    // Admission as in Project Meld: at most MaxConcurrency requests reach Foundry at once and the rest wait their turn (up to
+    // QueueWait) instead of being refused; a rate limit pauses all requests briefly and the request is retried.
+    internal const int MaxAttempts = 3;
+    private static readonly TimeSpan MaximumRetryAfter = TimeSpan.FromSeconds(60);
+    private readonly int _maxConcurrency;
+    private readonly TimeSpan _queueWait;
+    private readonly SemaphoreSlim _capacity;
+    private long _cooldownUntilTicks;
     private readonly InferenceUsageStore? _usage;
     private readonly SemaphoreSlim _credentialGate = new(1, 1);
     private readonly ILogger? _logger;
@@ -55,7 +61,7 @@ internal sealed class FoundryService : IFoundryService, IDisposable
     public long ChatRequests => Interlocked.Read(ref _chatRequests);
     public long EmbeddingRequests => Interlocked.Read(ref _embeddingRequests);
     public bool Configured => _origin is not null && _chat.Length != 0 && _embedding.Length != 0;
-    public InferenceCapacity Capacity => new(_chat, _embedding, MaxConcurrency - _capacity.CurrentCount, MaxConcurrency);
+    public InferenceCapacity Capacity => new(_chat, _embedding, _maxConcurrency - _capacity.CurrentCount, _maxConcurrency);
 
     public FoundryService(IConfiguration configuration, IHostEnvironment environment, IHttpClientFactory clients, ILogger<FoundryService> logger,
         InferenceUsageStore usage)
@@ -68,6 +74,12 @@ internal sealed class FoundryService : IFoundryService, IDisposable
         _logger = logger;
         _usage = usage;
         _configuration = configuration;
+        _maxConcurrency = configuration.GetValue("Foundry:MaxConcurrency", 4);
+        if (_maxConcurrency is < 1 or > 32) throw new InvalidOperationException("Foundry:MaxConcurrency must be between 1 and 32.");
+        _queueWait = TimeSpan.FromSeconds(configuration.GetValue("Foundry:QueueSeconds", 120));
+        if (_queueWait < TimeSpan.FromSeconds(1) || _queueWait > TimeSpan.FromMinutes(10))
+            throw new InvalidOperationException("Foundry:QueueSeconds must be between 1 and 600.");
+        _capacity = new(_maxConcurrency, _maxConcurrency);
         _chat = configuration["Foundry:ChatDeployment"] ?? "";
         _embedding = configuration["Foundry:EmbeddingDeployment"] ?? "";
         if (configuration["Foundry:Endpoint"] is { Length: > 0 } endpoint)
@@ -307,10 +319,38 @@ internal sealed class FoundryService : IFoundryService, IDisposable
         }
     }
 
+    /// <summary>Thrown for a Foundry 429 or 503 that may succeed when retried after <see cref="RetryAfter"/>.</summary>
+    private sealed class FoundryThrottled(ResearchFailure failure, TimeSpan? retryAfter) : Exception(failure.Message)
+    {
+        public ResearchFailure Failure { get; } = failure;
+        public TimeSpan? RetryAfter { get; } = retryAfter;
+    }
+
     private async Task<JsonDocument> SendAsync(string operation, object body, InferencePurpose purpose, CancellationToken ct)
     {
-        if (!await _capacity.WaitAsync(0, ct))
-            throw new ResearchFailure(429, "foundry_busy", "Foundry processing is busy. Try again shortly.");
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(body, ResearchJson.Options);
+        if (bytes.Length > 5 * 1024 * 1024)
+            throw new ResearchFailure(413, "model_request_too_large", "The selected project exceeds the model request size limit.");
+        for (int attempt = 1; ; attempt++)
+        {
+            try { return await SendOnceAsync(operation, bytes, purpose, ct); }
+            catch (FoundryThrottled throttled)
+            {
+                if (attempt >= MaxAttempts) throw throttled.Failure;
+                var delay = throttled.RetryAfter ?? TimeSpan.FromSeconds(Math.Pow(2, attempt) + Random.Shared.NextDouble());
+                _logger?.LogInformation("Foundry is throttling; retrying in {Seconds:0.#} s (attempt {Attempt} of {Max}).", delay.TotalSeconds, attempt + 1, MaxAttempts);
+                await Task.Delay(delay, ct);
+            }
+        }
+    }
+
+    private async Task<JsonDocument> SendOnceAsync(string operation, byte[] bytes, InferencePurpose purpose, CancellationToken ct)
+    {
+        // After a rate limit, every request waits out the cooldown before taking a slot.
+        var cooldown = new DateTime(Interlocked.Read(ref _cooldownUntilTicks), DateTimeKind.Utc) - DateTime.UtcNow;
+        if (cooldown > TimeSpan.Zero) await Task.Delay(cooldown < MaximumRetryAfter ? cooldown : MaximumRetryAfter, ct);
+        if (!await _capacity.WaitAsync(_queueWait, ct))
+            throw new ResearchFailure(429, "foundry_busy", "Foundry is busy with other requests. Meld retries shortly.");
         bool chat = operation == "chat/completions";
         DateTimeOffset? sentAt = null;
         int status = 0;
@@ -320,9 +360,6 @@ internal sealed class FoundryService : IFoundryService, IDisposable
         {
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
             deadline.CancelAfter(TimeSpan.FromMinutes(3));
-            byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(body, ResearchJson.Options);
-            if (bytes.Length > 5 * 1024 * 1024)
-                throw new ResearchFailure(413, "model_request_too_large", "The selected project exceeds the model request size limit.");
             using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(_origin!, operation))
             {
                 Content = new ByteArrayContent(bytes)
@@ -339,11 +376,23 @@ internal sealed class FoundryService : IFoundryService, IDisposable
             {
                 // Foundry's error code (for example PermissionDenied or DeploymentNotFound) explains the rejection
                 // without echoing request content; the message text is not read.
+                var retryAfter = RetryAfter(response);
                 string reason = await FoundryErrorCodeAsync(response, deadline.Token);
                 _logger?.LogWarning("Foundry {Operation} rejected: HTTP {Status} {Reason}.", operation, (int)response.StatusCode, reason);
-                throw new ResearchFailure(response.StatusCode == System.Net.HttpStatusCode.TooManyRequests ? 429 : 502,
+                var failure = new ResearchFailure(response.StatusCode == System.Net.HttpStatusCode.TooManyRequests ? 429 : 502,
                     "foundry_request_failed", $"The configured Foundry deployment rejected the request (HTTP {(int)response.StatusCode}" +
                     (reason.Length != 0 ? $", {reason}" : "") + "). No other provider was used.");
+                if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+                {
+                    var pause = retryAfter ?? TimeSpan.FromSeconds(10);
+                    long until = (DateTime.UtcNow + pause).Ticks;
+                    long previous;
+                    do previous = Interlocked.Read(ref _cooldownUntilTicks);
+                    while (until > previous && Interlocked.CompareExchange(ref _cooldownUntilTicks, until, previous) != previous);
+                }
+                if (response.StatusCode is System.Net.HttpStatusCode.TooManyRequests or System.Net.HttpStatusCode.ServiceUnavailable)
+                    throw new FoundryThrottled(failure, retryAfter);
+                throw failure;
             }
             var document = await ReadBoundedAsync(response, 4 * 1024 * 1024, deadline.Token);
             (promptTokens, completionTokens) = Usage(document.RootElement, chat);
@@ -357,6 +406,19 @@ internal sealed class FoundryService : IFoundryService, IDisposable
                 await _usage.RecordAsync(new(at, chat ? _chat : _embedding, chat ? InferenceOperation.Chat : InferenceOperation.Embedding,
                     purpose, status, promptTokens, completionTokens, timer.Elapsed), CancellationToken.None);
         }
+    }
+
+    /// <summary>Azure's retry-after-ms, or the standard Retry-After in seconds or as a date; capped at a minute.</summary>
+    private static TimeSpan? RetryAfter(HttpResponseMessage response)
+    {
+        TimeSpan? value = null;
+        if (response.Headers.TryGetValues("retry-after-ms", out var milliseconds) &&
+            double.TryParse(milliseconds.FirstOrDefault(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double ms))
+            value = TimeSpan.FromMilliseconds(ms);
+        else if (response.Headers.RetryAfter is { } header)
+            value = header.Delta ?? (header.Date is { } date ? date - DateTimeOffset.UtcNow : null);
+        if (value is not { } delay || delay < TimeSpan.Zero) return null;
+        return delay > MaximumRetryAfter ? MaximumRetryAfter : delay;
     }
 
     /// <summary>Token counts from the response's usage block; null when Foundry did not report them.</summary>

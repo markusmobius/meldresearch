@@ -104,12 +104,15 @@ public sealed class FoundryTests
         using var http = new HttpClient(new Handler(_ =>
         {
             calls++;
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.TooManyRequests));
+            var limited = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+            limited.Headers.Add("retry-after-ms", "1");
+            return Task.FromResult(limited);
         }));
         using var foundry = Create(http);
         var error = await Assert.ThrowsAsync<ResearchFailure>(() => foundry.ProfileStepAsync(Initial("Synthetic research."), CancellationToken.None));
         Assert.Equal(429, error.Status);
-        Assert.Equal(1, calls);
+        // Retried as a rate limit, then reported; never another provider or an empty success.
+        Assert.Equal(FoundryService.MaxAttempts, calls);
     }
 
     [Fact]
@@ -201,6 +204,44 @@ public sealed class FoundryTests
         Assert.Equal("invalid_project_summary", (await Assert.ThrowsAsync<ResearchFailure>(() => foundry.SummarizeProjectAsync(request, CancellationToken.None))).Code);
         Assert.Equal("invalid_project_summary_request", (await Assert.ThrowsAsync<ResearchFailure>(() =>
             foundry.SummarizeProjectAsync(request with { Path = "notes.md" }, CancellationToken.None))).Code);
+    }
+
+    [Fact]
+    public async Task RateLimitsAreRetriedAfterRetryAfterAndBusyRequestsWaitTheirTurn()
+    {
+        int calls = 0;
+        using var http = new HttpClient(new Handler(_ =>
+        {
+            if (Interlocked.Increment(ref calls) == 1)
+            {
+                var limited = new HttpResponseMessage(HttpStatusCode.TooManyRequests) { Content = new StringContent("{}", Encoding.UTF8, "application/json") };
+                limited.Headers.Add("retry-after-ms", "5");
+                return Task.FromResult(limited);
+            }
+            return Task.FromResult(Step(new(Profile, "Read.", [])));
+        }));
+        using var foundry = Create(http);
+        var result = await foundry.ProfileStepAsync(Initial("Synthetic."), CancellationToken.None);
+        Assert.Equal(2, calls);
+        Assert.Equal(Json(Profile), Json(result.Profile));
+
+        // With one slot, a second request waits for the first instead of being refused.
+        var release = new TaskCompletionSource();
+        int started = 0;
+        using var slow = new HttpClient(new Handler(async _ =>
+        {
+            if (Interlocked.Increment(ref started) == 1) await release.Task;
+            return Step(new(Profile, "Read.", []));
+        }));
+        using var single = Create(slow, ("Foundry:MaxConcurrency", "1"));
+        var first = single.ProfileStepAsync(Initial("First."), CancellationToken.None);
+        var second = single.ProfileStepAsync(Initial("Second."), CancellationToken.None);
+        await Task.Delay(100);
+        Assert.Equal(1, started);
+        Assert.Equal(new InferenceCapacity("synthetic-chat", "synthetic-embedding", 1, 1), single.Capacity);
+        release.SetResult();
+        await Task.WhenAll(first, second);
+        Assert.Equal(2, started);
     }
 
     [Fact]
@@ -326,13 +367,17 @@ public sealed class FoundryTests
         }
     }
 
-    private static FoundryService Create(HttpClient http) => new(new ConfigurationBuilder()
-        .AddInMemoryCollection(new Dictionary<string, string?>
+    private static FoundryService Create(HttpClient http, params (string Key, string Value)[] extra)
+    {
+        var settings = new Dictionary<string, string?>
         {
             ["Foundry:Endpoint"] = "https://synthetic.openai.azure.com/openai/v1/",
             ["Foundry:ChatDeployment"] = "synthetic-chat", ["Foundry:EmbeddingDeployment"] = "synthetic-embedding",
             ["Foundry:ApiKey"] = "synthetic-test-only"
-        }).Build(), new Environment("Development"), http, null);
+        };
+        foreach (var (key, value) in extra) settings[key] = value;
+        return new(new ConfigurationBuilder().AddInMemoryCollection(settings).Build(), new Environment("Development"), http, null);
+    }
     private static HttpResponseMessage Response(object body) => new(HttpStatusCode.OK)
     {
         Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")

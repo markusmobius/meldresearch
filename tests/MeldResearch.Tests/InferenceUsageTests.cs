@@ -27,7 +27,8 @@ public sealed class InferenceUsageTests : IDisposable
             Json(new { choices = Choices(), usage = new { prompt_tokens = 1200, completion_tokens = 300, total_tokens = 1500 } }),
             Json(new { choices = Choices(), usage = new { prompt_tokens = 500, completion_tokens = 100 } }),
             Json(new { data = new[] { new { index = 0, embedding = new[] { 1f, 0f } } }, usage = new { prompt_tokens = 8, total_tokens = 8 } }),
-            new(HttpStatusCode.TooManyRequests) { Content = new StringContent("""{"error":{"code":"RateLimitReached"}}""", Encoding.UTF8, "application/json") },
+            // A rate limit is retried (MaxAttempts in all); each attempt is one recorded request.
+            Throttled(), Throttled(), Throttled(),
             Json(new { choices = Choices() }),
         ]);
         using var http = new HttpClient(new Handler(_ => responses.Dequeue()));
@@ -48,18 +49,18 @@ public sealed class InferenceUsageTests : IDisposable
         var result = await usage.QueryAsync(now.AddHours(-1), now.AddMinutes(1), null, null, foundry.Capacity, CancellationToken.None);
         Assert.Equal(1, result.BucketMinutes);
         Assert.Equal(["synthetic-chat", "synthetic-embedding"], result.Deployments);
-        Assert.Equal(new InferenceCapacity("synthetic-chat", "synthetic-embedding", 0, 2), result.Capacity);
+        Assert.Equal(new InferenceCapacity("synthetic-chat", "synthetic-embedding", 0, 4), result.Capacity);
         long Tokens(InferencePurpose purpose, InferenceOperation operation, Func<InferenceUsageBucket, long> value) =>
             result.Buckets.Where(item => item.Purpose == purpose && item.Operation == operation).Sum(value);
         Assert.Equal(1200, Tokens(InferencePurpose.ProfileImport, InferenceOperation.Chat, item => item.PromptTokens));
         Assert.Equal(300, Tokens(InferencePurpose.ProfileImport, InferenceOperation.Chat, item => item.CompletionTokens));
         Assert.Equal(500, Tokens(InferencePurpose.ProfileUpdate, InferenceOperation.Chat, item => item.PromptTokens));
-        Assert.Equal(2, Tokens(InferencePurpose.ProfileUpdate, InferenceOperation.Chat, item => item.Requests));
-        Assert.Equal(1, Tokens(InferencePurpose.ProfileUpdate, InferenceOperation.Chat, item => item.RateLimitedRequests));
-        Assert.Equal(1, Tokens(InferencePurpose.ProfileUpdate, InferenceOperation.Chat, item => item.FailedRequests));
+        Assert.Equal(1 + FoundryService.MaxAttempts, Tokens(InferencePurpose.ProfileUpdate, InferenceOperation.Chat, item => item.Requests));
+        Assert.Equal(FoundryService.MaxAttempts, Tokens(InferencePurpose.ProfileUpdate, InferenceOperation.Chat, item => item.RateLimitedRequests));
+        Assert.Equal(FoundryService.MaxAttempts, Tokens(InferencePurpose.ProfileUpdate, InferenceOperation.Chat, item => item.FailedRequests));
         Assert.Equal(8, Tokens(InferencePurpose.Other, InferenceOperation.Embedding, item => item.PromptTokens));
         Assert.Equal(1, Tokens(InferencePurpose.ResearcherMatching, InferenceOperation.Chat, item => item.UnknownUsageRequests));
-        Assert.Equal(5, result.Buckets.Sum(item => item.Requests));
+        Assert.Equal(4 + FoundryService.MaxAttempts, result.Buckets.Sum(item => item.Requests));
 
         var filtered = await usage.QueryAsync(now.AddHours(-1), now.AddMinutes(1), "synthetic-chat", InferencePurpose.ProfileImport,
             foundry.Capacity, CancellationToken.None);
@@ -141,6 +142,14 @@ public sealed class InferenceUsageTests : IDisposable
 
     private static object[] Choices() => [new { finish_reason = "stop", message = new { content = JsonSerializer.Serialize(
         new ModelStep(new("Synthetic pilot", "A synthetic pilot study.", ["40 participants."], ["pilot"]), "Read.", []), ResearchJson.Options) } }];
+
+    private static HttpResponseMessage Throttled()
+    {
+        var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+        { Content = new StringContent("""{"error":{"code":"RateLimitReached"}}""", Encoding.UTF8, "application/json") };
+        response.Headers.Add("retry-after-ms", "1");
+        return response;
+    }
 
     private static HttpResponseMessage Json(object body) => new(HttpStatusCode.OK)
     {

@@ -58,13 +58,14 @@ describe('Research Updates onboarding', () => {
     api.status.mockResolvedValue({ ...base, busy: true,
       projects: [project('Agentic Markets', null), project('NewsSlant', 'Foundry rejected the request.'), project('Favors', 'Too large.')],
       processing: { projectId: 'Agentic Markets', name: 'Agentic Markets', kind: 'import', filesDone: 3, filesTotal: 12, queued: 2,
-        currentFile: 'sections/model.tex' } });
+        currentFile: 'sections/model.tex', alsoRunning: ['NewsSlant', 'Favors'] } });
     const fixture = await screen('home');
     const strip: HTMLElement = fixture.nativeElement.querySelector('.processing-strip');
     expect(strip.textContent).toContain('Importing Agentic Markets');
     expect(strip.textContent).toContain('3 / 12 files');
     expect(strip.textContent).toContain('Azure AI Foundry is reading model.tex');
     expect(strip.textContent).toContain('2 more projects queued');
+    expect(strip.textContent).toContain('Also: NewsSlant, Favors');
     expect(strip.querySelector('[title="sections/model.tex"]')).not.toBeNull();
     expect(fixture.componentInstance.progressPercent()).toBe(25);
     expect(fixture.nativeElement.querySelector('[role="alert"]')?.textContent).toContain('2 projects need attention: NewsSlant, Favors.');
