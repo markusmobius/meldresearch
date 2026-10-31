@@ -31,8 +31,16 @@ export class ResearchPanel implements OnInit {
   readonly error = signal('');
   readonly action = signal('');
   readonly selectedUpdate = signal<ResearchUpdate | null>(null);
-  readonly needsProjectAttention = computed(() => this.state()?.projects.some(project =>
-    !!project.error || project.consentRequired) ?? false);
+  /** Included projects with an error or a changed notice, named in the feed so it is clear which ones need attention. */
+  readonly attentionProjects = computed(() => (this.state()?.projects ?? [])
+    .filter(project => !!project.error || project.consentRequired).map(project => project.name));
+  readonly needsProjectAttention = computed(() => this.attentionProjects().length > 0);
+  readonly progressPercent = computed(() => {
+    const running = this.state()?.processing;
+    return running?.filesTotal ? Math.round(100 * running.filesDone / running.filesTotal) : 0;
+  });
+  /** The file name without its folders, for the compact processing strip; the full path is in the tooltip. */
+  fileName(path: string): string { return path.split('/').pop() ?? path; }
 
   ngOnInit(): void {
     void this.refresh();

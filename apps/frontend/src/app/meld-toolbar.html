@@ -28,6 +28,11 @@
     }
     <a mat-button class="nav-link-btn role-remote" [class.active-link]="page() === '/'"
       href="/" aria-label="Home" title="Home"><mat-icon>home</mat-icon><span class="nav-label">Home</span></a>
+    @if (remoteAccount()?.superuser) {
+      <a mat-button class="nav-link-btn role-remote" [class.active-link]="page() === '/usage'" href="/usage"
+        aria-label="LLM Usage" title="LLM Usage" [attr.aria-current]="page() === '/usage' ? 'page' : null">
+        <mat-icon>query_stats</mat-icon><span class="nav-label">LLM Usage</span></a>
+    }
     <button mat-button class="nav-link-btn nav-more-btn" [matMenuTriggerFor]="moreMenu"
       [class.active-link]="page().endsWith('.html')" aria-label="More" title="More">
       <mat-icon>more_horiz</mat-icon><span class="nav-label">More</span>
@@ -59,7 +64,6 @@
         <small>{{ account.email }}</small>
       </div>
       <a mat-menu-item href="/account"><mat-icon>download</mat-icon><span>Install Meld Research</span></a>
-      @if (account.superuser) { <a mat-menu-item href="/usage"><mat-icon>query_stats</mat-icon><span>LLM usage</span></a> }
       <button mat-menu-item (click)="signOut()"><mat-icon>logout</mat-icon><span>Sign out</span></button>
     </mat-menu>
   }

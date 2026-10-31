@@ -39,3 +39,18 @@
   .feed-layout { grid-template-columns: minmax(0, 1fr); }
   .feed-column { border-inline: 0; }
 }
+/* What the queue is doing right now: project, file and progress, directly under the Updates header. */
+.processing-strip { display: flex; align-items: center; gap: 10px; margin: 0; padding: 8px 14px; background: #f0f7f5; border-bottom: 1px solid #d5e7e2; color: #26333b; text-decoration: none; font-size: 0.82rem; }
+a.processing-strip:hover { background: #e4f1ed; }
+.processing-strip > mat-icon { flex: 0 0 auto; width: 20px; height: 20px; font-size: 20px; color: var(--column-accent); }
+.processing-strip.idle { color: #475569; }
+.processing-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.processing-line { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.processing-line strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.processing-line.muted { color: #64748b; }
+.processing-count { margin-left: auto; flex: 0 0 auto; font-variant-numeric: tabular-nums; color: #475569; }
+.processing-file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.processing-queue { margin-left: auto; flex: 0 0 auto; }
+.spin { animation: processing-spin 1.6s linear infinite; }
+@keyframes processing-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }

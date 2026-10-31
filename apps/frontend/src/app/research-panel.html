@@ -15,7 +15,25 @@
             <button mat-icon-button class="feed-icon-button" (click)="sync()" [disabled]="!current.account || !!action() || current.busy"
               aria-label="Check for changes" title="Check for changes"><mat-icon>refresh</mat-icon></button>
           </header>
-          @if (current.busy) { <mat-progress-bar mode="indeterminate" aria-label="Checking selected projects"></mat-progress-bar> }
+          @if (current.processing; as running) {
+            <a class="processing-strip" href="/#account" role="status" [attr.aria-label]="(running.kind === 'import' ? 'Initial import of ' : 'Processing changes in ') +
+              running.name + ': ' + running.filesDone + ' of ' + running.filesTotal + ' files done'" title="Open Account to see every project">
+              <mat-icon class="spin">autorenew</mat-icon>
+              <span class="processing-text">
+                <span class="processing-line"><strong>{{ running.kind === 'import' ? 'Importing' : 'Updating' }} {{ running.name }}</strong>
+                  <span class="processing-count">{{ running.filesDone }} / {{ running.filesTotal }} files</span></span>
+                <span class="processing-line muted">
+                  @if (running.currentFile; as file) { <span class="processing-file" [title]="file">Azure AI Foundry is reading {{ fileName(file) }}</span> }
+                  @else { <span>Reading the project from Overleaf</span> }
+                  @if (running.queued) { <span class="processing-queue">{{ running.queued }} more {{ running.queued === 1 ? 'project' : 'projects' }} queued</span> }
+                </span>
+              </span>
+            </a>
+            <mat-progress-bar mode="determinate" [value]="progressPercent()" aria-hidden="true"></mat-progress-bar>
+          } @else if (current.busy) {
+            <p class="processing-strip idle" role="status"><mat-icon class="spin">sync</mat-icon><span>Checking included projects for changes...</span></p>
+            <mat-progress-bar mode="indeterminate" aria-label="Checking included projects"></mat-progress-bar>
+          }
           <div class="feed-column-body" tabindex="0" aria-label="Research updates">
             @if (current.dummy) { <p class="feed-notice">Synthetic Overleaf evidence. Foundry processing is real and consumes quota.</p> }
             @if (!current.account) {
@@ -29,7 +47,10 @@
               <a mat-stroked-button class="feed-setup" href="/#account"><mat-icon>folder_open</mat-icon>Select projects</a>
             }
             @if (needsProjectAttention()) {
-              <p class="alert" role="alert">A monitored project needs attention. <a href="/#account">View project status</a>.</p>
+              <p class="alert" role="alert">
+                {{ attentionProjects().length === 1 ? attentionProjects()[0] + ' needs attention.' :
+                  attentionProjects().length + ' projects need attention: ' + attentionProjects().slice(0, 3).join(', ') + (attentionProjects().length > 3 ? ', ...' : '') + '.' }}
+                <a href="/#account">View project status</a>.</p>
             }
             @for (update of current.updates; track update.id) {
               <article class="feed-card share-source-own">

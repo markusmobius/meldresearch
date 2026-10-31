@@ -71,7 +71,7 @@ describe('Remote account menu', () => {
     expect(submit).toHaveBeenCalled();
   });
 
-  it('offers LLM usage only to the superuser', async () => {
+  it('shows LLM Usage in the main navigation only to the superuser', async () => {
     const meta = document.createElement('meta');
     meta.name = 'meld-account';
     meta.content = 'Ada Lovelace';
@@ -83,9 +83,14 @@ describe('Remote account menu', () => {
 
     const fixture = TestBed.createComponent(MeldToolbar);
     await fixture.whenStable();
-    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.remote-account-btn')!.click();
-    await fixture.whenStable();
-    expect(document.querySelector('a[href="/usage"]')?.textContent).toContain('LLM usage');
+    const nav = (fixture.nativeElement as HTMLElement).querySelector('nav[aria-label="Main navigation"]')!;
+    expect(nav.querySelector('a[href="/usage"]')?.textContent).toContain('LLM Usage');
     fixture.destroy();
+
+    delete meta.dataset['superuser'];
+    const other = TestBed.createComponent(MeldToolbar);
+    await other.whenStable();
+    expect((other.nativeElement as HTMLElement).querySelector('a[href="/usage"]')).toBeNull();
+    other.destroy();
   });
 });

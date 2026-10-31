@@ -195,10 +195,20 @@ internal sealed class DesktopUpdater(UpdateOptions options, IHttpClientFactory c
         return true;
     }
 
-    private async Task RestartWhenIdleAsync(CancellationToken ct)
+    /// <summary>
+    /// How long a verified update waits for research and browser work to finish. Processing commits one file at a time and
+    /// resumes after a restart, so continuous work (for example retries against a server that has moved on) must not keep an
+    /// installation on an old version indefinitely.
+    /// </summary>
+    internal static readonly TimeSpan MaximumIdleWait = TimeSpan.FromMinutes(2);
+
+    internal async Task RestartWhenIdleAsync(CancellationToken ct)
     {
-        while (research.Busy || browser.Status.Busy)
+        var deadline = clock.GetUtcNow() + MaximumIdleWait;
+        while ((research.Busy || browser.Status.Busy) && clock.GetUtcNow() < deadline)
             await Task.Delay(TimeSpan.FromSeconds(5), clock, ct);
+        if (research.Busy || browser.Status.Busy)
+            logger.LogInformation("Work is still running after {Minutes} minutes; it resumes after the update.", MaximumIdleWait.TotalMinutes);
         logger.LogInformation("Restarting into the updated desktop version.");
         RestartRequested = true;
         lifetime.StopApplication();

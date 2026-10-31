@@ -194,11 +194,42 @@ public sealed class DesktopUpdateTests : IDisposable
             Directory.EnumerateDirectories(Root).Select(Path.GetFileName).Order());
     }
 
-    private DesktopUpdater Updater(HttpMessageHandler server, Registrar registrar) => new(
+    [Fact]
+    public async Task AVerifiedUpdateRestartsEvenWhileWorkNeverStops()
+    {
+        var clock = new JumpingClock();
+        var start = clock.GetUtcNow();
+        var updater = Updater(new Server(Sign(Manifest(Current, CurrentDate, [])), []), new Registrar(), new IdleResearch(busy: true), clock);
+        await updater.RestartWhenIdleAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.True(updater.RestartRequested);
+        var waited = clock.GetUtcNow() - start;
+        Assert.InRange(waited, DesktopUpdater.MaximumIdleWait, DesktopUpdater.MaximumIdleWait + TimeSpan.FromSeconds(10));
+    }
+
+    private DesktopUpdater Updater(HttpMessageHandler server, Registrar registrar, IdleResearch? research = null, TimeProvider? clock = null) => new(
         new UpdateOptions(true, null, Current, CurrentDate, Runtime, Root, PublicKey, new Uri("https://updates.example.invalid/"),
             true, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5)),
-        new Clients(new HttpClient(server)), new IdleResearch(), new IdleBrowser(), new Lifetime(), registrar,
-        TimeProvider.System, NullLogger<DesktopUpdater>.Instance);
+        new Clients(new HttpClient(server)), research ?? new IdleResearch(), new IdleBrowser(), new Lifetime(), registrar,
+        clock ?? TimeProvider.System, NullLogger<DesktopUpdater>.Instance);
+
+    /// <summary>Every delay completes at once and moves time forward by its length.</summary>
+    private sealed class JumpingClock : TimeProvider
+    {
+        private DateTimeOffset _now = new(2026, 10, 31, 12, 0, 0, TimeSpan.Zero);
+        public override DateTimeOffset GetUtcNow() => _now;
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            _now += dueTime;
+            ThreadPool.QueueUserWorkItem(_ => callback(state));
+            return new Timer();
+        }
+        private sealed class Timer : ITimer
+        {
+            public bool Change(TimeSpan dueTime, TimeSpan period) => true;
+            public void Dispose() { }
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+    }
 
     private object Manifest(string version, DateTimeOffset date, byte[] package) => new
     {
@@ -264,9 +295,9 @@ public sealed class DesktopUpdateTests : IDisposable
         public HttpClient CreateClient(string name) => client;
     }
 
-    private sealed class IdleResearch : IResearchCoordinator
+    private sealed class IdleResearch(bool busy = false) : IResearchCoordinator
     {
-        public bool Busy => false;
+        public bool Busy => busy;
         public Task<ResearchStatusResponse> StatusAsync(CancellationToken ct) => throw new NotSupportedException();
         public Task<AccountLinkResponse> BeginLinkAsync(string callbackUri, CancellationToken ct) => throw new NotSupportedException();
         public Task CompleteLinkAsync(string? code, string? state, CancellationToken ct) => throw new NotSupportedException();

@@ -14,7 +14,11 @@ export interface ResearchProject {
   profile: ProjectProfile | null; phase: ProjectPhase; filesDone: number; filesTotal: number;
   lastSweepAt: string | null; nextSweepAt: string | null;
 }
-export interface ProcessingStatus { projectId: string; name: string; kind: 'import' | 'update'; filesDone: number; filesTotal: number; queued: number; }
+export interface ProcessingStatus {
+  projectId: string; name: string; kind: 'import' | 'update'; filesDone: number; filesTotal: number; queued: number;
+  /** The file being folded into the project summary now (or next); null while a project is being read. */
+  currentFile?: string | null;
+}
 export interface ResearchUpdate {
   id: string; projectId: string; projectName: string; kind: 'initialImport' | 'change' | 'correction' | 'removal';
   title: string; summary: string; observedAt: string; sourceUpdatedAt: string | null;

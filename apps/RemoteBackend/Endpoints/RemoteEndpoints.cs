@@ -411,12 +411,13 @@ internal static class RemoteEndpoints
     /// </summary>
     private static ContentHttpResult RenderPage(HttpContext context, string title, string body, RemoteOptions options, string assets, bool heading)
     {
-        string meta = "", signOutForm = "", fallbackAccount = "";
+        string meta = "", signOutForm = "", fallbackAccount = "", usageLink = "";
         if (context.User.Identity?.IsAuthenticated == true)
         {
             string name = context.User.FindFirstValue(ClaimTypes.Name) ?? "", email = context.User.FindFirstValue(ClaimTypes.Email) ?? "";
             bool superuser = context.RequestServices.GetRequiredService<RemoteOptions>().IsSuperuser(context.User);
             meta = $"<meta name=\"meld-account\" content=\"{E(name)}\" data-email=\"{E(email)}\"{(superuser ? " data-superuser=\"true\"" : "")}>";
+            if (superuser) usageLink = "<a href=\"/usage\">LLM Usage</a>";
             signOutForm = "<form id=\"meld-sign-out\" method=\"post\" action=\"/auth/signout\" hidden>" +
                 Token(context, context.RequestServices.GetRequiredService<IAntiforgery>()) + "</form>";
             fallbackAccount = $"<span class=\"site-account\">{E(name)} <button form=\"meld-sign-out\">Sign out</button></span>";
@@ -427,8 +428,9 @@ internal static class RemoteEndpoints
             <app-meld-toolbar><header class="site-header">
               <a class="site-brand" href="/"><span class="brand-mark" aria-hidden="true">m</span>
                 <span class="brand-text">Meld Research<span class="brand-role">Remote Backend</span></span></a>
-              <nav class="site-nav" aria-label="Main navigation"><a href="/">Home</a><a href="/docs.html">Docs</a>
-                <a href="/privacy.html">Privacy</a><a href="/team.html">Project Team</a></nav>
+              <nav class="site-nav" aria-label="Main navigation"><a href="/">Home</a>
+            """ + usageLink + """
+            <a href="/docs.html">Docs</a><a href="/privacy.html">Privacy</a><a href="/team.html">Project Team</a></nav>
             """ + fallbackAccount + "</header></app-meld-toolbar>" + signOutForm +
             "<main class=\"site-main\"><article class=\"site-card\">" +
             (options.Dummy ? "<p class=\"notice\">DUMMY DEVELOPMENT MODE: synthetic account and evidence; configured Foundry inference is real.</p>" : "") +

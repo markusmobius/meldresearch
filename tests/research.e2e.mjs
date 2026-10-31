@@ -296,6 +296,8 @@ async function verifyRemoteSession(base) {
   assert.match(home, /<a class="install-button" href="\/account">/, 'After signing up, Home offers only the install button.');
   assert.match(home, /<meta name="meld-account" content="Demo Researcher" data-email="researcher@example.invalid" data-superuser="true">/,
     'The toolbar account menu reflects the existing session after visiting Docs; the Dummy account stands in for the superuser.');
+  assert.match(home, /<nav class="site-nav" aria-label="Main navigation"><a href="\/">Home<\/a>\s*<a href="\/usage">LLM Usage<\/a>/,
+    'The superuser finds LLM Usage in the main navigation, also without JavaScript.');
   assert.doesNotMatch(home, /Use the synthetic test account|stat-card|Read the setup guide/);
   assert.match(home, /<footer class="meld-footer"><nav aria-label="Footer"><a href="mailto:[^"]+">Contact<\/a>\s*<a href="\/privacy.html">Privacy<\/a><\/nav><\/footer>/);
   const session = await browser('/api/session');

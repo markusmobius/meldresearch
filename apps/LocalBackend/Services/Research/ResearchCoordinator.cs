@@ -58,7 +58,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         if (running is not null)
         {
             var (done, total) = ProcessingPlan.Progress(running);
-            processing = new(running.ProjectId, running.Name, running.ImportComplete ? "update" : "import", done, total, queue.Length - 1);
+            processing = new(running.ProjectId, running.Name, running.ImportComplete ? "update" : "import", done, total, queue.Length - 1,
+                ProcessingPlan.Next(running));
         }
         string Phase(MonitoredProject project) =>
             project.ErrorCode is not null ? "error"

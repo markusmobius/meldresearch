@@ -16,7 +16,9 @@ public sealed record MonitoredProjectResponse(string ProjectId, string Name, boo
     ProjectProfile? Profile, string Phase, int FilesDone, int FilesTotal, DateTimeOffset? LastSweepAt, DateTimeOffset? NextSweepAt);
 
 /// <summary>The project being processed now and how many others wait in the queue.</summary>
-public sealed record ProcessingStatusResponse(string ProjectId, string Name, string Kind, int FilesDone, int FilesTotal, int Queued);
+/// <summary>The project the queue is working on; CurrentFile is the file being folded into its summary next (or now).</summary>
+public sealed record ProcessingStatusResponse(string ProjectId, string Name, string Kind, int FilesDone, int FilesTotal, int Queued,
+    string? CurrentFile = null);
 
 /// <summary>Updates-only application status. No source documents are sent by this status request.</summary>
 public sealed record ResearchStatusResponse(MeldAccountResponse? Account, DateTimeOffset? CredentialExpiresAt,
