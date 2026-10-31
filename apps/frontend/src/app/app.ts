@@ -2,6 +2,7 @@ import { DatePipe, DecimalPipe } from '@angular/common';
 import { Component, DestroyRef, HostListener, OnInit, computed, effect, inject, signal, untracked, viewChild } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
+import { MatTabsModule } from '@angular/material/tabs';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSidenavModule } from '@angular/material/sidenav';
@@ -34,7 +35,7 @@ interface InstallPromptEvent extends Event {
 
 @Component({
   selector: 'app-root',
-  imports: [DatePipe, DecimalPipe, ResearchPanel, MeldToolbar, ProjectSelection, ResearcherSetup, PublicationsList, PrivateProfile, MatButtonModule, MatCardModule,
+  imports: [DatePipe, DecimalPipe, ResearchPanel, MeldToolbar, ProjectSelection, ResearcherSetup, PublicationsList, PrivateProfile, MatButtonModule, MatCardModule, MatTabsModule,
     MatExpansionModule, MatIconModule, MatSidenavModule],
   templateUrl: './app.html',
   styleUrl: './app.css',
@@ -126,6 +127,8 @@ export class App implements OnInit {
   readonly openAlexDone = computed(() => researcherDone(this.research()));
   readonly overleafDone = computed(() => this.overleafReady() && !this.connectorStale() && this.includedProjects() > 0 && !this.undecided().length);
   readonly setupComplete = computed(() => this.accountLinked() && this.overleafReady() && !this.connectorStale() && this.includedProjects() > 0);
+  /** About me tabs, as in Project Meld: Private profile, Public profile (once there is one) and Publications. */
+  readonly aboutTab = signal<'private' | 'publications'>('private');
   readonly setupTab = computed<SetupTab>(() => this.chosenTab() ?? (this.accountLinked() ? 'overleaf' : 'meld'));
   readonly overleafTab = computed<OverleafTab>(() => this.chosenOverleafTab() ??
     (this.overleafReady() && !this.connectorStale() && !this.setupNeeded() && this.connector()?.kind === 'available' ? 'projects' : 'connection'));

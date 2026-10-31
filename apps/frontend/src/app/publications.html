@@ -1,7 +1,7 @@
 @let current = researcher();
 <section class="publications-section" aria-labelledby="publications-heading">
   <header class="publications-head">
-    <h2 id="publications-heading"><mat-icon>menu_book</mat-icon>Publications</h2>
+    <h2 id="publications-heading"><mat-icon>menu_book</mat-icon>My publications</h2>
     @if (data()?.researcher; as author) {
       <a class="author-link" [href]="'https://openalex.org/' + author.id" target="_blank" rel="noopener noreferrer">{{ author.name }}<mat-icon>open_in_new</mat-icon></a>
     }

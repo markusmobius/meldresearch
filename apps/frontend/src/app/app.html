@@ -27,8 +27,16 @@
 
       @if (view() === 'about-me') {
         <div class="page-container about-me">
-          <app-private-profile [status]="research()"></app-private-profile>
-          <app-publications [researcher]="research()?.researcher ?? null"></app-publications>
+          <!-- Project Meld's About me tabs. A Public profile tab joins between these once approved public contributions exist. -->
+          <mat-tab-group class="profile-tabs" animationDuration="0ms" [disablePagination]="true" mat-stretch-tabs
+            [selectedIndex]="aboutTab() === 'publications' ? 1 : 0" (selectedIndexChange)="aboutTab.set($event === 1 ? 'publications' : 'private')">
+            <mat-tab label="Private profile"><ng-template matTabContent>
+              <app-private-profile [status]="research()"></app-private-profile>
+            </ng-template></mat-tab>
+            <mat-tab label="Publications"><ng-template matTabContent>
+              <app-publications [researcher]="research()?.researcher ?? null"></app-publications>
+            </ng-template></mat-tab>
+          </mat-tab-group>
         </div>
       }
 

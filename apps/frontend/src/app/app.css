@@ -111,3 +111,8 @@ summary { cursor: pointer; }
   .source-tools mat-expansion-panel-header { padding: 0 12px; }
   mat-panel-description { display: none; }
 }
+/* About me tabs (Project Meld's profile-tabs). */
+.profile-tabs { max-width: 960px; --mat-tab-header-label-text-tracking: 0; }
+:host ::ng-deep .profile-tabs .mat-mdc-tab { min-width: 0; flex: 1 1 0; padding: 0 8px; }
+:host ::ng-deep .profile-tabs .mdc-tab__text-label { white-space: normal; text-align: center; line-height: 18px; }
+.profile-tabs app-private-profile, .profile-tabs app-publications { display: block; margin-top: 20px; }

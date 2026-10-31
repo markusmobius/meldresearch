@@ -123,7 +123,8 @@ Use .NET 10, Node 24/npm and PowerShell 7. Run from this repository's root, e.g.
   About me and Account; Docs / Privacy / Project Team are under More.
   Account has vertical tabs Meld account / Overleaf (horizontal Connection |
   Projects) / OpenAlex. Projects owns include/exclude choices, consent,
-  monitoring and ZIP downloads; About me shows OpenAlex publications.
+  monitoring and ZIP downloads; About me has Project Meld's tabs: Private profile,
+  Public profile (only once one exists) and Publications.
 - Projects updated within six months need an active include/exclude choice;
   older ones are optional. The feed unlocks once one project is included. Each
   page load, and each newly seen undecided project, opens Overleaf → Projects;

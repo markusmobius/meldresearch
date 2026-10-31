@@ -330,6 +330,23 @@ describe('Overleaf connection screen', () => {
     third.destroy();
   });
 
+  it('shows About me as Project Meld tabs: Private profile and Publications, without an empty Public profile', async () => {
+    const fixture = await screen('about-me');
+    await vi.waitFor(() => expect(fixture.componentInstance.view()).toBe('about-me'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const element: HTMLElement = fixture.nativeElement;
+    const labels = [...element.querySelectorAll('.profile-tabs [role="tab"]')].map(tab => tab.textContent?.trim());
+    expect(labels).toEqual(['Private profile', 'Publications']);
+    expect(element.querySelector('app-private-profile')).not.toBeNull();
+    expect(element.querySelector('app-publications')).toBeNull();
+    fixture.componentInstance.aboutTab.set('publications');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(element.querySelector('app-publications')).not.toBeNull();
+    fixture.destroy();
+  });
+
   it('keeps one research component and its consent state while navigating between working pages', async () => {
     const fixture = await screen('home');
     const element: HTMLElement = fixture.nativeElement;
