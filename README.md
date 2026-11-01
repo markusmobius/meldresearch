@@ -165,7 +165,7 @@ that backend requires real Google OAuth configuration. No synthetic identity is
 available in Live mode.
 
 The source manifest now uses the supplied Chrome draft public key:
-**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.5.7**, wire protocol **2**.
+**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.5.8**, wire protocol **2**.
 It is a public identity key, not a signing secret.
 
 Until the private listing is approved, remove the old development-ID unpacked
@@ -522,6 +522,35 @@ storage account `ratiodatanew` (settings in
 keys); the account must accept public network access (the companion connects
 from users' computers). No CORS is needed: the local backend, not the browser,
 calls Blob Storage.
+
+### Your data: download, upload and leaving
+
+Account → Meld account → Your data
+([ResearchArchive](apps/LocalBackend/Services/Research/ResearchArchive.cs),
+[LeaveService](apps/LocalBackend/Services/Research/LeaveService.cs)):
+
+- **Download my data** (`GET /api/research/export`) is a ZIP of indented,
+  unencrypted JSON: `meld-research-export.json` (format, time, account),
+  `profile.json` (choices, research cards, summaries, OpenAlex author and works),
+  `projects/<id>.json` (summary, Updates, processing state and the source texts
+  by SHA-256) and a README. These are the same records encrypted sync uses.
+- **Upload data** (`POST /api/research/import`, at most 256 MB) checks the format
+  and every text hash, rebinds the records to the signed-in account (so an export
+  from a deleted account restores into a new one), merges choices by newest
+  decision, keeps local work that folded in more files, and marks the rest
+  unsynced so encrypted sync uploads it. Imported work is never processed again.
+- **Leave Meld Research** (`POST /api/research/leave`, body `{"confirmation":
+  "DELETE"}`) calls the remote `DELETE /api/account` (synced blobs, then the
+  account with its devices, codes and picture), erases the local research store,
+  texts and downloads, and for an installed copy unregisters the browser bridge
+  and starts a removal script outside its process tree (WMI on Windows, `nohup`
+  on macOS) before exiting. The script waits for the app to stop, removes the
+  `MeldResearch` scheduled task / `org.meldresearch.desktop` LaunchAgent, the Start
+  menu entry, this installation's processes, the data and app folders (and the
+  macOS Keychain entry), and logs to `%TEMP%\meldresearch-uninstall.log`
+  (`$TMPDIR` on macOS). It refuses drive roots, home and other broad folders.
+  Development and Dummy copies only erase their data. The macOS path is not yet
+  execution-tested; the browser connector is removed by the user.
 
 ## Deploy the remote backend to Ubuntu
 

@@ -39,6 +39,18 @@ public sealed record SyncPassphraseRequest(string? Passphrase = null, string? Re
 /// <summary>Shown once: the recovery key that unlocks the synced data if the passphrase is forgotten.</summary>
 public sealed record SyncKeyResponse(string RecoveryKey);
 
+/// <summary>What an uploaded export contained; OtherAccount when it was downloaded while signed in as someone else.</summary>
+public sealed record ImportResponse(int Projects, int Included, int Cards, int Summaries, bool Publications, string? ExportedEmail,
+    bool OtherAccount, DateTimeOffset ExportedAt);
+
+/// <summary>Leaving Meld Research requires typing DELETE.</summary>
+public sealed record LeaveRequest(string? Confirmation = null);
+/// <summary>
+/// Uninstalling: the installed app is being removed and stops in a moment. AccountDeleted: the Meld account and its encrypted
+/// synced data were deleted on Meld's server (false when no account was signed in).
+/// </summary>
+public sealed record LeaveResponse(bool Uninstalling, bool AccountDeleted, string? LogPath);
+
 /// <summary>A research card: its combined summary (null until made) and its Overleaf projects. Updating while being summarized again.</summary>
 public sealed record ResearchThemeResponse(string Id, ProjectProfile? Profile, IReadOnlyList<string> ProjectIds, bool Updating,
     string? Blurb = null);

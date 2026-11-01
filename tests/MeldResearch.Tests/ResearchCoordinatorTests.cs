@@ -823,8 +823,12 @@ public sealed class ResearchCoordinatorTests
         public Task<SyncBlob?> BlobGetAsync(string url, CancellationToken ct) => Task.FromResult(RequireBox.Get(url[4..]));
         public Task<string> BlobPutAsync(string url, byte[] content, string? ifMatch, CancellationToken ct) => Task.FromResult(RequireBox.Put(url[4..], content, ifMatch));
         public Task BlobDeleteAsync(string url, CancellationToken ct) { RequireBox.Delete(url[4..]); return Task.CompletedTask; }
-        public Task<MeldAccountResponse> AccountAsync(string token, CancellationToken ct) => Task.FromResult(Account);
+        /// <summary>The account Meld's server reports for the credential.</summary>
+        public MeldAccountResponse Identity { get; init; } = Account;
+        public Task<MeldAccountResponse> AccountAsync(string token, CancellationToken ct) => Task.FromResult(Identity);
         public Task RevokeAsync(string token, CancellationToken ct) => Task.CompletedTask;
+        public int AccountDeletions { get; private set; }
+        public Task DeleteAccountAsync(string token, CancellationToken ct) { AccountDeletions++; Box?.Clear(); return Task.CompletedTask; }
         public Func<ResearcherSearchRequest, ResearcherSearchResponse>? Search { get; set; }
         public Func<ResearcherWorksRequest, ResearcherWorksResponse>? Works { get; set; }
         public Task<ResearcherSearchResponse> SearchResearcherAsync(string token, ResearcherSearchRequest request, CancellationToken ct) =>

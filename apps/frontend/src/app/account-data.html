@@ -1,0 +1,47 @@
+<section class="account-data" aria-label="Your data">
+  <h3><mat-icon>folder_zip</mat-icon>Your data</h3>
+  <p class="muted">Download everything Meld keeps for this account as a ZIP of readable JSON: your choices, research cards,
+    summaries, Updates, publications and the Overleaf text they were made from. It is <strong>not encrypted</strong>; keep it private.
+    Uploading it later (also after leaving and signing up again) restores it without processing your projects again.</p>
+  <div class="controls">
+    <a mat-stroked-button class="download-data" href="/api/research/export" download><mat-icon>download</mat-icon>Download my data</a>
+    <button mat-stroked-button type="button" class="upload-data" [disabled]="importing()" (click)="file.click()">
+      <mat-icon>upload</mat-icon>{{ importing() ? 'Uploading…' : 'Upload data' }}</button>
+    <input #file type="file" class="upload-input" accept=".zip,application/zip" hidden (change)="upload($event)">
+  </div>
+  @if (imported(); as result) {
+    <p class="imported" role="status"><mat-icon>check_circle</mat-icon><span>
+      Imported {{ result.projects }} {{ result.projects === 1 ? 'project' : 'projects' }} ({{ result.included }} included),
+      {{ result.cards }} research {{ result.cards === 1 ? 'card' : 'cards' }} and {{ result.summaries }}
+      {{ result.summaries === 1 ? 'summary' : 'summaries' }}{{ result.publications ? ', and your OpenAlex publications' : '' }},
+      exported {{ result.exportedAt | date: 'MMM d, y' }}.
+      @if (result.otherAccount) { It came from {{ result.exportedEmail }}'s earlier account and now belongs to this one. }
+      @if (synced()) { Encrypted sync uploads it on its next check. }
+    </span></p>
+  }
+
+  <div class="leave">
+    @if (!leaving()) {
+      <button mat-button type="button" class="leave-toggle" (click)="toggleLeave()"><mat-icon>logout</mat-icon>Leave Meld Research…</button>
+    } @else {
+      <div class="warning" role="group" aria-label="Leave Meld Research">
+        <p><mat-icon>warning</mat-icon><strong>Leaving deletes, without undo:</strong></p>
+        <ul>
+          <li>your Meld account on Meld's server, its devices and profile picture{{ synced() ? ', and your encrypted synced research' : '' }};</li>
+          <li>all research on this computer (summaries, Updates, cards, choices, stored Overleaf text);</li>
+          <li>the Meld Research app on this computer, including its start at sign-in and its browser bridge.</li>
+        </ul>
+        <p>Your Overleaf projects are not changed. Download your data first if you may want it back. Other computers where you
+          use Meld keep their copy until you leave there too.</p>
+        <mat-form-field appearance="outline"><mat-label>Type {{ confirmWord }} to confirm</mat-label>
+          <input matInput class="leave-confirmation" autocomplete="off" [value]="confirmation()" (input)="confirmation.set(value($event))"></mat-form-field>
+        <div class="controls">
+          <button mat-flat-button type="button" class="leave-now danger" [disabled]="working() || confirmation().trim() !== confirmWord" (click)="leave()">
+            <mat-icon>delete_forever</mat-icon>{{ working() ? 'Deleting…' : 'Delete everything and leave' }}</button>
+          <button mat-button type="button" (click)="toggleLeave()">Cancel</button>
+        </div>
+      </div>
+    }
+  </div>
+  @if (error()) { <p class="alert" role="alert">{{ error() }}</p> }
+</section>

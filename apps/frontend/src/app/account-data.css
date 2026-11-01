@@ -1,0 +1,15 @@
+:host { display: block; }
+.account-data { border-top: 1px solid #e2e8f0; margin-top: 16px; padding-top: 14px; }
+h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-size: 15px; font-weight: 600; color: #0f172a; }
+h3 mat-icon { color: #084d42; }
+p { margin: 0 0 8px; line-height: 1.5; }
+.imported { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; font-size: 13.5px; }
+.imported mat-icon { color: #16a34a; flex: none; }
+.leave { margin-top: 14px; }
+.leave-toggle { color: #b42336; }
+.warning { color: #4a1d1d; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 6px; padding: 12px 14px; font-size: 13px; }
+.warning p:first-child { display: flex; align-items: center; gap: 8px; }
+.warning mat-icon { color: #b42336; }
+.warning ul { margin: 0 0 8px; padding-left: 20px; line-height: 1.5; }
+.warning mat-form-field { width: 100%; max-width: 320px; margin-top: 4px; }
+.danger:not(:disabled) { background: #b42336; color: #ffffff; }

@@ -129,6 +129,23 @@ describe('Overleaf connection screen', () => {
     fixture.destroy();
   });
 
+  it('replaces the app with a farewell after leaving and stops every poll', async () => {
+    const fixture = await screen('account');
+    const element: HTMLElement = fixture.nativeElement;
+    fixture.componentInstance.chooseTab('meld');
+    fixture.detectChanges();
+    expect(element.querySelector('app-account-data')).not.toBeNull();
+    const polls = researchApi.status.mock.calls.length;
+    fixture.componentInstance.leave({ uninstalling: true, accountDeleted: true, logPath: 'C:\\Temp\\meldresearch-uninstall.log' });
+    fixture.detectChanges();
+    expect(element.querySelector('.farewell h1')?.textContent).toContain('Meld Research is being removed');
+    expect(element.querySelector('app-meld-toolbar')).toBeNull();
+    expect(element.querySelector('app-research-panel')).toBeNull();
+    vi.advanceTimersByTime(10_000);
+    expect(researchApi.status.mock.calls.length).toBe(polls);
+    fixture.destroy();
+  });
+
   it('presses for Overleaf after signing in, then requires an included project before the feed opens', async () => {
     localStorage.clear();
     researchApi.status.mockResolvedValue(researchStatus(true, { projects: [] }));
@@ -169,7 +186,7 @@ describe('Overleaf connection screen', () => {
     vi.stubGlobal('sessionStorage', {
       getItem: (key: string) => session.get(key) ?? null, setItem: (key: string, value: string) => session.set(key, value),
     });
-    api.extension.mockResolvedValue({ ...setup, extensionVersion: '0.5.7' });
+    api.extension.mockResolvedValue({ ...setup, extensionVersion: '0.5.8' });
     browser.send.mockResolvedValue(connector(true));
     api.status.mockResolvedValue(status(true));
     const fixture = await screen('home');
@@ -179,7 +196,7 @@ describe('Overleaf connection screen', () => {
     expect(fixture.componentInstance.view()).toBe('account');
     fixture.detectChanges();
     expect(element.querySelector('.setup-tab[aria-selected="true"]')?.textContent).toContain('Connector update needed');
-    expect(element.querySelector('.update-notice')?.textContent).toContain('0.3.0; this Meld needs 0.5.7');
+    expect(element.querySelector('.update-notice')?.textContent).toContain('0.3.0; this Meld needs 0.5.8');
     expect(element.querySelector('.installation mat-panel-title')?.textContent).toContain('Update the browser connector');
     expect(element.querySelector('.setup-steps')?.textContent).toContain('Remove');
     expect(element.querySelector('a[aria-label="Feed"]')).toBeNull();
@@ -189,7 +206,7 @@ describe('Overleaf connection screen', () => {
     expect(browser.send.mock.calls.filter(call => call[1] === 'reload')).toHaveLength(1);
 
     const current = connector(true);
-    current.state.extensionVersion = '0.5.7';
+    current.state.extensionVersion = '0.5.8';
     browser.send.mockResolvedValue(current);
     vi.advanceTimersByTime(3000);
     await vi.waitFor(() => expect(fixture.componentInstance.connectorStale()).toBe(false));

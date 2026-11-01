@@ -8,7 +8,7 @@ import { MatSidenavModule } from '@angular/material/sidenav';
 import { BrowserConnector, ConnectorResult, olderVersion } from './browser-connector';
 import { BridgeStatus, ExtensionSetup, OverleafApi, OverleafProject, describeFailure, needsOverleafSignIn } from './overleaf-api';
 import { ResearchPanel } from './research-panel';
-import { ResearchApi, ResearchStatus } from './research-api';
+import { LeaveResult, ResearchApi, ResearchStatus } from './research-api';
 import { LocalPage, MeldToolbar } from './meld-toolbar';
 import { ProjectSelection } from './project-selection';
 import { ResearcherSetup } from './researcher-setup';
@@ -16,6 +16,7 @@ import { PublicationsList } from './publications';
 import { PrivateProfile } from './private-profile';
 import { MeldLog } from './meld-log';
 import { EncryptedSync } from './encrypted-sync';
+import { AccountData } from './account-data';
 import { includedCount, researcherDone, undecidedRecent } from './project-decisions';
 
 export type SetupTab = 'meld' | 'overleaf' | 'openalex';
@@ -36,7 +37,7 @@ interface InstallPromptEvent extends Event {
 
 @Component({
   selector: 'app-root',
-  imports: [ResearchPanel, MeldToolbar, ProjectSelection, ResearcherSetup, PublicationsList, PrivateProfile, MeldLog, EncryptedSync, MatButtonModule, MatCardModule, MatTabsModule,
+  imports: [ResearchPanel, MeldToolbar, ProjectSelection, ResearcherSetup, PublicationsList, PrivateProfile, MeldLog, EncryptedSync, AccountData, MatButtonModule, MatCardModule, MatTabsModule,
     MatExpansionModule, MatIconModule, MatSidenavModule],
   templateUrl: './app.html',
   styleUrl: './app.css',
@@ -213,6 +214,12 @@ export class App implements OnInit {
   }
   /** A project or researcher action changed the research state; show it without waiting for the next poll. */
   researchChanged(): void { void this.panel()?.refresh(); }
+  /** After leaving, only the farewell remains: every poll stops (the app is erased or already shutting down). */
+  readonly farewell = signal<LeaveResult | null>(null);
+  leave(result: LeaveResult): void {
+    this.stopped = true;
+    this.farewell.set(result);
+  }
 
   /** Signs in on the Meld website in this tab; the website returns to /account/callback and then to this app. */
   async signIn(): Promise<void> {

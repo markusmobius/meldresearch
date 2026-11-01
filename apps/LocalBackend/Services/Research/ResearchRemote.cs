@@ -38,6 +38,8 @@ internal interface IResearchRemote
     Task<RedeemSignInResponse> RedeemSignInAsync(RedeemSignInRequest request, CancellationToken ct);
     Task<MeldAccountResponse> AccountAsync(string token, CancellationToken ct);
     Task RevokeAsync(string token, CancellationToken ct);
+    /// <summary>Deletes the account, its devices and its encrypted synced data on Meld's server.</summary>
+    Task DeleteAccountAsync(string token, CancellationToken ct);
     Task<ProfileStepResponse> ProfileStepAsync(string token, ProfileStepRequest request, CancellationToken ct);
     Task<ProjectSummaryResponse> SummarizeProjectAsync(string token, ProjectSummaryRequest request, CancellationToken ct);
     Task<ThemeMatchResponse> MatchThemeAsync(string token, ThemeMatchRequest request, CancellationToken ct);
@@ -67,6 +69,8 @@ internal sealed class ResearchRemote(ResearchOptions options, IHttpClientFactory
         CallAsync<MeldAccountResponse>("api/account", HttpMethod.Get, null, token, ct);
     public async Task RevokeAsync(string token, CancellationToken ct) =>
         _ = await CallAsync<JsonElement>("api/account/device", HttpMethod.Delete, null, token, ct);
+    public async Task DeleteAccountAsync(string token, CancellationToken ct) =>
+        _ = await CallAsync<JsonElement>("api/account", HttpMethod.Delete, null, token, ct);
     public Task<ProfileStepResponse> ProfileStepAsync(string token, ProfileStepRequest request, CancellationToken ct) =>
         CallAsync<ProfileStepResponse>("api/research/profile-step", HttpMethod.Post, request, token, ct);
     public Task<ProjectSummaryResponse> SummarizeProjectAsync(string token, ProjectSummaryRequest request, CancellationToken ct) =>

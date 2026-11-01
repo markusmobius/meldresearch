@@ -50,6 +50,16 @@ internal static class RemoteEndpoints
             await accounts.RevokeAsync(context.Request.Headers.Authorization.ToString(), ct);
             return TypedResults.NoContent();
         }).WithName("RevokeLinkedDevice").WithSummary("Revoke the calling installation's credential.");
+        app.MapDelete("/api/account", async Task<NoContent> (
+            HttpContext context, IAccountService accounts, ISyncStorage sync, ILogger<IAccountService> logger, CancellationToken ct) =>
+        {
+            var account = await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            // The encrypted synced copy goes first: if that fails, the account remains and the user can try again.
+            if (sync.Configured) await sync.DeleteAllAsync(account.Id, ct);
+            await accounts.DeleteAccountAsync(account.Id, ct);
+            logger.LogInformation("An account was deleted at its owner's request, with its encrypted synced data.");
+            return TypedResults.NoContent();
+        }).WithName("DeleteAccount").WithSummary("Leave Meld Research: delete the caller's account, devices, picture and encrypted synced data.");
         app.MapPost("/api/research/profile-step", async Task<Ok<ProfileStepResponse>> (
             ProfileStepRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, InferenceGate gate, CancellationToken ct) =>
         {

@@ -113,6 +113,20 @@ internal static class ResearchEndpoints
             await research.WithSyncAsync(async (sync, credential) => { await sync.ChangePassphraseAsync(credential, request.Passphrase, ct); return true; }, ct);
             return TypedResults.NoContent();
         }).WithName("ChangeEncryptedSyncPassphrase").WithSummary("Choose a new passphrase for the same synced data; the recovery key keeps working.");
+        group.MapGet("/export", async Task<FileContentHttpResult> (ResearchArchive archive, CancellationToken ct) =>
+        {
+            var (zip, name) = await archive.ExportAsync(ct);
+            return TypedResults.File(zip, "application/zip", name);
+        }).WithName("ExportResearch").WithSummary("Download this account's research as a ZIP of readable (unencrypted) JSON.");
+        group.MapPost("/import", async Task<Ok<ImportResponse>> (HttpContext context, ResearchArchive archive, CancellationToken ct) =>
+        {
+            if (context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
+                limit.MaxRequestBodySize = ResearchArchive.MaxUploadBytes;
+            return TypedResults.Ok(await archive.ImportAsync(context.Request.Body, ct));
+        }).WithName("ImportResearch").WithSummary("Upload a Meld Research export ZIP; it is merged into this account's research and synced.");
+        group.MapPost("/leave", async Task<Ok<LeaveResponse>> (LeaveRequest request, LeaveService leave, CancellationToken ct) =>
+            TypedResults.Ok(await leave.LeaveAsync(request, ct)))
+            .WithName("LeaveMeldResearch").WithSummary("Delete the Meld account, its encrypted synced data and this computer's research, and uninstall the app.");
         if (app.Services.GetRequiredService<ResearchOptions>().Dummy)
             app.MapPost("/api/development/overleaf/change", async (IBrowserRelay browser, IResearchCoordinator research, CancellationToken ct) =>
             {

@@ -61,6 +61,13 @@ export interface ResearchStatus {
   /** End-to-end encrypted sync of this account's research between the user's computers. */
   sync?: SyncStatus | null;
 }
+/** What an uploaded export contained; otherAccount when it was downloaded while signed in as another account. */
+export interface ImportResult {
+  projects: number; included: number; cards: number; summaries: number; publications: boolean;
+  exportedEmail: string | null; otherAccount: boolean; exportedAt: string;
+}
+/** uninstalling: the installed app is removing itself and stops in a moment; accountDeleted: on Meld's server too. */
+export interface LeaveResult { uninstalling: boolean; accountDeleted: boolean; logPath: string | null; }
 /**
  * off: the server offers no sync; setup: choose a passphrase; locked: this account has synced research, enter the
  * passphrase (or recovery key) here; checking: not known yet; ready: syncing.
@@ -124,6 +131,14 @@ export class ResearchApi {
   /** Deletes the synced copy and starts again with a new passphrase; this computer's research is uploaded again. */
   startSyncOver(passphrase: string): Promise<{ recoveryKey: string }> {
     return firstValueFrom(this.http.post<{ recoveryKey: string }>('/api/research/encrypted-sync/start-over', { passphrase }));
+  }
+  /** Merges a downloaded export (a ZIP of readable JSON) into this account's research; encrypted sync uploads it. */
+  importData(file: Blob): Promise<ImportResult> {
+    return firstValueFrom(this.http.post<ImportResult>('/api/research/import', file, { headers: { 'Content-Type': 'application/zip' } }));
+  }
+  /** Deletes the Meld account, its synced data and this computer's research, and uninstalls the app. */
+  leave(confirmation: string): Promise<LeaveResult> {
+    return firstValueFrom(this.http.post<LeaveResult>('/api/research/leave', { confirmation }));
   }
   changeSyncPassphrase(passphrase: string): Promise<void> {
     return firstValueFrom(this.http.post<void>('/api/research/encrypted-sync/passphrase', { passphrase }));

@@ -46,6 +46,32 @@ public sealed class RemoteAccountTests : IDisposable
     }
 
     [Fact]
+    public async Task DeletingAnAccountRemovesItsDevicesCodesAndPicture()
+    {
+        var service = await ServiceAsync(new EphemeralDataProtectionProvider());
+        var account = await service.RegisterAsync(_principal, CancellationToken.None);
+        string verifier = new('a', 64);
+        var redeemed = await service.RedeemSignInAsync(new(await service.IssueSignInCodeAsync(_principal, Request(verifier, "Device"),
+            CancellationToken.None), verifier), CancellationToken.None);
+        await service.IssueSignInCodeAsync(_principal, Request(verifier, "Pending"), CancellationToken.None);
+        await using (var database = await Databases().CreateDbContextAsync())
+        {
+            database.AccountPictures.Add(new() { AccountId = account.Id, ContentType = "image/png", ProtectedImage = [1], SourceHash = new string('0', 64), UpdatedAt = Now });
+            await database.SaveChangesAsync();
+        }
+
+        await service.DeleteAccountAsync(account.Id, CancellationToken.None);
+        await Assert.ThrowsAsync<ResearchFailure>(() => service.AuthenticateAsync("Bearer " + redeemed.AccessToken, CancellationToken.None));
+        Assert.Null(await service.FindAsync(_principal, CancellationToken.None));
+        await using var check = await Databases().CreateDbContextAsync();
+        Assert.Empty(check.Devices);
+        Assert.Empty(check.SignInCodes);
+        Assert.Empty(check.AccountPictures);
+        // Signing up again gets the same id (its synced folder was deleted with the account).
+        Assert.Equal(account.Id, (await service.RegisterAsync(_principal, CancellationToken.None)).Id);
+    }
+
+    [Fact]
     public async Task AnExistingAccountKeepsTheIdItWasCreatedWith()
     {
         var protection = new EphemeralDataProtectionProvider();

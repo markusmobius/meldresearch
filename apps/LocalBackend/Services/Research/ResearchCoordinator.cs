@@ -209,21 +209,50 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     /// Runs a passphrase operation with the worker stopped, so no upload made with an older key can race it, then wakes the
     /// worker to pull and push with the new key.
     /// </summary>
-    internal async Task<T> WithSyncAsync<T>(Func<ResearchSync, LinkedCredential, Task<T>> action, CancellationToken ct)
+    internal Task<T> WithSyncAsync<T>(Func<ResearchSync, LinkedCredential, Task<T>> action, CancellationToken ct) =>
+        WithAccountAsync(credential => action(_sync, credential), ct);
+
+    /// <summary>
+    /// Runs an operation on the signed-in account's research (passphrases, data import) with the current cycle stopped, so
+    /// no older result can race it, then wakes the worker to continue (and sync) with the new state.
+    /// </summary>
+    internal async Task<T> WithAccountAsync<T>(Func<LinkedCredential, Task<T>> action, CancellationToken ct)
     {
         await _accountGate.WaitAsync(ct);
         try
         {
             var state = await store.ReadAsync(ct);
             if (state.Credential is null || state.Credential.ExpiresAt <= clock.GetUtcNow())
-                throw new ResearchFailure(401, "meld_account_required", "Sign in with Google before setting up encrypted sync.");
+                throw new ResearchFailure(401, "meld_account_required", "Sign in with Google first.");
             CancelCycle();
-            var result = await action(_sync, state.Credential);
+            var result = await action(state.Credential);
             RequestSync();
             return result;
         }
         finally { _accountGate.Release(); }
     }
+
+    /// <summary>
+    /// Leaving Meld Research: stops the worker for good (until <paramref name="erase"/> fails and it is resumed), then
+    /// runs the erase with the account gate held so no sign-in or passphrase change interleaves.
+    /// </summary>
+    internal async Task<T> HaltAsync<T>(Func<LocalResearchState, Task<T>> erase, CancellationToken ct)
+    {
+        await _accountGate.WaitAsync(ct);
+        Volatile.Write(ref _halted, 1);
+        try
+        {
+            CancelCycle();
+            _signIn = null;
+            return await erase(await store.ReadAsync(ct));
+        }
+        catch { Volatile.Write(ref _halted, 0); throw; }
+        finally { _accountGate.Release(); }
+    }
+
+    /// <summary>After erasing in place (a development build), the worker may run again for a new sign-in.</summary>
+    internal void Resume() => Volatile.Write(ref _halted, 0);
+    private int _halted;
 
     public Task SetMonitoringAsync(string projectId, SetProjectMonitoringRequest request, CancellationToken ct) =>
         ChangeMonitoringAsync(projectId, request.Enabled, request.ConsentVersion, null, ct);
@@ -548,6 +577,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     internal async Task<bool> RunCycleAsync(bool force, CancellationToken ct, int maxSteps = 8)
     {
         Interlocked.Exchange(ref _urgent, 0);
+        if (Volatile.Read(ref _halted) != 0) return false;
         await FlushRevocationsAsync(ct);
         var state = await store.ReadAsync(ct);
         if (state.Credential is null) return false;

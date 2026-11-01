@@ -16,6 +16,8 @@ internal interface IAccountService
     Task<RedeemSignInResponse> RedeemSignInAsync(RedeemSignInRequest request, CancellationToken ct);
     Task<MeldAccountResponse> AuthenticateAsync(string authorization, CancellationToken ct);
     Task RevokeAsync(string authorization, CancellationToken ct);
+    /// <summary>Deletes the account with its devices, pending sign-in codes and profile picture.</summary>
+    Task DeleteAccountAsync(Guid account, CancellationToken ct);
 }
 
 internal sealed class AccountService(
@@ -140,6 +142,13 @@ internal sealed class AccountService(
         bytes[6] = (byte)((bytes[6] & 0x0F) | 0x80);
         bytes[8] = (byte)((bytes[8] & 0x3F) | 0x80);
         return new Guid(bytes, bigEndian: true);
+    }
+
+    public async Task DeleteAccountAsync(Guid account, CancellationToken ct)
+    {
+        await using var database = await databases.CreateDbContextAsync(ct);
+        // Devices, sign-in codes and the picture are removed with the account (cascading foreign keys).
+        await database.Accounts.Where(item => item.Id == account).ExecuteDeleteAsync(ct);
     }
 
     private static Task<AccountEntity?> FindAccountAsync(RemoteDbContext database, string subject, CancellationToken ct) =>

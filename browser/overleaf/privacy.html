@@ -21,7 +21,7 @@
       <header class="page-header">
         <div class="page-heading">
           <h1 class="page-title"><span class="material-icons site-only" aria-hidden="true">shield</span>Privacy &amp; Controls</h1>
-          <p class="page-subtitle">Last updated: October 2026 &middot; Meld Research and its Overleaf connector, version 0.5.7</p>
+          <p class="page-subtitle">Last updated: October 2026 &middot; Meld Research and its Overleaf connector, version 0.5.8</p>
         </div>
       </header>
 
@@ -162,12 +162,13 @@
             <p>The extension does not persist project contents in browser storage. The desktop companion keeps its encrypted research
               store until you remove it. The remote service keeps account and device records in its own database. Names, email
               addresses, and device names in that database are encrypted with ASP.NET Data Protection, and installation credentials
-              are stored only as one-way hashes. Account data remains until removed by the service operator; contact Markus Mobius to
-              request account deletion. There is not yet a self-service remote account-deletion screen. Installation credentials
-              expire after 30 days unless revoked earlier.</p>
+              are stored only as one-way hashes. Account data remains until you choose <strong>Leave Meld Research</strong> (see below)
+              or ask Markus Mobius to delete it. Installation credentials expire after 30 days unless revoked earlier.</p>
             <p>Manual ZIP downloads and their metadata remain separate from the research index. Temporary transfer files are normally
               removed after completion or failure; a crash can leave temporary data on disk until it is removed. ZIP exports and
-              existing manually downloaded archives are ordinary files and are not encrypted by Meld.</p>
+              existing manually downloaded archives are ordinary files and are not encrypted by Meld. The same applies to
+              <strong>Download my data</strong>: it saves your research, including text from your Overleaf projects, as readable JSON
+              in a ZIP file that Meld does not encrypt or keep track of.</p>
             <p>Requests to hosted Overleaf use HTTPS. Native messaging uses operating-system pipes; the native host and local backend
               authenticate each other with per-run cryptographic proofs. Production requests to the remote service and requests to
               Foundry use HTTPS. Isolated local development can use a loopback HTTP account/inference service. The research store uses
@@ -182,8 +183,8 @@
               account identifier, the number, sizes and times of the encrypted files, and a storage quota (500 MB per account by
               default). Meld cannot reset your passphrase or read your synced research; if you lose both the passphrase and the
               recovery key, the synced copy cannot be decrypted and can only be deleted. Encryption keeps the content private but
-              cannot hide that you use the service. The encrypted copy remains until you exclude projects, start over, or ask for
-              account deletion.</p>
+              cannot hide that you use the service. The encrypted copy remains until you exclude projects, start over, or leave Meld
+              Research.</p>
           </section>
 
           <section class="privacy-section" data-privacy-section="removal">
@@ -194,7 +195,16 @@
               linked account. <strong>Excluding</strong> a project also deletes its encrypted synced copy. <strong>Start over</strong>
               (offered when the passphrase and recovery key are lost) deletes every encrypted synced copy of the account; research on
               the computer where you choose it is uploaded again under the new passphrase. Disconnecting an account does not delete
-              its encrypted copy; ask Markus Mobius to delete it with the account.</p>
+              its encrypted copy.</p>
+            <p>Under Account &rarr; Meld account &rarr; Your data, <strong>Download my data</strong> saves everything Meld keeps for
+              your account on this computer (choices, research cards, summaries, Updates, publications and the Overleaf text they
+              were made from) as readable JSON, and <strong>Upload data</strong> restores such a file into the signed-in account
+              (also a new one); encrypted sync then uploads it. <strong>Leave Meld Research</strong>, after you type DELETE, deletes
+              your Meld account on Meld's server with its devices, profile picture and encrypted synced research, erases the
+              research on this computer, and uninstalls the installed app: its start at sign-in, its browser bridge registration,
+              its Start menu entry, and its application and data folders. A short log of the removal is left in your temporary
+              folder. Remove the browser connector yourself in Chrome or Edge. Other computers keep their local copy until you leave
+              there too.</p>
             <p><strong>Disconnect</strong> in the connector popup, or <strong>Pause auto-connect</strong> in Meld, stops the browser
               connection and remains in effect after browser restarts. You can also disable or remove the extension in Chrome. These
               actions do not delete ZIPs already

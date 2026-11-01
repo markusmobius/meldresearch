@@ -60,11 +60,12 @@ internal static class SyncBundles
     /// (for example right after unlocking, or after a start over elsewhere uploaded an empty profile): then the remote cards
     /// win for the projects they cover and this computer's other cards, newer summaries and its OpenAlex match are kept, so
     /// nothing made here has to be made again. Projects included elsewhere are added here (the user agreed to processing
-    /// there); excluded ones stop here.
+    /// there); excluded ones stop here. Without an ETag the bundle comes from an uploaded export: it is merged the same way,
+    /// always keeping this computer's own cards, and the sync state is left alone so the result is uploaded.
     /// </summary>
-    public static LocalResearchState ApplyProfile(LocalResearchState state, Guid account, ProfileBundle bundle, string etag, string consentVersion)
+    public static LocalResearchState ApplyProfile(LocalResearchState state, Guid account, ProfileBundle bundle, string? etag, string consentVersion)
     {
-        bool localChanged = state.Sync?.ProfileSyncedFor is not { } synced || Fingerprint(Profile(state, account, Unsaved)) != synced;
+        bool localChanged = etag is null || state.Sync?.ProfileSyncedFor is not { } synced || Fingerprint(Profile(state, account, Unsaved)) != synced;
         var remoteThemes = bundle.Themes.Where(item => item.AccountId == account).ToArray();
         IReadOnlyList<ResearchTheme> themes = remoteThemes;
         string? regrouped = bundle.ThemesRegroupedFor;
@@ -110,8 +111,37 @@ internal static class SyncBundles
             Summaries = [.. (state.Summaries ?? []).Where(item => item.AccountId != account), .. summaries],
             Researchers = researcher is not null
                 ? [.. (state.Researchers ?? []).Where(item => item.AccountId != account), researcher] : state.Researchers,
-            Sync = state.Sync! with { ProfileETag = etag, ProfileSyncedFor = Fingerprint(bundle) }
+            Sync = etag is null ? state.Sync : state.Sync! with { ProfileETag = etag, ProfileSyncedFor = Fingerprint(bundle) }
         };
+    }
+
+    /// <summary>
+    /// Adds a project's work from an uploaded export. A project this computer does not have is created (monitored when its
+    /// choice says included); existing local work is replaced only when the export folded in more files. Imported work is
+    /// left unsynced, so encrypted sync uploads it (or reconciles it with a newer synced copy) on its next check.
+    /// </summary>
+    public static LocalResearchState ImportProject(LocalResearchState state, Guid account, ProjectBundle bundle, string consentVersion)
+    {
+        var projects = state.Projects.ToList();
+        int index = projects.FindIndex(item => item.AccountId == account && item.ProjectId == bundle.ProjectId);
+        bool included = (state.Decisions ?? []).FirstOrDefault(item => item.AccountId == account && item.ProjectId == bundle.ProjectId)?.Included ?? false;
+        if (index < 0)
+        {
+            projects.Add(new MonitoredProject(account, bundle.ProjectId, bundle.Name, included, consentVersion,
+                null, null, [], [], null, null, null, null, null, 0, 0));
+            index = projects.Count - 1;
+        }
+        var local = projects[index];
+        if (HasResearch(local) && (local.Processed?.Count ?? 0) >= (bundle.Processed?.Count ?? 0)) return state;
+        projects[index] = local with
+        {
+            Name = bundle.Name, Profile = bundle.Profile, Processed = bundle.Processed, Baseline = bundle.Baseline, Pending = bundle.Pending,
+            PendingOrder = bundle.PendingOrder, PendingSince = bundle.PendingSince, ImportComplete = bundle.ImportComplete,
+            LastSweepAt = bundle.LastSweepAt, LastSuccessAt = bundle.LastSuccessAt, Updates = bundle.Updates,
+            Snapshot = null, Summary = null, Facts = [], ErrorCode = null, Error = null, FailureCount = 0, NextAttemptAt = null,
+            SyncedFor = null
+        };
+        return state with { Projects = projects };
     }
 
     /// <summary>

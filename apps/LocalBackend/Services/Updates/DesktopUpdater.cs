@@ -33,13 +33,18 @@ internal sealed record InstallationPointer(string Current, string? Previous, IRe
 internal interface INativeHostRegistrar
 {
     Task RegisterAsync(string browserHostExecutable, CancellationToken ct);
+    /// <summary>Removes the browser registrations (leaving Meld Research).</summary>
+    Task UnregisterAsync(string browserHostExecutable, CancellationToken ct);
 }
 
 internal sealed class NativeHostRegistrar : INativeHostRegistrar
 {
-    public async Task RegisterAsync(string browserHostExecutable, CancellationToken ct)
+    public Task RegisterAsync(string browserHostExecutable, CancellationToken ct) => RunAsync(browserHostExecutable, "--register", ct);
+    public Task UnregisterAsync(string browserHostExecutable, CancellationToken ct) => RunAsync(browserHostExecutable, "--unregister", ct);
+
+    private static async Task RunAsync(string browserHostExecutable, string argument, CancellationToken ct)
     {
-        using var process = Process.Start(new ProcessStartInfo(browserHostExecutable, "--register")
+        using var process = Process.Start(new ProcessStartInfo(browserHostExecutable, argument)
         {
             UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true
         }) ?? throw new InvalidOperationException("The native host registration could not start.");
@@ -49,7 +54,7 @@ internal sealed class NativeHostRegistrar : INativeHostRegistrar
         var error = process.StandardError.ReadToEndAsync(timeout.Token);
         await process.WaitForExitAsync(timeout.Token);
         await Task.WhenAll(output, error);
-        if (process.ExitCode != 0) throw new InvalidOperationException("The native host registration failed.");
+        if (process.ExitCode != 0) throw new InvalidOperationException($"The native host {argument} failed.");
     }
 }
 

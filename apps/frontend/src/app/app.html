@@ -1,3 +1,22 @@
+@if (farewell(); as bye) {
+  <main class="farewell" aria-label="Meld Research removed">
+    <section class="farewell-card">
+      <span class="farewell-icon"><mat-icon>waving_hand</mat-icon></span>
+      <h1>{{ bye.uninstalling ? 'Meld Research is being removed' : 'Your data was deleted' }}</h1>
+      @if (bye.accountDeleted) { <p>Your Meld account and its synced research were deleted on Meld's server.</p> }
+      <p>All research on this computer was erased.</p>
+      @if (bye.uninstalling) {
+        <p>The app has stopped and is removing itself, its start at sign-in and its folders; this takes a few seconds.
+          You can close this tab.</p>
+        <p class="muted">To remove the Meld Research connector from your browser too, open <code>{{ extensionsPage }}</code> and choose Remove.
+          @if (bye.logPath) { The removal is recorded in <code>{{ bye.logPath }}</code>. }</p>
+      } @else {
+        <p class="muted">This development copy was not uninstalled.</p>
+        <a mat-flat-button class="next-step" href="/">Start again</a>
+      }
+    </section>
+  </main>
+} @else {
 <div class="app-layout">
   <app-meld-toolbar [page]="view()" [accountName]="research()?.account?.name ?? null" [setupComplete]="setupKnown() && setupComplete()"
     [dummy]="!!status()?.dummy" [updateCount]="research()?.totalUpdates ?? 0"></app-meld-toolbar>
@@ -78,6 +97,7 @@
                   @if (research()?.account; as account) {
                     <p class="account-name">{{ account.name }}</p><p class="muted">{{ account.email }}</p>
                     <app-encrypted-sync [status]="research()?.sync ?? null" (changed)="researchChanged()" (keyShown)="recoveryKeyShown.set($event)"></app-encrypted-sync>
+                    <app-account-data [synced]="research()?.sync?.state === 'ready'" (changed)="researchChanged()" (left)="leave($event)"></app-account-data>
                     <div class="controls account-controls">
                       @if (!verified() && !syncPending()) {
                         <button mat-flat-button class="next-step" (click)="chooseTab('overleaf')"><mat-icon>arrow_forward</mat-icon>Next: connect Overleaf</button>
@@ -223,3 +243,4 @@
     <a href="mailto:markusmobius@gmail.com">Contact</a>
   </footer>
 </div>
+}

@@ -284,6 +284,7 @@ public sealed class DesktopUpdateTests : IDisposable
     {
         public List<string> Registered { get; } = [];
         public string? FailFor { get; init; }
+        public Task UnregisterAsync(string browserHostExecutable, CancellationToken ct) => Task.CompletedTask;
         public Task RegisterAsync(string browserHostExecutable, CancellationToken ct)
         {
             Registered.Add(browserHostExecutable);

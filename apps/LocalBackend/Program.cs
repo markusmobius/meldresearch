@@ -67,6 +67,8 @@ builder.Services.AddHttpClient("sync-blobs", client => client.Timeout = Timeout.
         AllowAutoRedirect = false, UseCookies = false, PooledConnectionIdleTimeout = TimeSpan.FromSeconds(50)
     });
 builder.Services.AddSingleton<ResearchSync>();
+builder.Services.AddSingleton<ResearchArchive>();
+builder.Services.AddSingleton<LeaveService>();
 builder.Services.AddSingleton<IOverleafEvidenceSource, OverleafEvidenceSource>();
 // Idle connections are dropped before Cloudflare or nginx closes them, so a request never starts on a dead connection.
 builder.Services.AddHttpClient("research-remote", client => client.Timeout = Timeout.InfiniteTimeSpan)
