@@ -14,10 +14,12 @@
           }
         </span>
         <span class="card-source"><mat-icon>description</mat-icon>{{ memberNames(card) }}</span>
+        @if (card.lastEdited) { <span class="card-edited">Edited {{ card.lastEdited | date:'mediumDate' }}</span> }
         @if (card.profile; as profile) {
           <span class="card-description">{{ profile.description }}</span>
           @if (profile.topics.length) {
-            <span class="topics">@for (topic of profile.topics; track $index) { <span class="topic">{{ topic }}</span> }</span>
+            <span class="topics">@for (topic of profile.topics.slice(0, 3); track $index) { <span class="topic">{{ topic }}</span> }
+              @if (profile.topics.length > 3) { <span class="topic more">+{{ profile.topics.length - 3 }}</span> }</span>
           }
         }
         @if (card.progress; as project) {

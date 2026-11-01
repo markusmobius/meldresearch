@@ -12,6 +12,8 @@ import { ProjectProfile, ResearchApi, ResearchProject, ResearchStatus, ResearchU
 interface ProfileCard {
   id: string; themeId: string | null; profile: ProfileOrNull; members: ReadonlyArray<ResearchProject>;
   recent: ReadonlyArray<ResearchUpdate>; updating: boolean; progress: ResearchProject | null;
+  /** The most recent Overleaf edit of any of the card's projects (or, failing that, its latest Update); orders the cards. */
+  lastEdited: number | null;
 }
 type ProfileOrNull = ProjectProfile | null;
 
@@ -45,6 +47,12 @@ export class PrivateProfile {
     const since = Date.now() - RECENT_UPDATE_DAYS * 86400000;
     const shown = status.projects.filter(project => project.enabled || project.profile);
     const byId = new Map(shown.map(project => [project.projectId, project] as const));
+    const edited = new Map((status.overleafProjects?.projects ?? []).map(project => [project.id, project.updatedAt ? Date.parse(project.updatedAt) : NaN] as const));
+    const lastEdited = (ids: ReadonlyArray<string>): number | null => {
+      const times = ids.map(id => edited.get(id) ?? NaN).concat(status.updates.filter(update => ids.includes(update.projectId))
+        .map(update => Date.parse(update.sourceUpdatedAt ?? update.observedAt))).filter(time => Number.isFinite(time));
+      return times.length ? Math.max(...times) : null;
+    };
     const recent = (ids: ReadonlyArray<string>) => status.updates.filter(update => ids.includes(update.projectId) &&
       update.kind !== 'initialImport' && Date.parse(update.sourceUpdatedAt ?? update.observedAt) >= since);
     const cards: ProfileCard[] = [];
@@ -54,14 +62,15 @@ export class PrivateProfile {
       if (!members.length) continue;
       members.forEach(member => placed.add(member.projectId));
       cards.push({ id: theme.id, themeId: theme.id, profile: theme.profile ?? members[0].profile, members, recent: recent(theme.projectIds),
-        updating: theme.updating, progress: members.find(member => BUSY.has(member.phase)) ?? null });
+        updating: theme.updating, progress: members.find(member => BUSY.has(member.phase)) ?? null, lastEdited: lastEdited(theme.projectIds) });
     }
     // Projects still importing, or imported and about to be placed on a card.
     for (const project of shown.filter(item => !placed.has(item.projectId))) {
       cards.push({ id: project.projectId, themeId: null, profile: project.profile, members: [project], recent: recent([project.projectId]),
-        updating: !!project.profile, progress: BUSY.has(project.phase) ? project : null });
+        updating: !!project.profile, progress: BUSY.has(project.phase) ? project : null, lastEdited: lastEdited([project.projectId]) });
     }
-    return cards;
+    // Most recently edited research first.
+    return cards.sort((a, b) => (b.lastEdited ?? 0) - (a.lastEdited ?? 0));
   });
   /** The opened card, kept current while the dialog is open (status refreshes every few seconds). */
   readonly selected = computed(() => this.cards().find(card => card.id === this.selectedId()) ?? null);

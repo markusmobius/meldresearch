@@ -50,10 +50,22 @@ describe('Private profile', () => {
     expect(cards[0].querySelector('.card-description')?.textContent).toBe('One paragraph about news slant.');
     expect(cards[0].querySelector('.contributions')).toBeNull();
     expect(cards[0].querySelector('.recent-badge')?.textContent).toContain('1 update in the last 3 months');
-    // A card without a combined summary yet shows its project's own summary.
+    // A card without a combined summary yet shows its project's own summary, with at most three topics.
     expect(cards[1].querySelector('.card-title')?.textContent).toBe('Pricing');
-    expect(cards[1].querySelectorAll('.topic')).toHaveLength(5);
+    expect([...cards[1].querySelectorAll('.topic')].map(topic => topic.textContent?.trim())).toEqual(['pricing', 'auctions', 'demand', '+2']);
     expect(element.querySelector('img')).toBeNull();
+  });
+
+  it('orders cards by the most recent Overleaf edit of their projects', () => {
+    const fixture = TestBed.createComponent(PrivateProfile);
+    const value = grouped();
+    fixture.componentRef.setInput('status', { ...value, updates: [], overleafProjects: { fetchedAt: '', projects: [
+      { id: paperId, name: 'news-slant', updatedAt: '2026-01-01T12:00:00Z' }, { id: slidesId, name: 'news-slant-slides', updatedAt: '2026-02-01T12:00:00Z' },
+      { id: otherId, name: 'pricing', updatedAt: '2026-10-01T12:00:00Z' }] } });
+    fixture.detectChanges();
+    const cards = [...fixture.nativeElement.querySelectorAll('.profile-card')] as HTMLElement[];
+    expect(cards.map(card => card.querySelector('.card-title')?.textContent)).toEqual(['Pricing', 'Why outlets differ']);
+    expect(cards[1].querySelector('.card-edited')?.textContent).toContain('Feb 1, 2026');
   });
 
   it('opens contributions, projects and recent updates, and moves a project to a card of its own', async () => {
