@@ -94,8 +94,8 @@ describe('Overleaf connection screen', () => {
     expect(element.querySelector('a[aria-label="About me"]')).toBeNull();
     expect(element.querySelector('.feed-column')).toBeNull();
     const tabs = [...element.querySelectorAll('.setup-tab')];
-    expect(tabs.map(tab => tab.textContent)).toEqual([expect.stringContaining('Meld account'), expect.stringContaining('Overleaf'),
-      expect.stringContaining('OpenAlex')]);
+    expect(tabs.map(tab => tab.textContent)).toEqual([expect.stringContaining('Meld account'), expect.stringContaining('Backup'),
+      expect.stringContaining('Overleaf'), expect.stringContaining('OpenAlex')]);
     expect(tabs[0].getAttribute('aria-selected')).toBe('true');
     const signInUrl = 'https://www.meldresearch.org/connect?state=a&challenge=b&redirect_uri=c&device=d';
     researchApi.link.mockResolvedValue({ signInUrl, expiresAt: '2026-10-30T00:00:00Z' });
@@ -107,17 +107,31 @@ describe('Overleaf connection screen', () => {
     fixture.destroy();
   });
 
-  it('keeps setup on the Meld account until encrypted sync is unlocked and its recovery key saved', async () => {
+  it('requires Remote Sync after signing in, also while it is still being checked, before anything else', async () => {
     // An undecided recent project does not pull a locked computer away: its choice may already be synced.
-    researchApi.status.mockResolvedValue(researchStatus(true, { sync: sync('locked'),
-      overleafProjects: { projects: [recent('c123456789abcdef01234567', 'Recent project')], fetchedAt: new Date().toISOString() } }));
+    const overleafProjects = { projects: [recent('c123456789abcdef01234567', 'Recent project')], fetchedAt: new Date().toISOString() };
+    researchApi.status.mockResolvedValue(researchStatus(true, { sync: sync('checking'), overleafProjects }));
     researchApi.encryptedSync.mockResolvedValue(sync('locked'));
     const fixture = await screen('home');
     const element: HTMLElement = fixture.nativeElement;
     expect(fixture.componentInstance.view()).toBe('account');
-    expect(element.querySelector('.setup-tab[aria-selected="true"]')?.textContent).toContain('Meld account');
+    expect([...element.querySelectorAll('.setup-tab strong')].map(tab => tab.textContent))
+      .toEqual(['Meld account', 'Remote Sync', 'Backup', 'Overleaf', 'OpenAlex']);
+    expect(element.querySelector('.setup-tab[aria-selected="true"]')?.textContent).toContain('Remote Sync');
+
+    researchApi.status.mockResolvedValue(researchStatus(true, { sync: sync('locked'), overleafProjects }));
+    await (fixture.componentInstance as unknown as { panel: () => { refresh(): Promise<void> } }).panel().refresh();
+    fixture.detectChanges();
+    expect(element.querySelector('.setup-tab[aria-selected="true"]')?.textContent).toContain('Remote Sync');
+    expect(element.querySelector('.remote-sync mat-card-subtitle')?.textContent).toContain('Step 2 of 5');
     expect(element.querySelector('app-encrypted-sync')?.textContent).toContain('Unlock your synced research');
     expect(element.querySelector('a[aria-label="Feed"]')).toBeNull();
+    // Backup waits for Remote Sync.
+    fixture.componentInstance.chooseTab('backup');
+    fixture.detectChanges();
+    expect(element.querySelector('app-backup-data')).toBeNull();
+    fixture.componentInstance.chooseTab('sync');
+    fixture.detectChanges();
 
     // Unlocked, but the one-time recovery key is still on screen: setup must not move on yet.
     fixture.componentInstance.recoveryKeyShown.set(true);
@@ -128,6 +142,23 @@ describe('Overleaf connection screen', () => {
     fixture.componentInstance.recoveryKeyShown.set(false);
     fixture.detectChanges();
     expect(fixture.componentInstance.setupComplete()).toBe(true);
+    fixture.destroy();
+  });
+
+  it('offers an optional restore after Remote Sync, before Overleaf, and moves on when it is skipped', async () => {
+    localStorage.clear();
+    const overleafProjects = { projects: [recent('c123456789abcdef01234567', 'Recent project')], fetchedAt: new Date().toISOString() };
+    researchApi.status.mockResolvedValue(researchStatus(true, { projects: [], sync: sync('ready'), overleafProjects }));
+    researchApi.encryptedSync.mockResolvedValue(sync('ready'));
+    const fixture = await screen('home');
+    const element: HTMLElement = fixture.nativeElement;
+    expect(fixture.componentInstance.setupTab()).toBe('backup');
+    expect(element.querySelector('.backup-card mat-card-subtitle')?.textContent).toContain('optional');
+    expect(element.querySelector('app-backup-data button.download-data')).toBeNull();
+    element.querySelector<HTMLButtonElement>('app-backup-data button.skip-restore')!.click();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.setupTab()).toBe('overleaf');
+    expect(localStorage.getItem('meldresearch.restoreSettledFor')).toBe(account.id);
     fixture.destroy();
   });
 
@@ -159,7 +190,7 @@ describe('Overleaf connection screen', () => {
     const element: HTMLElement = fixture.nativeElement;
     fixture.componentInstance.chooseTab('meld');
     fixture.detectChanges();
-    expect(element.querySelector('app-account-data')).not.toBeNull();
+    expect(element.querySelector('app-leave-meld')).not.toBeNull();
     const polls = researchApi.status.mock.calls.length;
     fixture.componentInstance.leave({ uninstalling: true, accountDeleted: true, logPath: 'C:\\Temp\\meldresearch-uninstall.log' });
     fixture.detectChanges();
@@ -177,6 +208,10 @@ describe('Overleaf connection screen', () => {
     const fixture = await screen('home');
     const element: HTMLElement = fixture.nativeElement;
     expect(fixture.componentInstance.view()).toBe('account');
+    // Without Remote Sync on this server: the optional restore comes first, then Overleaf.
+    expect(element.querySelector('.setup-tab[aria-selected="true"]')?.textContent).toContain('Backup');
+    fixture.componentInstance.settleRestore();
+    fixture.detectChanges();
     expect(element.querySelector('.setup-tab[aria-selected="true"]')?.textContent).toContain('Overleaf');
     expect(element.querySelector('.connection-settings')).not.toBeNull();
     expect(element.querySelector('a[aria-label="Feed"]')).toBeNull();
@@ -211,7 +246,7 @@ describe('Overleaf connection screen', () => {
     vi.stubGlobal('sessionStorage', {
       getItem: (key: string) => session.get(key) ?? null, setItem: (key: string, value: string) => session.set(key, value),
     });
-    api.extension.mockResolvedValue({ ...setup, extensionVersion: '0.5.8' });
+    api.extension.mockResolvedValue({ ...setup, extensionVersion: '0.5.9' });
     browser.send.mockResolvedValue(connector(true));
     api.status.mockResolvedValue(status(true));
     const fixture = await screen('home');
@@ -221,7 +256,7 @@ describe('Overleaf connection screen', () => {
     expect(fixture.componentInstance.view()).toBe('account');
     fixture.detectChanges();
     expect(element.querySelector('.setup-tab[aria-selected="true"]')?.textContent).toContain('Connector update needed');
-    expect(element.querySelector('.update-notice')?.textContent).toContain('0.3.0; this Meld needs 0.5.8');
+    expect(element.querySelector('.update-notice')?.textContent).toContain('0.3.0; this Meld needs 0.5.9');
     expect(element.querySelector('.installation mat-panel-title')?.textContent).toContain('Update the browser connector');
     expect(element.querySelector('.setup-steps')?.textContent).toContain('Remove');
     expect(element.querySelector('a[aria-label="Feed"]')).toBeNull();
@@ -231,7 +266,7 @@ describe('Overleaf connection screen', () => {
     expect(browser.send.mock.calls.filter(call => call[1] === 'reload')).toHaveLength(1);
 
     const current = connector(true);
-    current.state.extensionVersion = '0.5.8';
+    current.state.extensionVersion = '0.5.9';
     browser.send.mockResolvedValue(current);
     vi.advanceTimersByTime(3000);
     await vi.waitFor(() => expect(fixture.componentInstance.connectorStale()).toBe(false));

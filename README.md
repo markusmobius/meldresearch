@@ -24,9 +24,14 @@ Both services run on the same computer in routine development.
 The interface uses **Angular Material**: a 64px toolbar with a share icon, Outfit
 typography, pill navigation, a full-height workspace, and compact source-grounded
 Update cards. The local working tabs are **Feed**, **About me** (OpenAlex
-publications), and **Account**: vertical tabs for the Meld account, Overleaf
-(**Connection** and **Projects**, where projects are included or excluded) and
-OpenAlex.
+publications), and **Account**: vertical setup steps for the **Meld account**
+(sign in, disconnect, leave), **Remote Sync** (required when the server offers
+it: choose or enter the passphrase; afterwards only *Show recovery key*),
+**Backup** (during setup an optional restore that can be skipped; afterwards
+download and restore), **Overleaf** (**Connection** and **Projects**, where
+projects are included or excluded) and **OpenAlex**. Remote Sync blocks setup
+(also while its state is still being checked); the Overleaf project nudge waits
+for the restore step.
 **More** contains Docs, Privacy and Project Team. Only the Updates feed exists;
 there are no placeholder feed types. The team currently contains only Markus Mobius.
 The app keeps accurate Azure/Microsoft provider disclosures and the required
@@ -165,7 +170,7 @@ that backend requires real Google OAuth configuration. No synthetic identity is
 available in Live mode.
 
 The source manifest now uses the supplied Chrome draft public key:
-**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.5.8**, wire protocol **2**.
+**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.5.9**, wire protocol **2**.
 It is a public identity key, not a signing secret.
 
 Until the private listing is approved, remove the old development-ID unpacked
@@ -481,9 +486,12 @@ encrypted on the client ([SyncCrypto](libraries/Research/SyncCrypto.cs)):
 - A random 256-bit data key per account encrypts each blob with AES-256-GCM
   (gzip JSON, bound to the account and blob name). The account's plaintext
   `key.json` holds the data key wrapped by a PBKDF2-SHA256 (600,000 iterations)
-  passphrase key and by a 20-byte recovery key shown once as
-  `XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX`. On computers, the data key lives
-  only inside the DPAPI/Keychain-protected research state.
+  passphrase key and by a 20-byte recovery key
+  (`XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX`), plus the recovery key sealed under
+  the data key so any unlocked computer can show it again
+  (`POST /api/research/encrypted-sync/recovery-key`; a key file without that copy
+  gets a new recovery key, which replaces the old one). On computers, the data
+  key lives only inside the DPAPI/Keychain-protected research state.
 - Blobs: `{account:N}/key.json`, `profile.bin` (decisions, research cards,
   summaries, OpenAlex match) and `p/<hmac>.bin` per included project (summary,
   processing state, Updates and the texts they need). Project names are a keyed
@@ -523,9 +531,9 @@ keys); the account must accept public network access (the companion connects
 from users' computers). No CORS is needed: the local backend, not the browser,
 calls Blob Storage.
 
-### Your data: download, upload and leaving
+### Backup, restore and leaving
 
-Account → Meld account → Your data
+Account → Backup and Account → Meld account → Leave Meld Research
 ([ResearchArchive](apps/LocalBackend/Services/Research/ResearchArchive.cs),
 [LeaveService](apps/LocalBackend/Services/Research/LeaveService.cs)):
 

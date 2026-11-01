@@ -143,13 +143,15 @@ Use .NET 10, Node 24/npm and PowerShell 7. Run from this repository's root, e.g.
   [MeldToolbar](apps/frontend/src/app/meld-toolbar.ts) is the shared Angular
   Material toolbar, including visible service roles. The local tabs are Feed,
   About me and Account; Docs / Privacy / Project Team are under More.
-  Account has vertical tabs Meld account / Overleaf (horizontal Connection |
-  Projects) / OpenAlex. Projects owns include/exclude choices, consent,
+  Account has vertical steps Meld account / Remote Sync (only when offered;
+  required; once set up its only action is Show recovery key) / Backup (optional
+  restore during setup, then download and restore) / Overleaf (horizontal
+  Connection | Projects) / OpenAlex. Projects owns include/exclude choices, consent,
   monitoring and project summaries (no manual ZIP download UI); About me has Project Meld's tabs: Private profile
   (research cards), Public profile (only once one exists) and Publications.
-  Meld account also holds encrypted sync and Your data: Download my data (a ZIP
-  of readable, unencrypted JSON built from the sync bundles), Upload data (merge,
-  then sync uploads) and Leave Meld Research (typed DELETE; deletes the remote
+  Backup: Download my data (a ZIP of readable, unencrypted JSON built from the
+  sync bundles) and Upload data (merge, then sync uploads). Meld account holds
+  Leave Meld Research (typed DELETE; deletes the remote
   account and synced blobs first, then erases local research, then an installed
   copy uninstalls itself through a script started outside its process tree;
   [LeaveService](apps/LocalBackend/Services/Research/LeaveService.cs)). Keep the
@@ -201,7 +203,7 @@ Use .NET 10, Node 24/npm and PowerShell 7. Run from this repository's root, e.g.
   restore the removed application Playwright approach. Use the normal browser
   and connector; never execute downloaded TeX.
 - Current Chrome identity: `pejcljoimoeklelcfbfddnkimlkjgfhe`; extension version
-  `0.5.8`, native protocol `2`. Identity derives from the public manifest key,
+  `0.5.9`, native protocol `2`. Identity derives from the public manifest key,
   not a secret signing key. Update related identity/handshake checks together;
   compatible extension releases need not have identical version numbers.
 - Bump the connector manifest version whenever extension files change: installed

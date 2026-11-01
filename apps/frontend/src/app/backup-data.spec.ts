@@ -1,11 +1,11 @@
 import { TestBed } from '@angular/core/testing';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
-import { AccountData } from './account-data';
+import { BackupData } from './backup-data';
 import { InterfaceLock } from './interface-lock';
-import { ExportStatus, LeaveResult, ResearchApi } from './research-api';
+import { ExportStatus, ResearchApi } from './research-api';
 
-describe('Your data', () => {
-  const api = { importData: vi.fn(), leave: vi.fn(), exportStatus: vi.fn(), startExport: vi.fn() };
+describe('Backup', () => {
+  const api = { importData: vi.fn(), exportStatus: vi.fn(), startExport: vi.fn() };
   const job = (state: ExportStatus['state'], extra: Partial<ExportStatus> = {}): ExportStatus => ({
     id: 'job1', state, startedAt: '2026-11-01T12:00:00Z', readyAt: null, expiresAt: null, fileName: null, bytes: null, projects: 0,
     url: null, error: null, ...extra,
@@ -15,12 +15,13 @@ describe('Your data', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     api.exportStatus.mockResolvedValue(null);
-    TestBed.configureTestingModule({ imports: [AccountData], providers: [provideNoopAnimations(), { provide: ResearchApi, useValue: api }] });
+    TestBed.configureTestingModule({ imports: [BackupData], providers: [provideNoopAnimations(), { provide: ResearchApi, useValue: api }] });
   });
   afterEach(() => vi.useRealTimers());
-  async function setup(synced = true) {
-    const fixture = TestBed.createComponent(AccountData);
+  async function setup(synced = true, setupMode = false) {
+    const fixture = TestBed.createComponent(BackupData);
     fixture.componentRef.setInput('synced', synced);
+    fixture.componentRef.setInput('setup', setupMode);
     fixture.detectChanges();
     await fixture.whenStable();
     fixture.detectChanges();
@@ -62,7 +63,7 @@ describe('Your data', () => {
 
   it('after a reload shows a recent download without starting it again', async () => {
     api.exportStatus.mockResolvedValue(ready('earlier'));
-    const save = vi.spyOn(AccountData.prototype, 'save').mockImplementation(() => undefined);
+    const save = vi.spyOn(BackupData.prototype, 'save').mockImplementation(() => undefined);
     const { element } = await setup();
     expect(element.querySelector('a.export-link')?.getAttribute('href')).toBe('/api/research/export/earlier');
     expect(save).not.toHaveBeenCalled();
@@ -112,27 +113,27 @@ describe('Your data', () => {
     lock.close();
   });
 
-  it('leaves only after the warning and typing DELETE', async () => {
-    const result: LeaveResult = { uninstalling: true, accountDeleted: true, logPath: 'C:\\Temp\\meldresearch-uninstall.log' };
-    api.leave.mockResolvedValue(result);
-    const { fixture, element } = await setup();
-    const left = vi.fn();
-    fixture.componentInstance.left.subscribe(left);
-    element.querySelector<HTMLButtonElement>('button.leave-toggle')!.click();
-    fixture.detectChanges();
-    expect(element.querySelector('.warning')!.textContent).toContain('your encrypted synced research');
-    const button = () => element.querySelector<HTMLButtonElement>('button.leave-now')!;
-    expect(button().disabled).toBe(true);
-    const confirmation = element.querySelector<HTMLInputElement>('input.leave-confirmation')!;
-    confirmation.value = 'delete';
-    confirmation.dispatchEvent(new Event('input'));
-    fixture.detectChanges();
-    expect(button().disabled).toBe(true);
-    confirmation.value = 'DELETE';
-    confirmation.dispatchEvent(new Event('input'));
-    fixture.detectChanges();
-    button().click();
-    await vi.waitFor(() => expect(left).toHaveBeenCalledWith(result));
-    expect(api.leave).toHaveBeenCalledWith('DELETE');
+  it('during setup offers only an optional restore, which can be skipped', async () => {
+    const { fixture, element } = await setup(true, true);
+    const settled = vi.fn();
+    fixture.componentInstance.settled.subscribe(settled);
+    expect(element.querySelector('button.download-data')).toBeNull();
+    expect(api.exportStatus).not.toHaveBeenCalled();
+    expect(element.textContent).toContain('optional');
+    element.querySelector<HTMLButtonElement>('button.skip-restore')!.click();
+    expect(settled).toHaveBeenCalledOnce();
+  });
+
+  it('a successful restore also settles the step', async () => {
+    api.importData.mockResolvedValue({ projects: 1, included: 1, cards: 1, summaries: 0, publications: false,
+      exportedEmail: 'a@example.invalid', otherAccount: false, exportedAt: '2026-11-01T12:00:00Z' });
+    const { fixture, element } = await setup(true, true);
+    const settled = vi.fn();
+    fixture.componentInstance.settled.subscribe(settled);
+    const input = element.querySelector<HTMLInputElement>('input.upload-input')!;
+    Object.defineProperty(input, 'files', { value: [new File(['x'], 'backup.zip')] });
+    await fixture.componentInstance.upload({ target: input } as unknown as Event);
+    expect(settled).toHaveBeenCalledOnce();
+    TestBed.inject(InterfaceLock).close();
   });
 });

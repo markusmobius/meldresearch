@@ -1,0 +1,22 @@
+@if (!open()) {
+  <button mat-button type="button" class="leave-toggle" (click)="toggle()"><mat-icon>logout</mat-icon>Leave Meld Research…</button>
+} @else {
+  <div class="warning" role="group" aria-label="Leave Meld Research">
+    <p><mat-icon>warning</mat-icon><strong>Leaving deletes, without undo:</strong></p>
+    <ul>
+      <li>your Meld account on Meld's server, its devices and profile picture{{ synced() ? ', and your encrypted synced research' : '' }};</li>
+      <li>all research on this computer (summaries, Updates, cards, choices, stored Overleaf text);</li>
+      <li>the Meld Research app on this computer, including its start at sign-in and its browser bridge.</li>
+    </ul>
+    <p>Your Overleaf projects are not changed. Download a backup first (Account &rarr; Backup) if you may want it back. Other
+      computers where you use Meld keep their copy until you leave there too.</p>
+    <mat-form-field appearance="outline"><mat-label>Type {{ confirmWord }} to confirm</mat-label>
+      <input matInput class="leave-confirmation" autocomplete="off" [value]="confirmation()" (input)="confirmation.set(value($event))"></mat-form-field>
+    <div class="controls">
+      <button mat-flat-button type="button" class="leave-now danger" [disabled]="working() || confirmation().trim() !== confirmWord" (click)="leave()">
+        <mat-icon>delete_forever</mat-icon>{{ working() ? 'Deleting…' : 'Delete everything and leave' }}</button>
+      <button mat-button type="button" (click)="toggle()">Cancel</button>
+    </div>
+  </div>
+}
+@if (error()) { <p class="alert" role="alert">{{ error() }}</p> }

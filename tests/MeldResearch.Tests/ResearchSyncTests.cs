@@ -144,6 +144,37 @@ public sealed class ResearchSyncTests
     }
 
     [Fact]
+    public async Task AnyUnlockedComputerCanShowTheRecoveryKeyAgain()
+    {
+        var box = new BlobBox();
+        var snapshot = Files(("main.tex", "Main text."));
+        using var first = New(box, snapshot, Included());
+        var created = await first.CreateAsync();
+        Task<SyncKeyResponse> Show(Computer computer) =>
+            computer.Coordinator.WithSyncAsync((sync, credential) => sync.RecoveryKeyAsync(credential, None), None);
+        Assert.Equal((created.RecoveryKey, false), ((await Show(first)).RecoveryKey, (await Show(first)).Replaced));
+
+        using var second = New(box, snapshot);
+        await Assert.ThrowsAsync<ResearchFailure>(() => Show(second));
+        await second.UnlockAsync(Passphrase);
+        Assert.Equal(created.RecoveryKey, (await Show(second)).RecoveryKey);
+
+        // A key file made before it kept a copy: a new recovery key replaces the old one, and other computers keep syncing.
+        var file = System.Text.Json.JsonSerializer.Deserialize<SyncKeyFile>(box.Get(SyncCrypto.KeyBlob)!.Content, ResearchJson.Options)!;
+        box.Put(SyncCrypto.KeyBlob, System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(file with { SealedRecoveryKey = null }, ResearchJson.Options),
+            box.Get(SyncCrypto.KeyBlob)!.ETag);
+        var replaced = await Show(first);
+        Assert.True(replaced.Replaced);
+        Assert.NotEqual(created.RecoveryKey, replaced.RecoveryKey);
+        Assert.Equal(replaced.RecoveryKey, (await Show(second)).RecoveryKey);
+        await Drain(second.Coordinator, force: true);
+        Assert.Equal("ready", (await second.SyncAsync()).State);
+        using var third = New(box, snapshot);
+        await Assert.ThrowsAsync<ResearchFailure>(() => third.UnlockAsync(null, created.RecoveryKey));
+        await third.UnlockAsync(null, replaced.RecoveryKey);
+    }
+
+    [Fact]
     public async Task StartingOverReplacesTheSyncedCopyAndLocksOtherComputersUntilTheNewPassphrase()
     {
         var box = new BlobBox();

@@ -1,0 +1,9 @@
+:host { display: block; }
+.leave-toggle { color: #b42336; }
+.warning { color: #4a1d1d; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 6px; padding: 12px 14px; font-size: 13px; }
+.warning p { margin: 0 0 8px; line-height: 1.5; }
+.warning p:first-child { display: flex; align-items: center; gap: 8px; }
+.warning mat-icon { color: #b42336; }
+.warning ul { margin: 0 0 8px; padding-left: 20px; line-height: 1.5; }
+.warning mat-form-field { width: 100%; max-width: 320px; margin-top: 4px; }
+.danger:not(:disabled) { background: #b42336; color: #ffffff; }

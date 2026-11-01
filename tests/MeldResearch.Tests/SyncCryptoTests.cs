@@ -24,6 +24,18 @@ public sealed class SyncCryptoTests
         Assert.Null(SyncCrypto.UnlockWithPassphrase(changed, Account, "correct horse battery"));
         Assert.Equal(dataKey, SyncCrypto.UnlockWithPassphrase(changed, Account, "a new long passphrase"));
         Assert.Equal(dataKey, SyncCrypto.UnlockWithRecoveryKey(changed, Account, written));
+
+        // An unlocked computer can show the recovery key again; nothing else can read it from the key file.
+        Assert.Equal(recovery, SyncCrypto.OpenRecoveryKey(changed, Account, dataKey));
+        Assert.Null(SyncCrypto.OpenRecoveryKey(changed, Account, SyncCrypto.NewDataKey()));
+        Assert.Null(SyncCrypto.OpenRecoveryKey(changed, Guid.NewGuid(), dataKey));
+        Assert.Null(SyncCrypto.OpenRecoveryKey(changed with { SealedRecoveryKey = null }, Account, dataKey));
+        byte[] replacement = SyncCrypto.NewRecoveryKey();
+        var replaced = SyncCrypto.ReplaceRecoveryKey(changed, Account, dataKey, replacement);
+        Assert.Null(SyncCrypto.UnlockWithRecoveryKey(replaced, Account, written));
+        Assert.Equal(dataKey, SyncCrypto.UnlockWithRecoveryKey(replaced, Account, SyncCrypto.FormatRecoveryKey(replacement)));
+        Assert.Equal(replacement, SyncCrypto.OpenRecoveryKey(replaced, Account, dataKey));
+        Assert.Equal(dataKey, SyncCrypto.UnlockWithPassphrase(replaced, Account, "a new long passphrase"));
         Assert.Equal("weak_passphrase", Assert.Throws<ResearchFailure>(() => SyncCrypto.CreateKeyFile(Account, dataKey, "short", null, DateTimeOffset.UtcNow)).Code);
     }
 

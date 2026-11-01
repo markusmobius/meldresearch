@@ -107,6 +107,9 @@ internal static class ResearchEndpoints
             SyncPassphraseRequest request, ResearchCoordinator research, CancellationToken ct) =>
             TypedResults.Ok(await research.WithSyncAsync((sync, credential) => sync.StartOverAsync(credential, request.Passphrase, ct), ct)))
             .WithName("StartEncryptedSyncOver").WithSummary("Forgotten passphrase: delete the synced copy, choose a new passphrase and upload this computer's research again.");
+        group.MapPost("/encrypted-sync/recovery-key", async Task<Ok<SyncKeyResponse>> (ResearchCoordinator research, CancellationToken ct) =>
+            TypedResults.Ok(await research.WithSyncAsync((sync, credential) => sync.RecoveryKeyAsync(credential, ct), ct)))
+            .WithName("ShowEncryptedSyncRecoveryKey").WithSummary("Show the recovery key again on a computer where encrypted sync is unlocked.");
         group.MapPost("/encrypted-sync/passphrase", async Task<NoContent> (
             SyncPassphraseRequest request, ResearchCoordinator research, CancellationToken ct) =>
         {

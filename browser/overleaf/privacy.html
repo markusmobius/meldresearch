@@ -21,7 +21,7 @@
       <header class="page-header">
         <div class="page-heading">
           <h1 class="page-title"><span class="material-icons site-only" aria-hidden="true">shield</span>Privacy &amp; Controls</h1>
-          <p class="page-subtitle">Last updated: October 2026 &middot; Meld Research and its Overleaf connector, version 0.5.8</p>
+          <p class="page-subtitle">Last updated: October 2026 &middot; Meld Research and its Overleaf connector, version 0.5.9</p>
         </div>
       </header>
 
@@ -177,8 +177,9 @@
               archives are not encrypted by Meld. Device encryption and backups are controlled by your device configuration.</p>
             <p><strong>Encrypted sync</strong> encrypts each project, and separately your choices, with AES-256-GCM under a random
               key that is created on your computer. That key is stored in Azure only wrapped by a key derived from your passphrase
-              (PBKDF2-SHA256, 600,000 iterations) and by a random recovery key that is shown to you once; on your computers it is
-              kept inside the encrypted research store. Each encrypted file is bound to your account and its name, and project file
+              (PBKDF2-SHA256, 600,000 iterations) and by a random recovery key; on your computers it is kept inside the encrypted
+              research store. The recovery key is also stored there encrypted under that key, so Account &rarr; Remote Sync can show
+              it again on any of your computers that is already unlocked; nobody without the key can read it. Each encrypted file is bound to your account and its name, and project file
               names are keyed hashes, so the storage does not reveal project names. Meld's service and Azure can see only your
               account identifier, the number, sizes and times of the encrypted files, and a storage quota (500 MB per account by
               default). Meld cannot reset your passphrase or read your synced research; if you lose both the passphrase and the
@@ -196,10 +197,10 @@
               (offered when the passphrase and recovery key are lost) deletes every encrypted synced copy of the account; research on
               the computer where you choose it is uploaded again under the new passphrase. Disconnecting an account does not delete
               its encrypted copy.</p>
-            <p>Under Account &rarr; Meld account &rarr; Your data, <strong>Download my data</strong> saves everything Meld keeps for
-              your account on this computer (choices, research cards, summaries, Updates, publications and the Overleaf text they
-              were made from) as readable JSON, and <strong>Upload data</strong> restores such a file into the signed-in account
-              (also a new one); encrypted sync then uploads it. <strong>Leave Meld Research</strong>, after you type DELETE, deletes
+            <p>Under Account &rarr; Backup, <strong>Download my data</strong> saves everything Meld keeps for your account on this
+              computer (choices, research cards, summaries, Updates, publications and the Overleaf text they were made from) as
+              readable JSON, and <strong>Upload data</strong> restores such a file into the signed-in account (also a new one);
+              encrypted sync then uploads it. Under Account &rarr; Meld account, <strong>Leave Meld Research</strong>, after you type DELETE, deletes
               your Meld account on Meld's server with its devices, profile picture and encrypted synced research, erases the
               research on this computer, and uninstalls the installed app: its start at sign-in, its browser bridge registration,
               its Start menu entry, and its application and data folders. A short log of the removal is left in your temporary

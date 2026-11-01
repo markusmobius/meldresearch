@@ -155,6 +155,10 @@ export class ResearchApi {
   leave(confirmation: string): Promise<LeaveResult> {
     return firstValueFrom(this.http.post<LeaveResult>('/api/research/leave', { confirmation }));
   }
+  /** Shows the recovery key again (replaced: a new one was made because the key file had no copy of the old one). */
+  recoveryKey(): Promise<{ recoveryKey: string; replaced: boolean }> {
+    return firstValueFrom(this.http.post<{ recoveryKey: string; replaced: boolean }>('/api/research/encrypted-sync/recovery-key', {}));
+  }
   changeSyncPassphrase(passphrase: string): Promise<void> {
     return firstValueFrom(this.http.post<void>('/api/research/encrypted-sync/passphrase', { passphrase }));
   }

@@ -1,15 +1,11 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { Component, DestroyRef, OnInit, computed, inject, input, output, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
-import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
-import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { InterfaceLock } from './interface-lock';
 import { describeFailure } from './overleaf-api';
-import { ExportStatus, ImportResult, LeaveResult, ResearchApi } from './research-api';
-
-export const LEAVE_CONFIRMATION = 'DELETE';
+import { ExportStatus, ImportResult, ResearchApi } from './research-api';
 
 /** What an upload restored, in one sentence. */
 export function importSummary(result: ImportResult, synced: boolean): string {
@@ -22,29 +18,31 @@ export function importSummary(result: ImportResult, synced: boolean): string {
   return text;
 }
 
-/** Account → Meld account → Your data: download it, upload a download, or leave Meld Research. */
+/**
+ * Account → Backup. During setup: an optional restore from a downloaded backup (or Skip). Afterwards: download a backup
+ * (a ZIP of readable JSON) and restore one.
+ */
 @Component({
-  selector: 'app-account-data',
-  imports: [DatePipe, DecimalPipe, MatButtonModule, MatFormFieldModule, MatIconModule, MatInputModule, MatProgressSpinnerModule],
-  templateUrl: './account-data.html',
-  styleUrl: './account-data.css',
+  selector: 'app-backup-data',
+  imports: [DatePipe, DecimalPipe, MatButtonModule, MatIconModule, MatProgressSpinnerModule],
+  templateUrl: './backup-data.html',
+  styleUrl: './backup-data.css',
 })
-export class AccountData implements OnInit {
-  /** Whether encrypted sync is on: then the cloud copy is mentioned in the leave warning. */
+export class BackupData implements OnInit {
+  /** Whether encrypted sync is on: then a restore is uploaded by sync too. */
   readonly synced = input(false);
+  /** Setup has not finished: only the optional restore is offered, with Skip. */
+  readonly setup = input(false);
   readonly changed = output<void>();
-  readonly left = output<LeaveResult>();
+  /** The optional restore step is finished: restored, or skipped. */
+  readonly settled = output<void>();
   private readonly api = inject(ResearchApi);
   private readonly lock = inject(InterfaceLock);
   private readonly destroy = inject(DestroyRef);
   readonly download = signal<ExportStatus | null>(null);
   readonly preparing = computed(() => this.download()?.state === 'preparing');
   readonly imported = signal<ImportResult | null>(null);
-  readonly leaving = signal(false);
-  readonly confirmation = signal('');
-  readonly working = signal(false);
   readonly error = signal('');
-  readonly confirmWord = LEAVE_CONFIRMATION;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private stopped = false;
   /** The download this page saw being prepared: it starts by itself when ready (not one that was already ready on load). */
@@ -52,7 +50,7 @@ export class AccountData implements OnInit {
 
   ngOnInit(): void {
     this.destroy.onDestroy(() => { this.stopped = true; clearTimeout(this.timer); });
-    void this.check();
+    if (!this.setup()) void this.check();
   }
 
   async startDownload(): Promise<void> {
@@ -80,6 +78,7 @@ export class AccountData implements OnInit {
       this.imported.set(result);
       this.lock.finish(importSummary(result, this.synced()));
       this.changed.emit();
+      this.settled.emit();
     } catch (error: unknown) {
       const message = describeFailure(error);
       this.error.set(message);
@@ -87,18 +86,8 @@ export class AccountData implements OnInit {
     }
   }
 
+  skip(): void { this.settled.emit(); }
   summary(result: ImportResult): string { return importSummary(result, this.synced()); }
-  toggleLeave(): void { this.leaving.update(value => !value); this.confirmation.set(''); this.error.set(''); }
-  value(event: Event): string { return (event.target as HTMLInputElement).value; }
-
-  async leave(): Promise<void> {
-    if (this.confirmation().trim() !== LEAVE_CONFIRMATION || this.working()) return;
-    this.working.set(true);
-    this.error.set('');
-    try { this.left.emit(await this.api.leave(LEAVE_CONFIRMATION)); }
-    catch (error: unknown) { this.error.set(describeFailure(error)); }
-    finally { this.working.set(false); }
-  }
 
   private async check(): Promise<void> {
     if (this.stopped) return;

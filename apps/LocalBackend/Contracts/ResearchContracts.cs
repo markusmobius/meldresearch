@@ -36,8 +36,11 @@ public sealed record SyncStatusResponse(string State, int SyncedProjects, DateTi
     string? Error);
 /// <summary>A passphrase (create, unlock, start over, change) or, for unlocking only, the recovery key.</summary>
 public sealed record SyncPassphraseRequest(string? Passphrase = null, string? RecoveryKey = null);
-/// <summary>Shown once: the recovery key that unlocks the synced data if the passphrase is forgotten.</summary>
-public sealed record SyncKeyResponse(string RecoveryKey);
+/// <summary>
+/// The recovery key that unlocks the synced data if the passphrase is forgotten. Replaced: the account's key file had no
+/// copy of it (made before keys could be shown again), so a new one was made and the previous one no longer works.
+/// </summary>
+public sealed record SyncKeyResponse(string RecoveryKey, bool Replaced = false);
 
 /// <summary>
 /// A download being prepared (State preparing), ready (Url downloads it until ExpiresAt) or failed. One at a time; a ready

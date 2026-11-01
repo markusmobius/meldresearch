@@ -1,16 +1,24 @@
 @if (sync(); as sync) {
   @if (recoveryKey(); as key) {
     <section class="encrypted-sync recovery" aria-label="Recovery key">
-      <h3><mat-icon>key</mat-icon>Save your recovery key</h3>
-      <p>Encrypted sync is on. If you forget your passphrase, this key is the only other way to unlock your research.
-        It is shown <strong>only now</strong>; Meld cannot show it again or recover it.</p>
+      <h3><mat-icon>key</mat-icon>{{ keyIsNew() ? 'Save your recovery key' : 'Your recovery key' }}</h3>
+      <p>If you forget your passphrase, this key is the only other way to unlock your research on a new computer. Meld's
+        server cannot read it or recover it for you. You can show it again here on any computer where sync is unlocked.</p>
+      @if (keyReplaced()) {
+        <p class="notice">Your account's key was set up before recovery keys could be shown again, so this is a
+          <strong>new</strong> recovery key. The previous one no longer works.</p>
+      }
       <code class="recovery-key" aria-label="Recovery key">{{ key }}</code>
       <div class="controls">
         <button mat-stroked-button type="button" class="copy-key" (click)="copy()"><mat-icon>content_copy</mat-icon>{{ copied() ? 'Copied' : 'Copy' }}</button>
         <button mat-stroked-button type="button" class="download-key" (click)="download()"><mat-icon>download</mat-icon>Download</button>
       </div>
-      <mat-checkbox [checked]="saved()" (change)="saved.set($event.checked)">I saved the recovery key somewhere safe</mat-checkbox>
-      <div class="controls"><button mat-flat-button type="button" class="key-saved" [disabled]="!saved()" (click)="done()">Done</button></div>
+      @if (keyIsNew() || keyReplaced()) {
+        <mat-checkbox [checked]="saved()" (change)="saved.set($event.checked)">I saved the recovery key somewhere safe</mat-checkbox>
+        <div class="controls"><button mat-flat-button type="button" class="key-saved" [disabled]="!saved()" (click)="closeKey()">Done</button></div>
+      } @else {
+        <div class="controls"><button mat-button type="button" class="hide-key" (click)="closeKey()">Hide</button></div>
+      }
     </section>
   } @else if (sync.state === 'setup') {
     <section class="encrypted-sync" aria-label="Encrypted sync">
@@ -75,22 +83,10 @@
       <p class="sync-line"><mat-icon>verified_user</mat-icon><span><strong>Encrypted sync is on.</strong>
         {{ sync.syncedProjects }} {{ sync.syncedProjects === 1 ? 'project' : 'projects' }} synced
         @if (sync.lastPushAt) { &middot; last upload {{ sync.lastPushAt | date: 'MMM d, h:mm a' }} }</span></p>
-      @if (!changing()) {
-        <button mat-button type="button" class="change-passphrase" (click)="toggle('change')">Change passphrase</button>
-      } @else {
-        <form class="passphrase-form" (submit)="$event.preventDefault(); change()">
-          <p class="muted">Your other computers keep syncing; your recovery key keeps working.</p>
-          <mat-form-field appearance="outline"><mat-label>New passphrase</mat-label>
-            <input matInput type="password" class="passphrase" autocomplete="new-password" [value]="passphrase()" (input)="passphrase.set(value($event))"></mat-form-field>
-          <mat-form-field appearance="outline"><mat-label>Repeat new passphrase</mat-label>
-            <input matInput type="password" class="confirmation" autocomplete="new-password" [value]="confirmation()" (input)="confirmation.set(value($event))"></mat-form-field>
-          @if (passphrase() && newPassphraseProblem(); as problem) { <p class="muted hint">{{ problem }}</p> }
-          <div class="controls">
-            <button mat-flat-button type="submit" class="save-passphrase" [disabled]="saving() || !!newPassphraseProblem()">Save passphrase</button>
-            <button mat-button type="button" (click)="toggle('change')">Cancel</button>
-          </div>
-        </form>
-      }
+      <div class="controls">
+        <button mat-stroked-button type="button" class="show-recovery-key" [disabled]="saving()" (click)="showRecoveryKey()">
+          <mat-icon>key</mat-icon>Show recovery key</button>
+      </div>
     </section>
   } @else if (sync.state === 'checking') {
     <p class="muted encrypted-sync" role="status">Checking encrypted sync…</p>

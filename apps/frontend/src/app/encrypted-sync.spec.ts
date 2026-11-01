@@ -4,7 +4,7 @@ import { EncryptedSync } from './encrypted-sync';
 import { ResearchApi, SyncStatus } from './research-api';
 
 describe('Encrypted sync', () => {
-  const api = { encryptedSync: vi.fn(), createSync: vi.fn(), unlockSync: vi.fn(), startSyncOver: vi.fn(), changeSyncPassphrase: vi.fn() };
+  const api = { encryptedSync: vi.fn(), createSync: vi.fn(), unlockSync: vi.fn(), startSyncOver: vi.fn(), recoveryKey: vi.fn() };
   const state = (value: SyncStatus['state'], extra: Partial<SyncStatus> = {}): SyncStatus =>
     ({ state: value, syncedProjects: 0, lastPushAt: null, lastPullAt: null, error: null, ...extra });
   beforeEach(() => {
@@ -29,6 +29,8 @@ describe('Encrypted sync', () => {
     const { fixture, element } = setup(state('setup'));
     const shown: boolean[] = [];
     fixture.componentInstance.keyShown.subscribe(value => shown.push(value));
+    const finished = vi.fn();
+    fixture.componentInstance.done.subscribe(finished);
     const create = () => element.querySelector<HTMLButtonElement>('button.create-sync')!;
     expect(element.textContent).toContain('only ciphertext');
     type(element, 'input.passphrase', 'short');
@@ -54,6 +56,7 @@ describe('Encrypted sync', () => {
     fixture.detectChanges();
     expect(element.querySelector('.recovery-key')).toBeNull();
     expect(shown).toEqual([true, false]);
+    expect(finished).toHaveBeenCalledOnce();
     fixture.destroy();
   });
 
@@ -64,7 +67,10 @@ describe('Encrypted sync', () => {
     type(element, 'input.passphrase', 'my existing passphrase');
     fixture.detectChanges();
     element.querySelector<HTMLButtonElement>('button.unlock-sync')!.click();
+    const done = vi.fn();
+    fixture.componentInstance.done.subscribe(done);
     await vi.waitFor(() => expect(api.unlockSync).toHaveBeenCalledWith({ passphrase: 'my existing passphrase' }));
+    await vi.waitFor(() => expect(done).toHaveBeenCalledOnce());
     await fixture.whenStable();
     element.querySelector<HTMLButtonElement>('button.use-recovery')!.click();
     fixture.detectChanges();
@@ -89,6 +95,29 @@ describe('Encrypted sync', () => {
     await fixture.whenStable();
     fixture.detectChanges();
     expect(element.querySelector('.recovery-key')?.textContent).toContain('NEWK-EYNE');
+    fixture.destroy();
+  });
+
+  it('once set up, its only action shows the recovery key again', async () => {
+    api.recoveryKey.mockResolvedValue({ recoveryKey: 'ABCD-EFGH-JKMN-PQRS-TVWX-YZ01-2345-6789', replaced: false });
+    const { fixture, element } = setup(state('ready', { syncedProjects: 1 }));
+    expect(element.querySelectorAll('section.ready button')).toHaveLength(1);
+    expect(element.querySelector('input')).toBeNull();
+    element.querySelector<HTMLButtonElement>('button.show-recovery-key')!.click();
+    await vi.waitFor(() => expect(api.recoveryKey).toHaveBeenCalledOnce());
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(element.querySelector('.recovery-key')?.textContent).toContain('ABCD-EFGH');
+    expect(element.querySelector('.notice')).toBeNull();
+    element.querySelector<HTMLButtonElement>('button.hide-key')!.click();
+    fixture.detectChanges();
+    expect(element.querySelector('.recovery-key')).toBeNull();
+
+    api.recoveryKey.mockResolvedValue({ recoveryKey: 'NEWK-EYNE-WKEY-NEWK-EYNE-WKEY-NEWK-EY00', replaced: true });
+    await fixture.componentInstance.showRecoveryKey();
+    fixture.detectChanges();
+    expect(element.querySelector('.notice')?.textContent).toContain('previous one no longer works');
+    expect(element.querySelector<HTMLButtonElement>('button.key-saved')!.disabled).toBe(true);
     fixture.destroy();
   });
 

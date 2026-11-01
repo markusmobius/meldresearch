@@ -8,10 +8,11 @@ namespace MeldResearch.Research;
 
 /// <summary>
 /// The plaintext key file of a user's encrypted sync (blob "key.json"). It holds no secret: the data key is stored only
-/// encrypted, once under a key derived from the passphrase and optionally once under the recovery key.
+/// encrypted, once under a key derived from the passphrase and optionally once under the recovery key. SealedRecoveryKey is
+/// the recovery key encrypted under the data key, so any computer that is already unlocked can show it again.
 /// </summary>
 public sealed record SyncKeyFile(int Version, string Kdf, int Iterations, string Salt, string WrappedKey, string? RecoveryWrappedKey,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt, string? SealedRecoveryKey = null);
 
 /// <summary>
 /// End-to-end encryption for synced research (Meld's server and Azure see only ciphertext). A random 256-bit data key per
@@ -49,8 +50,20 @@ public static partial class SyncCrypto
         byte[] salt = RandomNumberGenerator.GetBytes(16);
         return new(1, Kdf, iterations, Convert.ToBase64String(salt),
             Wrap(PassphraseKey(passphrase, salt, iterations), dataKey, account, "passphrase"),
-            recoveryKey is null ? null : Wrap(RecoveryKek(recoveryKey), dataKey, account, "recovery"), now);
+            recoveryKey is null ? null : Wrap(RecoveryKek(recoveryKey), dataKey, account, "recovery"), now,
+            recoveryKey is null ? null : Wrap(SubKey(dataKey, "recovery-copy"), recoveryKey, account, "recovery-copy"));
     }
+
+    /// <summary>The recovery key for showing it again on an unlocked computer; null when the key file has no copy of it.</summary>
+    public static byte[]? OpenRecoveryKey(SyncKeyFile file, Guid account, byte[] dataKey) =>
+        file.SealedRecoveryKey is { } sealedKey ? Unwrap(SubKey(dataKey, "recovery-copy"), sealedKey, account, "recovery-copy") : null;
+
+    /// <summary>The same data key with a new recovery key (the previous recovery key stops working).</summary>
+    public static SyncKeyFile ReplaceRecoveryKey(SyncKeyFile file, Guid account, byte[] dataKey, byte[] recoveryKey) => file with
+    {
+        RecoveryWrappedKey = Wrap(RecoveryKek(recoveryKey), dataKey, account, "recovery"),
+        SealedRecoveryKey = Wrap(SubKey(dataKey, "recovery-copy"), recoveryKey, account, "recovery-copy")
+    };
 
     /// <summary>The data key, or null when the passphrase is wrong.</summary>
     public static byte[]? UnlockWithPassphrase(SyncKeyFile file, Guid account, string passphrase)
@@ -148,11 +161,11 @@ public static partial class SyncCrypto
     private static byte[] SubKey(byte[] dataKey, string purpose) => HKDF.DeriveKey(HashAlgorithmName.SHA256, dataKey, 32, info: Encoding.UTF8.GetBytes("meldresearch-" + purpose));
     private static byte[] Aad(Guid account, string blobName) => Encoding.UTF8.GetBytes($"meldresearch-sync-v1|{account:N}|{blobName}");
 
-    private static string Wrap(byte[] kek, byte[] dataKey, Guid account, string kind)
+    private static string Wrap(byte[] kek, byte[] key, Guid account, string kind)
     {
-        byte[] nonce = RandomNumberGenerator.GetBytes(12), tag = new byte[16], cipher = new byte[dataKey.Length];
+        byte[] nonce = RandomNumberGenerator.GetBytes(12), tag = new byte[16], cipher = new byte[key.Length];
         using var aes = new AesGcm(kek, 16);
-        aes.Encrypt(nonce, dataKey, cipher, tag, Aad(account, "key:" + kind));
+        aes.Encrypt(nonce, key, cipher, tag, Aad(account, "key:" + kind));
         return Convert.ToBase64String([.. nonce, .. tag, .. cipher]);
     }
 
@@ -161,8 +174,9 @@ public static partial class SyncCrypto
         byte[] bytes;
         try { bytes = Convert.FromBase64String(wrapped); }
         catch (FormatException) { throw Unsupported(); }
-        if (bytes.Length != 60) throw Unsupported();
-        byte[] key = new byte[32];
+        // A wrapped data key (32 bytes) or a sealed recovery key (20 bytes), after the nonce and tag.
+        if (bytes.Length is not (60 or 48)) throw Unsupported();
+        byte[] key = new byte[bytes.Length - 28];
         try
         {
             using var aes = new AesGcm(kek, 16);

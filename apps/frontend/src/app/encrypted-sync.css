@@ -1,12 +1,11 @@
 :host { display: block; }
-.encrypted-sync { border-top: 1px solid #e2e8f0; margin-top: 16px; padding-top: 14px; }
 h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-size: 15px; font-weight: 600; color: #0f172a; }
 h3 mat-icon { color: #084d42; }
 p { margin: 0 0 8px; line-height: 1.5; }
 .passphrase-form { display: flex; flex-direction: column; gap: 2px; margin-top: 10px; max-width: 460px; }
 .passphrase-form mat-form-field { width: 100%; }
 .hint { margin: -6px 0 6px; }
-.create-sync:not(:disabled), .unlock-sync:not(:disabled), .key-saved:not(:disabled), .save-passphrase:not(:disabled) { background: #084d42; color: #ffffff; }
+.create-sync:not(:disabled), .unlock-sync:not(:disabled), .key-saved:not(:disabled) { background: #084d42; color: #ffffff; }
 .danger:not(:disabled) { background: #b42336; color: #ffffff; }
 .warning { display: flex; gap: 10px; align-items: flex-start; color: #684a14; background: #fffbeb; border: 1px solid #f0dfb4;
   border-radius: 4px; padding: 10px 14px; font-size: 13px; }
@@ -16,4 +15,4 @@ p { margin: 0 0 8px; line-height: 1.5; }
 .recovery mat-checkbox { display: block; margin: 8px 0; }
 .sync-line { display: flex; align-items: flex-start; gap: 8px; margin: 0; font-size: 13.5px; }
 .sync-line mat-icon { color: #16a34a; flex: none; }
-.ready .change-passphrase { margin-top: 4px; }
+.ready .controls { margin-top: 12px; }

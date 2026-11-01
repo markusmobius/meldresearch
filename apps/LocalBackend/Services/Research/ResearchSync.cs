@@ -105,6 +105,28 @@ internal sealed class ResearchSync(IResearchStore store, IResearchRemote remote,
         return await CreateAsync(credential, passphrase, ct);
     }
 
+    /// <summary>
+    /// Shows the recovery key again on a computer that is unlocked. A key file made before it kept a copy gets a new recovery
+    /// key (the previous one stops working).
+    /// </summary>
+    public async Task<SyncKeyResponse> RecoveryKeyAsync(LinkedCredential credential, CancellationToken ct)
+    {
+        var account = credential.Account.Id;
+        var dataKey = DataKey(await store.ReadAsync(ct), account) ??
+            throw new ResearchFailure(409, "sync_locked", "Unlock encrypted sync on this computer first.");
+        var link = await LinkAsync(credential, SyncCrypto.KeyBlob, write: true, ct);
+        var current = await remote.BlobGetAsync(link, ct) ?? throw new ResearchFailure(404, "sync_key_missing", "The account's key file is missing.");
+        var file = System.Text.Json.JsonSerializer.Deserialize<SyncKeyFile>(current.Content, ResearchJson.Options)!;
+        if (SyncCrypto.OpenRecoveryKey(file, account, dataKey) is { } existing) return new(SyncCrypto.FormatRecoveryKey(existing));
+        byte[] recovery = SyncCrypto.NewRecoveryKey();
+        var replaced = SyncCrypto.ReplaceRecoveryKey(file, account, dataKey, recovery);
+        string etag = await remote.BlobPutAsync(link, System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(replaced, ResearchJson.Options), current.ETag, ct);
+        await store.ChangeAsync(state => state.Sync is { } sync && sync.AccountId == account
+            ? state with { Sync = sync with { KeyETag = etag } } : state, ct);
+        logger.LogInformation("Made a new recovery key: the account's key file had no copy of the previous one.");
+        return new(SyncCrypto.FormatRecoveryKey(recovery), Replaced: true);
+    }
+
     /// <summary>A new passphrase for the same data key (the recovery key keeps working).</summary>
     public async Task ChangePassphraseAsync(LinkedCredential credential, string? passphrase, CancellationToken ct)
     {

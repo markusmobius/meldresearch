@@ -1,0 +1,11 @@
+:host { display: block; }
+h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-size: 15px; font-weight: 600; color: #0f172a; }
+h3 mat-icon { color: #084d42; }
+.restore-title { margin-top: 22px; padding-top: 16px; border-top: 1px solid #e2e8f0; }
+p { margin: 0 0 8px; line-height: 1.5; }
+.controls { margin-top: 8px; }
+.restore:not(:disabled) { background: #084d42; color: #ffffff; }
+.imported, .export-status, .export-ready { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; font-size: 13.5px; }
+.imported mat-icon, .export-ready mat-icon { color: #16a34a; flex: none; }
+.export-status mat-spinner { flex: none; margin-top: 2px; }
+.export-link { font-weight: 600; color: #084d42; overflow-wrap: anywhere; }

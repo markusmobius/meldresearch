@@ -1,0 +1,47 @@
+@if (setup()) {
+  <section class="backup" aria-label="Restore from a backup">
+    <p>If you downloaded a backup of your Meld data before (for example on another computer, or before leaving Meld Research),
+      restore it now: your project choices, research cards and summaries come back without processing your projects again.</p>
+    <p class="muted">This step is optional. Without a backup, skip it and choose your Overleaf projects next.</p>
+    <div class="controls">
+      <button mat-flat-button type="button" class="upload-data restore" (click)="file.click()"><mat-icon>upload</mat-icon>Restore from backup…</button>
+      <button mat-button type="button" class="skip-restore" (click)="skip()">Skip<mat-icon iconPositionEnd>arrow_forward</mat-icon></button>
+    </div>
+    <input #file type="file" class="upload-input" accept=".zip,application/zip" hidden (change)="upload($event)">
+  </section>
+} @else {
+  <section class="backup" aria-label="Backup">
+    <h3><mat-icon>download</mat-icon>Download a backup</h3>
+    <p class="muted">Everything Meld keeps for this account, as a ZIP of readable JSON: your choices, research cards, summaries,
+      Updates, publications and the Overleaf text they were made from. It is <strong>not encrypted</strong>; keep it private.</p>
+    <div class="controls">
+      <button mat-stroked-button type="button" class="download-data" [disabled]="preparing()" (click)="startDownload()">
+        <mat-icon>download</mat-icon>{{ preparing() ? 'Preparing download…' : 'Download my data' }}</button>
+    </div>
+    @if (download(); as job) {
+      @if (job.state === 'preparing') {
+        <p class="export-status" role="status"><mat-spinner diameter="16"></mat-spinner>
+          <span>Preparing your download (queued {{ job.startedAt | date: 'h:mm:ss a' }}). It starts by itself when ready.</span></p>
+      } @else if (job.state === 'ready' && job.url) {
+        <p class="export-ready" role="status"><mat-icon>check_circle</mat-icon><span>
+          Your download is ready: <a class="export-link" [href]="job.url" [attr.download]="job.fileName">{{ job.fileName }}</a>
+          ({{ (job.bytes ?? 0) / 1024 | number: '1.0-0' }} KB, {{ job.projects }} {{ job.projects === 1 ? 'project' : 'projects' }}).
+          The link works until {{ job.expiresAt | date: 'h:mm a' }}.</span></p>
+      } @else if (job.state === 'failed') {
+        <p class="alert" role="alert">{{ job.error }}</p>
+      }
+    }
+
+    <h3 class="restore-title"><mat-icon>upload</mat-icon>Restore a backup</h3>
+    <p class="muted">Merges a downloaded backup into this account (also one from an earlier account). Work on this computer that
+      got further is kept, and nothing is processed again.</p>
+    <div class="controls">
+      <button mat-stroked-button type="button" class="upload-data" (click)="file.click()"><mat-icon>upload</mat-icon>Upload data</button>
+    </div>
+    <input #file type="file" class="upload-input" accept=".zip,application/zip" hidden (change)="upload($event)">
+  </section>
+}
+@if (imported(); as result) {
+  <p class="imported" role="status"><mat-icon>check_circle</mat-icon><span>{{ summary(result) }}</span></p>
+}
+@if (error()) { <p class="alert" role="alert">{{ error() }}</p> }

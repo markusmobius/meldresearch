@@ -16,12 +16,13 @@ import { PublicationsList } from './publications';
 import { PrivateProfile } from './private-profile';
 import { MeldLog } from './meld-log';
 import { EncryptedSync } from './encrypted-sync';
-import { AccountData } from './account-data';
+import { BackupData } from './backup-data';
+import { LeaveMeld } from './leave-meld';
 import { InterfaceLock } from './interface-lock';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { includedCount, researcherDone, undecidedRecent } from './project-decisions';
 
-export type SetupTab = 'meld' | 'overleaf' | 'openalex';
+export type SetupTab = 'meld' | 'sync' | 'backup' | 'overleaf' | 'openalex';
 export type OverleafTab = 'connection' | 'projects';
 /** The account ID for which this browser has connected Overleaf at least once; later Overleaf outages keep the feed. */
 const overleafConfirmedKey = 'meldresearch.overleafConnectedFor';
@@ -29,6 +30,11 @@ function readOverleafConfirmed(): string | null {
   try { return localStorage.getItem(overleafConfirmedKey); } catch { return null; }
 }
 const installDismissedKey = 'meldresearch.installTipDismissed';
+/** The account ID for which this browser has finished (restored or skipped) the optional restore step of setup. */
+const restoreSettledKey = 'meldresearch.restoreSettledFor';
+function readRestoreSettled(): string | null {
+  try { return localStorage.getItem(restoreSettledKey); } catch { return null; }
+}
 /** The connector version this tab already asked an older connector to reload into, so a failed reload is not repeated. */
 const reloadRequestedKey = 'meldresearch.connectorReloadRequested';
 /** Chrome/Edge's deferred install prompt (not in the TypeScript DOM library). */
@@ -39,7 +45,7 @@ interface InstallPromptEvent extends Event {
 
 @Component({
   selector: 'app-root',
-  imports: [ResearchPanel, MeldToolbar, ProjectSelection, ResearcherSetup, PublicationsList, PrivateProfile, MeldLog, EncryptedSync, AccountData, MatProgressBarModule, MatButtonModule, MatCardModule, MatTabsModule,
+  imports: [ResearchPanel, MeldToolbar, ProjectSelection, ResearcherSetup, PublicationsList, PrivateProfile, MeldLog, EncryptedSync, BackupData, LeaveMeld, MatProgressBarModule, MatButtonModule, MatCardModule, MatTabsModule,
     MatExpansionModule, MatIconModule, MatSidenavModule],
   templateUrl: './app.html',
   styleUrl: './app.css',
@@ -122,8 +128,9 @@ export class App implements OnInit {
     return location.hash === '#about-me' ? 'about-me' : location.hash === '#account' ? 'account' : location.hash === '#log' ? 'log' : 'home';
   }
 
-  // Setup: the Meld account (Google), then Overleaf (connection, then an active choice per recent project), then
-  // OpenAlex. Only the Account view exists until a project is included; OpenAlex never blocks the feed.
+  // Setup: the Meld account (Google), Remote Sync (required when the server offers it: choose or enter the passphrase),
+  // an optional restore from a backup, Overleaf (connection, then an active choice per recent project), then OpenAlex.
+  // Only the Account view exists until a project is included; the restore and OpenAlex never block the feed.
   private readonly researchApi = inject(ResearchApi);
   private readonly panel = viewChild(ResearchPanel);
   readonly accountAction = signal('');
@@ -132,10 +139,21 @@ export class App implements OnInit {
   private readonly overleafConfirmedFor = signal(readOverleafConfirmed());
   readonly setupKnown = computed(() => this.research() !== null);
   readonly accountLinked = computed(() => !!this.research()?.account);
-  /** With encrypted sync offered, this computer needs the passphrase (new or existing) before anything is processed. */
+  /** Remote Sync is a step while the server offers it (also before signing in, so the steps do not change afterwards). */
+  readonly syncOffered = computed(() => { const state = this.research()?.sync?.state; return !!state && state !== 'off'; });
+  /**
+   * With encrypted sync offered, this computer needs the passphrase (new or existing) before anything is processed, and
+   * setup waits while that is still being checked (so it does not move on before the answer).
+   */
   readonly recoveryKeyShown = signal(false);
-  readonly syncPending = computed(() => this.recoveryKeyShown() || ['setup', 'locked'].includes(this.research()?.sync?.state ?? ''));
-  readonly accountDone = computed(() => this.accountLinked() && !this.syncPending());
+  readonly syncPending = computed(() => this.recoveryKeyShown() || ['setup', 'locked', 'checking'].includes(this.research()?.sync?.state ?? ''));
+  readonly syncDone = computed(() => this.accountLinked() && !this.syncPending());
+  /** The optional restore was done or skipped here, or there is research already (then there is nothing to restore into). */
+  private readonly restoreSettledFor = signal(readRestoreSettled());
+  readonly restoreSettled = computed(() => this.syncDone() &&
+    (this.restoreSettledFor() === this.research()?.account?.id || this.includedProjects() > 0));
+  readonly steps = computed<SetupTab[]>(() => ['meld', ...(this.syncOffered() ? ['sync' as const] : []), 'backup', 'overleaf', 'openalex']);
+  stepLabel(tab: SetupTab): string { return `Step ${this.steps().indexOf(tab) + 1} of ${this.steps().length}`; }
   readonly overleafReady = computed(() => this.verified() ||
     (!!this.research()?.account && this.overleafConfirmedFor() === this.research()?.account?.id));
   /** The freshest Overleaf project list: the backend's last read (also by monitoring), else this page's own refresh. */
@@ -144,10 +162,28 @@ export class App implements OnInit {
   readonly includedProjects = computed(() => includedCount(this.research()));
   readonly openAlexDone = computed(() => researcherDone(this.research()));
   readonly overleafDone = computed(() => this.overleafReady() && !this.connectorStale() && this.includedProjects() > 0 && !this.undecided().length);
-  readonly setupComplete = computed(() => this.accountDone() && this.overleafReady() && !this.connectorStale() && this.includedProjects() > 0);
+  readonly setupComplete = computed(() => this.syncDone() && this.overleafReady() && !this.connectorStale() && this.includedProjects() > 0);
   /** About me tabs, as in Project Meld: Private profile, Public profile (once there is one) and Publications. */
   readonly aboutTab = signal<'private' | 'publications'>('private');
-  readonly setupTab = computed<SetupTab>(() => this.chosenTab() ?? (this.accountDone() ? 'overleaf' : 'meld'));
+  readonly setupTab = computed<SetupTab>(() => this.chosenTab() ??
+    (!this.accountLinked() ? 'meld' : this.syncPending() ? 'sync' : !this.restoreSettled() ? 'backup' : 'overleaf'));
+  /** The step after the Meld account, for its Next button. */
+  readonly nextStep = computed<{ tab: SetupTab; label: string } | null>(() =>
+    this.syncPending() && this.syncOffered() ? { tab: 'sync', label: 'Remote Sync' }
+      : !this.restoreSettled() ? { tab: 'backup', label: 'restore from a backup (optional)' }
+      : !this.verified() ? { tab: 'overleaf', label: 'connect Overleaf' } : null);
+  readonly syncLabel = computed(() => {
+    const sync = this.research()?.sync;
+    switch (sync?.state) {
+      case 'setup': return 'Choose a passphrase';
+      case 'locked': return 'Enter your passphrase';
+      case 'checking': return 'Checking...';
+      case 'signed-out': return 'Sign in first';
+      case 'ready': return `On · ${sync.syncedProjects} ${sync.syncedProjects === 1 ? 'project' : 'projects'} synced`;
+      default: return '';
+    }
+  });
+  readonly backupLabel = computed(() => this.setupComplete() ? 'Download or restore' : this.restoreSettled() ? 'Done' : 'Optional restore');
   readonly overleafTab = computed<OverleafTab>(() => this.chosenOverleafTab() ??
     (this.overleafReady() && !this.connectorStale() && !this.setupNeeded() && this.connector()?.kind === 'available' ? 'projects' : 'connection'));
   // The Log stays reachable during setup: it is where setup problems are explained.
@@ -186,10 +222,10 @@ export class App implements OnInit {
     });
     // Every recent project needs an active choice: each page load, and each newly appearing project, opens
     // Account → Overleaf → Projects until the choice is made. With encrypted sync, choices made on another computer arrive
-    // once this one is unlocked, so the nudge waits for that.
+    // once this one is unlocked, and from a backup once restored, so the nudge waits for both steps.
     const nudged = new Set<string>();
     effect(() => {
-      if (!this.setupKnown() || !this.accountDone() || !this.overleafReady() || this.connectorStale()) return;
+      if (!this.setupKnown() || !this.restoreSettled() || !this.overleafReady() || this.connectorStale()) return;
       const fresh = this.undecided().filter(project => !nudged.has(project.id));
       if (!fresh.length) return;
       for (const project of fresh) nudged.add(project.id);
@@ -218,6 +254,16 @@ export class App implements OnInit {
   }
 
   chooseTab(tab: SetupTab): void { this.chosenTab.set(tab); }
+  /** A step finished (passphrase saved or unlocked): setup continues with the next open step. */
+  stepFinished(): void { this.chosenTab.set(null); }
+  /** The optional restore was done or skipped; it is not offered again for this account in this browser. */
+  settleRestore(): void {
+    const account = this.research()?.account?.id;
+    if (!account) return;
+    try { localStorage.setItem(restoreSettledKey, account); } catch { /* storage disabled: offered again next time */ }
+    this.restoreSettledFor.set(account);
+    this.stepFinished();
+  }
   chooseOverleafTab(tab: OverleafTab): void { this.chosenOverleafTab.set(tab); }
   private open(tab: SetupTab, overleafTab?: OverleafTab): void {
     this.chosenTab.set(tab);

@@ -11,8 +11,9 @@ import { ResearchApi, SyncStatus } from './research-api';
 export const MIN_PASSPHRASE = 10;
 
 /**
- * Account → Meld account: end-to-end encrypted sync. The first computer chooses a passphrase (and receives a recovery key
- * once); other computers unlock with either. A forgotten passphrase and recovery key means starting over.
+ * Account → Remote Sync: end-to-end encrypted sync. The first computer chooses a passphrase (and receives the recovery key);
+ * other computers unlock with either. A forgotten passphrase and recovery key means starting over. Once set up, the only
+ * action is showing the recovery key again.
  */
 @Component({
   selector: 'app-encrypted-sync',
@@ -23,8 +24,10 @@ export const MIN_PASSPHRASE = 10;
 export class EncryptedSync implements OnInit {
   readonly status = input<SyncStatus | null>(null);
   readonly changed = output<void>();
-  /** True while the one-time recovery key is on screen: setup must not move on before the user saved it. */
+  /** True while a new recovery key is on screen: setup must not move on before the user saved it. */
   readonly keyShown = output<boolean>();
+  /** This computer finished the step (key saved after setting up, or unlocked): setup moves on. */
+  readonly done = output<void>();
   private readonly api = inject(ResearchApi);
   /** The latest answer from the explicit check; the research status takes over once it has caught up. */
   private readonly checked = signal<SyncStatus | null>(null);
@@ -37,9 +40,10 @@ export class EncryptedSync implements OnInit {
   readonly recoveryInput = signal('');
   readonly useRecovery = signal(false);
   readonly startingOver = signal(false);
-  readonly changing = signal(false);
-  /** Shown once after creating or starting over, until the user confirms it is saved. */
+  /** After creating or starting over (new: the user must confirm it is saved), or shown again on request. */
   readonly recoveryKey = signal<string | null>(null);
+  readonly keyIsNew = signal(false);
+  readonly keyReplaced = signal(false);
   readonly saved = signal(false);
   readonly copied = signal(false);
   readonly saving = signal(false);
@@ -57,23 +61,27 @@ export class EncryptedSync implements OnInit {
     return null;
   });
 
-  create(): Promise<void> {
+  create(): Promise<unknown> {
     return this.newPassphraseProblem() ? Promise.resolve() :
       this.run(async () => this.showKey((await this.api.createSync(this.passphrase())).recoveryKey));
   }
-  unlock(): Promise<void> {
-    return this.run(() => this.api.unlockSync(this.useRecovery() ? { recoveryKey: this.recoveryInput() } : { passphrase: this.passphrase() }));
+  async unlock(): Promise<void> {
+    if (await this.run(() => this.api.unlockSync(this.useRecovery() ? { recoveryKey: this.recoveryInput() } : { passphrase: this.passphrase() })))
+      this.done.emit();
   }
-  startOver(): Promise<void> {
+  /** The only action once sync is set up. */
+  showRecoveryKey(): Promise<boolean> {
+    return this.run(async () => {
+      const result = await this.api.recoveryKey();
+      this.recoveryKey.set(result.recoveryKey);
+      this.keyIsNew.set(false);
+      this.keyReplaced.set(result.replaced);
+    });
+  }
+  startOver(): Promise<unknown> {
     return this.newPassphraseProblem() ? Promise.resolve() : this.run(async () => {
       this.showKey((await this.api.startSyncOver(this.passphrase())).recoveryKey);
       this.startingOver.set(false);
-    });
-  }
-  change(): Promise<void> {
-    return this.newPassphraseProblem() ? Promise.resolve() : this.run(async () => {
-      await this.api.changeSyncPassphrase(this.passphrase());
-      this.changing.set(false);
     });
   }
   async copy(): Promise<void> {
@@ -93,21 +101,28 @@ export class EncryptedSync implements OnInit {
     link.click();
     URL.revokeObjectURL(link.href);
   }
-  done(): void { this.recoveryKey.set(null); this.saved.set(false); this.copied.set(false); this.keyShown.emit(false); }
-  toggle(mode: 'recovery' | 'start-over' | 'change'): void {
+  closeKey(): void {
+    const wasNew = this.keyIsNew();
+    this.recoveryKey.set(null);
+    this.keyIsNew.set(false);
+    this.keyReplaced.set(false);
+    this.saved.set(false);
+    this.copied.set(false);
+    if (wasNew) { this.keyShown.emit(false); this.done.emit(); }
+  }
+  toggle(mode: 'recovery' | 'start-over'): void {
     this.error.set('');
     this.clear();
     if (mode === 'recovery') this.useRecovery.update(value => !value);
-    else if (mode === 'start-over') this.startingOver.update(value => !value);
-    else this.changing.update(value => !value);
+    else this.startingOver.update(value => !value);
   }
   value(event: Event): string { return (event.target as HTMLInputElement).value; }
 
-  private showKey(key: string): void { this.recoveryKey.set(key); this.keyShown.emit(true); }
+  private showKey(key: string): void { this.recoveryKey.set(key); this.keyIsNew.set(true); this.keyShown.emit(true); }
   private clear(): void { this.passphrase.set(''); this.confirmation.set(''); this.recoveryInput.set(''); }
 
-  private async run(operation: () => Promise<void>): Promise<void> {
-    if (this.saving()) return;
+  private async run(operation: () => Promise<void>): Promise<boolean> {
+    if (this.saving()) return false;
     this.saving.set(true);
     this.error.set('');
     try {
@@ -116,7 +131,8 @@ export class EncryptedSync implements OnInit {
       this.useRecovery.set(false);
       this.checked.set(await this.api.encryptedSync().catch(() => this.checked()));
       this.changed.emit();
-    } catch (error: unknown) { this.error.set(describeFailure(error)); }
+      return true;
+    } catch (error: unknown) { this.error.set(describeFailure(error)); return false; }
     finally { this.saving.set(false); }
   }
 }
