@@ -29,7 +29,9 @@ publications), and **Account**: vertical setup steps for the **Meld account**
 it: choose or enter the passphrase; afterwards only *Show recovery key*),
 **Backup** (during setup an optional restore that can be skipped; afterwards
 download and restore), **Overleaf** (**Connection** and **Projects**, where
-projects are included or excluded) and **OpenAlex**. Remote Sync blocks setup
+projects are included or excluded) and **OpenAlex**. During setup a step opens
+only once the previous one is finished (later steps are greyed out with a lock);
+after setup all stay open. Remote Sync blocks setup
 (also while its state is still being checked); the Overleaf project nudge waits
 for the restore step.
 **More** contains Docs, Privacy and Project Team. Only the Updates feed exists;

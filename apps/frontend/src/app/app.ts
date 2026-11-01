@@ -165,8 +165,29 @@ export class App implements OnInit {
   readonly setupComplete = computed(() => this.syncDone() && this.overleafReady() && !this.connectorStale() && this.includedProjects() > 0);
   /** About me tabs, as in Project Meld: Private profile, Public profile (once there is one) and Publications. */
   readonly aboutTab = signal<'private' | 'publications'>('private');
-  readonly setupTab = computed<SetupTab>(() => this.chosenTab() ??
-    (!this.accountLinked() ? 'meld' : this.syncPending() ? 'sync' : !this.restoreSettled() ? 'backup' : 'overleaf'));
+  /**
+   * During setup a step opens only when every step before it is finished (later steps are greyed out); once setup is
+   * complete every step stays open.
+   */
+  readonly stepProgress = computed(() => {
+    const done: Record<SetupTab, boolean> = { meld: this.accountLinked(), sync: this.syncDone(), backup: this.restoreSettled(),
+      overleaf: this.overleafDone(), openalex: this.openAlexDone() };
+    const open = {} as Record<SetupTab, boolean>;
+    let previousDone = true;
+    for (const tab of this.steps()) {
+      open[tab] = previousDone || this.setupComplete();
+      previousDone &&= done[tab];
+    }
+    return { done, open };
+  });
+  stepOpen(tab: SetupTab): boolean { return this.stepProgress().open[tab] ?? false; }
+  stepDone(tab: SetupTab): boolean { return this.stepProgress().done[tab]; }
+  stepIcon(tab: SetupTab): string { return this.stepDone(tab) ? 'check_circle' : this.stepOpen(tab) ? 'radio_button_unchecked' : 'lock'; }
+  readonly setupTab = computed<SetupTab>(() => {
+    const chosen = this.chosenTab();
+    if (chosen && this.stepOpen(chosen)) return chosen;
+    return !this.accountLinked() ? 'meld' : this.syncPending() ? 'sync' : !this.restoreSettled() ? 'backup' : 'overleaf';
+  });
   /** The step after the Meld account, for its Next button. */
   readonly nextStep = computed<{ tab: SetupTab; label: string } | null>(() =>
     this.syncPending() && this.syncOffered() ? { tab: 'sync', label: 'Remote Sync' }
@@ -179,7 +200,8 @@ export class App implements OnInit {
       case 'locked': return 'Enter your passphrase';
       case 'checking': return 'Checking...';
       case 'signed-out': return 'Sign in first';
-      case 'ready': return `On · ${sync.syncedProjects} ${sync.syncedProjects === 1 ? 'project' : 'projects'} synced`;
+      case 'ready': if (this.recoveryKeyShown()) return 'Save your recovery key';
+        return `On · ${sync.syncedProjects} ${sync.syncedProjects === 1 ? 'project' : 'projects'} synced`;
       default: return '';
     }
   });
@@ -253,7 +275,7 @@ export class App implements OnInit {
     });
   }
 
-  chooseTab(tab: SetupTab): void { this.chosenTab.set(tab); }
+  chooseTab(tab: SetupTab): void { if (this.stepOpen(tab)) this.chosenTab.set(tab); }
   /** A step finished (passphrase saved or unlocked): setup continues with the next open step. */
   stepFinished(): void { this.chosenTab.set(null); }
   /** The optional restore was done or skipped; it is not offered again for this account in this browser. */

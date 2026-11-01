@@ -146,7 +146,8 @@ Use .NET 10, Node 24/npm and PowerShell 7. Run from this repository's root, e.g.
   Account has vertical steps Meld account / Remote Sync (only when offered;
   required; once set up its only action is Show recovery key) / Backup (optional
   restore during setup, then download and restore) / Overleaf (horizontal
-  Connection | Projects) / OpenAlex. Projects owns include/exclude choices, consent,
+  Connection | Projects) / OpenAlex. During setup later steps stay greyed out
+  until the previous step is finished. Projects owns include/exclude choices, consent,
   monitoring and project summaries (no manual ZIP download UI); About me has Project Meld's tabs: Private profile
   (research cards), Public profile (only once one exists) and Publications.
   Backup: Download my data (a ZIP of readable, unencrypted JSON built from the

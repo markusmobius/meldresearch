@@ -126,9 +126,14 @@ describe('Overleaf connection screen', () => {
     expect(element.querySelector('.remote-sync mat-card-subtitle')?.textContent).toContain('Step 2 of 5');
     expect(element.querySelector('app-encrypted-sync')?.textContent).toContain('Unlock your synced research');
     expect(element.querySelector('a[aria-label="Feed"]')).toBeNull();
-    // Backup waits for Remote Sync.
+    // Later steps are greyed out until Remote Sync is finished; choosing one does nothing.
+    const tabs = [...element.querySelectorAll<HTMLButtonElement>('.setup-tab')];
+    expect(tabs.map(tab => tab.disabled)).toEqual([false, false, true, true, true]);
+    expect(tabs[2].querySelector('.setup-state')?.textContent?.trim()).toBe('lock');
+    expect(tabs[2].classList).toContain('locked');
     fixture.componentInstance.chooseTab('backup');
     fixture.detectChanges();
+    expect(fixture.componentInstance.setupTab()).toBe('sync');
     expect(element.querySelector('app-backup-data')).toBeNull();
     fixture.componentInstance.chooseTab('sync');
     fixture.detectChanges();
@@ -153,6 +158,7 @@ describe('Overleaf connection screen', () => {
     const fixture = await screen('home');
     const element: HTMLElement = fixture.nativeElement;
     expect(fixture.componentInstance.setupTab()).toBe('backup');
+    expect([...element.querySelectorAll<HTMLButtonElement>('.setup-tab')].map(tab => tab.disabled)).toEqual([false, false, false, true, true]);
     expect(element.querySelector('.backup-card mat-card-subtitle')?.textContent).toContain('optional');
     expect(element.querySelector('app-backup-data button.download-data')).toBeNull();
     element.querySelector<HTMLButtonElement>('app-backup-data button.skip-restore')!.click();

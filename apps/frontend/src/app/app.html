@@ -65,37 +65,42 @@
         <div class="page-container setup-layout">
           <nav class="setup-tabs" role="tablist" aria-label="Connections">
             <button type="button" role="tab" class="setup-tab" [class.active]="setupTab() === 'meld'"
-              [attr.aria-selected]="setupTab() === 'meld'" (click)="chooseTab('meld')">
+              [attr.aria-selected]="setupTab() === 'meld'" [disabled]="!stepOpen('meld')" [class.locked]="!stepOpen('meld')"
+              [attr.title]="stepOpen('meld') ? null : 'Finish the previous step first'" (click)="chooseTab('meld')">
               <mat-icon>account_circle</mat-icon>
               <span class="setup-tab-text"><strong>Meld account</strong>
                 <small>{{ research()?.account?.email ?? 'Sign in with Google' }}</small></span>
-              <mat-icon class="setup-state" [class.done]="accountLinked()">{{ accountLinked() ? 'check_circle' : 'radio_button_unchecked' }}</mat-icon>
+              <mat-icon class="setup-state" [class.done]="stepDone('meld')">{{ stepIcon('meld') }}</mat-icon>
             </button>
             @if (syncOffered()) {
               <button type="button" role="tab" class="setup-tab sync-tab" [class.active]="setupTab() === 'sync'"
-                [attr.aria-selected]="setupTab() === 'sync'" (click)="chooseTab('sync')">
+                [attr.aria-selected]="setupTab() === 'sync'" [disabled]="!stepOpen('sync')" [class.locked]="!stepOpen('sync')"
+              [attr.title]="stepOpen('sync') ? null : 'Finish the previous step first'" (click)="chooseTab('sync')">
                 <mat-icon>cloud_sync</mat-icon>
                 <span class="setup-tab-text"><strong>Remote Sync</strong><small>{{ syncLabel() }}</small></span>
-                <mat-icon class="setup-state" [class.done]="syncDone()">{{ syncDone() ? 'check_circle' : 'radio_button_unchecked' }}</mat-icon>
+                <mat-icon class="setup-state" [class.done]="stepDone('sync')">{{ stepIcon('sync') }}</mat-icon>
               </button>
             }
             <button type="button" role="tab" class="setup-tab backup-tab" [class.active]="setupTab() === 'backup'"
-              [attr.aria-selected]="setupTab() === 'backup'" (click)="chooseTab('backup')">
+              [attr.aria-selected]="setupTab() === 'backup'" [disabled]="!stepOpen('backup')" [class.locked]="!stepOpen('backup')"
+              [attr.title]="stepOpen('backup') ? null : 'Finish the previous step first'" (click)="chooseTab('backup')">
               <mat-icon>settings_backup_restore</mat-icon>
               <span class="setup-tab-text"><strong>Backup</strong><small>{{ backupLabel() }}</small></span>
-              <mat-icon class="setup-state" [class.done]="restoreSettled()">{{ restoreSettled() ? 'check_circle' : 'radio_button_unchecked' }}</mat-icon>
+              <mat-icon class="setup-state" [class.done]="stepDone('backup')">{{ stepIcon('backup') }}</mat-icon>
             </button>
             <button type="button" role="tab" class="setup-tab" [class.active]="setupTab() === 'overleaf'"
-              [attr.aria-selected]="setupTab() === 'overleaf'" (click)="chooseTab('overleaf')">
+              [attr.aria-selected]="setupTab() === 'overleaf'" [disabled]="!stepOpen('overleaf')" [class.locked]="!stepOpen('overleaf')"
+              [attr.title]="stepOpen('overleaf') ? null : 'Finish the previous step first'" (click)="chooseTab('overleaf')">
               <mat-icon>link</mat-icon>
               <span class="setup-tab-text"><strong>Overleaf</strong><small>{{ overleafLabel() }}</small></span>
-              <mat-icon class="setup-state" [class.done]="overleafDone()">{{ overleafDone() ? 'check_circle' : 'radio_button_unchecked' }}</mat-icon>
+              <mat-icon class="setup-state" [class.done]="stepDone('overleaf')">{{ stepIcon('overleaf') }}</mat-icon>
             </button>
             <button type="button" role="tab" class="setup-tab" [class.active]="setupTab() === 'openalex'"
-              [attr.aria-selected]="setupTab() === 'openalex'" (click)="chooseTab('openalex')">
+              [attr.aria-selected]="setupTab() === 'openalex'" [disabled]="!stepOpen('openalex')" [class.locked]="!stepOpen('openalex')"
+              [attr.title]="stepOpen('openalex') ? null : 'Finish the previous step first'" (click)="chooseTab('openalex')">
               <mat-icon>school</mat-icon>
               <span class="setup-tab-text"><strong>OpenAlex</strong><small>{{ researcherLabel() }}</small></span>
-              <mat-icon class="setup-state" [class.done]="openAlexDone()">{{ openAlexDone() ? 'check_circle' : 'radio_button_unchecked' }}</mat-icon>
+              <mat-icon class="setup-state" [class.done]="stepDone('openalex')">{{ stepIcon('openalex') }}</mat-icon>
             </button>
           </nav>
 
