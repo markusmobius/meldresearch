@@ -5,7 +5,8 @@ import { OverleafProject } from './overleaf-api';
 
 export interface AccountLink { signInUrl: string; expiresAt: string; }
 export interface ProjectProfile { title: string; description: string; contributions: ReadonlyArray<string>; topics: ReadonlyArray<string>; }
-export type ProjectPhase = 'waiting' | 'checking' | 'queued' | 'importing' | 'updating' | 'ready' | 'error';
+/** retrying: a short problem reaching Meld's server or the browser, retried automatically and not yet shown as an error. */
+export type ProjectPhase = 'waiting' | 'checking' | 'queued' | 'importing' | 'updating' | 'ready' | 'retrying' | 'error';
 export interface ResearchProject {
   projectId: string; name: string; enabled: boolean; consentRequired: boolean;
   revision: string | null; summary: string | null; factCount: number;
@@ -93,6 +94,10 @@ export class ResearchApi {
   /** Moves an imported project to another research card, or to a card of its own (themeId null). */
   moveToTheme(id: string, themeId: string | null): Promise<void> {
     return firstValueFrom(this.http.put<void>(`/api/research/projects/${encodeURIComponent(id)}/theme`, { themeId }));
+  }
+  /** Combines a research card into another card; its projects stay there. */
+  mergeTheme(themeId: string, intoThemeId: string): Promise<void> {
+    return firstValueFrom(this.http.put<void>(`/api/research/themes/${encodeURIComponent(themeId)}/merge`, { intoThemeId }));
   }
   sync(): Promise<void> { return firstValueFrom(this.http.post<void>('/api/research/sync', {})); }
   demoChange(): Promise<unknown> { return firstValueFrom(this.http.post('/api/development/overleaf/change', {})); }

@@ -21,6 +21,8 @@ internal interface IResearchCoordinator
     Task RequestSummaryAsync(string projectId, CancellationToken ct);
     /// <summary>Moves a project to another research card, or to a card of its own when themeId is null.</summary>
     Task MoveToThemeAsync(string projectId, string? themeId, CancellationToken ct);
+    /// <summary>Combines one research card into another; all its projects are pinned there.</summary>
+    Task MergeThemeIntoAsync(string themeId, string intoThemeId, CancellationToken ct);
     void RequestSync();
     /// <summary>True while a research cycle is reading sources or calling the remote models.</summary>
     bool Busy { get; }
@@ -56,6 +58,16 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     // After a failed grouping call, card work waits instead of retrying in a tight loop.
     private DateTimeOffset _themeRetryAt = DateTimeOffset.MinValue;
     private static readonly TimeSpan ThemeBackoff = TimeSpan.FromMinutes(15);
+    /// <summary>
+    /// Failures of the connection to Meld's server (dropped, timed out, behind its proxy, busy). They are retried like other
+    /// failures but shown as waiting rather than as errors until they persist.
+    /// </summary>
+    internal static bool Transient(string? code) =>
+        code is "remote_unavailable" or "remote_timeout" or "remote_gateway_error" or "foundry_busy" or "browser_unavailable";
+    /// <summary>A project's server problem is shown as an error after this many consecutive failures (about 15 minutes).</summary>
+    internal const int TransientFailuresShown = 4;
+    private static readonly TimeSpan ServerProblemShownAfter = TimeSpan.FromMinutes(5);
+    private DateTimeOffset? _serverFailingSince;
     private const string RevocationPending = "Local access has stopped. Remote credential revocation is pending and will retry automatically.";
     public bool Busy => Volatile.Read(ref _busy) != 0;
 
@@ -82,7 +94,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 ProcessingPlan.Next(first), running.Skip(1).Select(project => project.Name).ToArray());
         }
         string Phase(MonitoredProject project) =>
-            project.ErrorCode is not null ? "error"
+            project.ErrorCode is not null && Transient(project.ErrorCode) && project.FailureCount < TransientFailuresShown ? "retrying"
+            : project.ErrorCode is not null ? "error"
             : project.Pending is not null ? (running.Contains(project) ? (project.ImportComplete ? "updating" : "importing") : "queued")
             : active.Contains(project.ProjectId) ? "checking"
             : !project.ImportComplete ? "waiting" : "ready";
@@ -316,7 +329,24 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 throw new ResearchFailure(409, "project_not_ready", "This project can be moved once its import has finished.");
             if (themeId is not null && !ThemePlan.Themes(current, account).Any(theme => theme.Id == themeId))
                 throw new ResearchFailure(404, "theme_not_found", "That research card no longer exists. Reload and try again.");
-            return ThemePlan.Place(current, account, projectId, themeId, clock.GetUtcNow());
+            return ThemePlan.Place(current, account, projectId, themeId, clock.GetUtcNow(), pin: true);
+        }, ct);
+        _themeRetryAt = DateTimeOffset.MinValue;
+        Wake();
+    }
+
+    public async Task MergeThemeIntoAsync(string themeId, string intoThemeId, CancellationToken ct)
+    {
+        if (!ResearchThemes.IsThemeId(themeId) || !ResearchThemes.IsThemeId(intoThemeId) || themeId == intoThemeId)
+            throw new ResearchFailure(400, "invalid_theme_move", "Choose two different research cards.");
+        var account = RequireCredential(await store.ReadAsync(ct)).Account.Id;
+        await store.ChangeAsync(current =>
+        {
+            if (current.Credential?.Account.Id != account) throw AccountChanged();
+            var themes = ThemePlan.Themes(current, account);
+            if (!themes.Any(theme => theme.Id == themeId) || !themes.Any(theme => theme.Id == intoThemeId))
+                throw new ResearchFailure(404, "theme_not_found", "That research card no longer exists. Reload and try again.");
+            return ThemePlan.MergeCards(current, account, themeId, intoThemeId, clock.GetUtcNow());
         }, ct);
         _themeRetryAt = DateTimeOffset.MinValue;
         Wake();
@@ -351,6 +381,22 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                     current.Credential?.Account.Id == account && ThemePlan.Unplaced(current, account)?.ProjectId == project.ProjectId
                         ? ThemePlan.Place(current, account, project.ProjectId, target, clock.GetUtcNow()) : current, ct);
                 logger.LogInformation("Placed a newly imported project on {Kind} research card. Names omitted.", target is null ? "a new" : "an existing");
+                return true;
+            }
+            if (ThemePlan.RegroupDue(state, account))
+            {
+                // Cards were placed one project at a time; compare them all once so cards of one programme are combined.
+                string signature = ThemePlan.Signature(state, account);
+                var cards = ThemePlan.Themes(state, account).Take(ResearchThemes.MaxCandidates)
+                    .Select(theme => new ThemeCandidate(theme.Id, theme.Profile!.Title, theme.Profile.Description, theme.Profile.Topics)).ToArray();
+                var groups = (await remote.RegroupThemesAsync(credential.Token, new(cards), ct)).Groups;
+                await store.ChangeAsync(current =>
+                {
+                    if (current.Credential?.Account.Id != account || ThemePlan.Signature(current, account) != signature) return current;
+                    var regrouped = ThemePlan.ApplyGroups(current, account, groups);
+                    return regrouped with { ThemesRegroupedFor = ThemePlan.Signature(regrouped, account) };
+                }, ct);
+                logger.LogInformation("Regrouped research cards: {Count} group(s) combined. Names omitted.", groups.Count);
                 return true;
             }
             if (ThemePlan.Stale(state, account) is { } stale)
@@ -425,6 +471,12 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             try { more = await RunCycleAsync(force, cycle.Token); }
             catch (OperationCanceledException) when (cycle.IsCancellationRequested)
             { logger.LogInformation("Research cycle stopped; uncommitted results were discarded."); }
+            catch (ResearchFailure failure) when (Transient(failure.Code) &&
+                clock.GetUtcNow() - (_serverFailingSince ??= clock.GetUtcNow()) < ServerProblemShownAfter)
+            {
+                // A short server outage: retried on the next cycle without an account-wide error banner.
+                logger.LogInformation("Meld's server is not answering ({Code}); retrying.", failure.Code);
+            }
             catch (Exception error) when (error is ResearchFailure or ApiFailure or IOException or CryptographicException or System.Text.Json.JsonException)
             {
                 logger.LogWarning("Research worker failed ({Type}); evidence and credentials omitted.", error.GetType().Name);
@@ -474,6 +526,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         var configuration = await remote.StatusAsync(ct);
         if (!configuration.FoundryConfigured)
             throw new ResearchFailure(503, "foundry_not_configured", "Configure the remote Foundry deployments before processing research.");
+        _serverFailingSince = null;
         await store.ChangeAsync(current => current.Credential?.Account.Id == credential.Account.Id ? current with { AccountError = null } : current, ct);
         // Summaries the user asked for come first: each is one project read and at most one model call.
         if (summaries.Length != 0) await SummarizeAsync(credential, summaries, ct);
@@ -497,7 +550,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     internal async Task<bool> ResetIfDueAsync(CancellationToken ct)
     {
         if ((await store.ReadAsync(ct)).ResetEpoch >= ResetEpoch) return false;
-        await store.ChangeAsync(current => current with { Projects = [], Decisions = [], Researchers = [], Summaries = [], Themes = [], ResetEpoch = ResetEpoch }, ct);
+        await store.ChangeAsync(current => current with { Projects = [], Decisions = [], Researchers = [], Summaries = [], Themes = [], ThemesRegroupedFor = null, ResetEpoch = ResetEpoch }, ct);
         store.PruneTexts(new HashSet<string>(StringComparer.Ordinal));
         logger.LogInformation("Applied the one-time research reset {Epoch}: projects, choices, OpenAlex match and texts were erased.", ResetEpoch);
         return true;

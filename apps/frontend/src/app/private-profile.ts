@@ -77,6 +77,24 @@ export class PrivateProfile {
 
   memberNames(card: ProfileCard): string { return card.members.map(member => member.name).join(' \u00b7 '); }
 
+  /** Combines the whole card into another card ('keep' does nothing). */
+  async mergeInto(card: ProfileCard, event: Event): Promise<void> {
+    const select = event.target as HTMLSelectElement;
+    if (!card.themeId || select.value === 'keep') return;
+    this.moving.set(true);
+    this.moveError.set('');
+    try {
+      await this.api.mergeTheme(card.themeId, select.value);
+      this.dialog.closeAll();
+      this.changed.emit();
+    } catch (error: unknown) {
+      this.moveError.set(describeFailure(error));
+      select.value = 'keep';
+    } finally {
+      this.moving.set(false);
+    }
+  }
+
   /** Moves one Overleaf project to the chosen card ('' = a card of its own); the dialog closes as the cards change. */
   async move(project: ResearchProject, event: Event): Promise<void> {
     const select = event.target as HTMLSelectElement;

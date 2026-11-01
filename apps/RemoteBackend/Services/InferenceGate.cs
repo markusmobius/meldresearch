@@ -11,7 +11,8 @@ internal sealed class InferenceGate
 {
     private readonly int _perAccount;
     private readonly ConcurrentDictionary<Guid, SemaphoreSlim> _accounts = new();
-    private static readonly TimeSpan Wait = TimeSpan.FromMinutes(2);
+    // Short, so the request still fits Cloudflare's 100-second origin limit; the caller retries shortly.
+    private static readonly TimeSpan Wait = TimeSpan.FromSeconds(20);
 
     public InferenceGate(IConfiguration configuration)
     {

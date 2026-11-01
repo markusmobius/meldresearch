@@ -17,6 +17,12 @@ public sealed record ThemeMember(string ProjectName, ProjectProfile Profile);
 public sealed record ThemeMergeRequest(IReadOnlyList<ThemeMember> Members);
 public sealed record ThemeMergeResponse(ProjectProfile Profile, string ChatModel);
 
+/// <summary>All of the user's research cards, to find cards that belong to one research programme.</summary>
+public sealed record ThemeRegroupRequest(IReadOnlyList<ThemeCandidate> Cards);
+/// <summary>A set of cards to combine into one; cards in no group stay as they are.</summary>
+public sealed record ThemeGroup(IReadOnlyList<string> CardIds, string Explanation);
+public sealed record ThemeRegroupResponse(IReadOnlyList<ThemeGroup> Groups, string ChatModel);
+
 /// <summary>
 /// Research cards group Overleaf projects that belong to one research line (drafts, slides, follow-ups of the same work).
 /// Only summaries of included projects are sent; the remote service keeps no copy.
@@ -45,6 +51,22 @@ public static class ResearchThemes
             members.Any(member => member is null || string.IsNullOrWhiteSpace(member.ProjectName) || member.ProjectName.Length > 500 ||
                 member.Profile is null || !ProfileEvidence.ValidProfile(member.Profile)))
             throw new ResearchFailure(400, "invalid_theme_request", "A combined summary needs 2-12 valid project summaries.");
+    }
+
+    public static void ValidateRegroup(ThemeRegroupRequest request)
+    {
+        if (request?.Cards is not { Count: >= 2 and <= MaxCandidates } cards)
+            throw new ResearchFailure(400, "invalid_theme_request", "Regrouping needs 2-40 research cards.");
+        ValidateMatch(new("regroup", new("t", "d", [], []), cards));
+    }
+
+    /// <summary>Groups of at least two offered cards, each card in at most one group.</summary>
+    public static bool ValidGroups(ThemeRegroupRequest request, IReadOnlyList<ThemeGroup>? groups)
+    {
+        if (groups is null || groups.Count > MaxCandidates / 2) return false;
+        var known = request.Cards.Select(card => card.Id).ToHashSet(StringComparer.Ordinal);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        return groups.All(group => group?.CardIds is { Count: >= 2 } ids && ids.All(id => id is not null && known.Contains(id) && seen.Add(id)));
     }
 
     /// <summary>Card ids are 32 lowercase hex characters (a GUID without dashes).</summary>

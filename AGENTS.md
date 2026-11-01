@@ -53,8 +53,10 @@ instruction file. Start with the [README](README.md) for setup and release detai
   `.tex`) are sent only on the user's per-project Summarize click, recent projects
   only, and never resent while the main file's hash is unchanged. Research cards
   ([ThemePlan](apps/LocalBackend/Services/Research/ThemePlan.cs)) group settled
-  projects by Foundry decision once, merge members' summaries only when a member's
-  summary fingerprint changes, and never move a placed project automatically.
+  projects by Foundry decision ("same research programme"), regroup all cards once
+  per card-set change when imports are idle, merge members' summaries only when a
+  member's summary fingerprint changes, and never move a pinned (hand-placed) project.
+  Keep every remote request under Cloudflare's 100 s origin limit (45 s wait budget).
 - Models select source line ranges; the server copies and validates actual
   citation text. Preserve grounding, evidence limits and visible validation errors.
 - The remote backend persists accounts, devices, one-time app sign-in codes, the

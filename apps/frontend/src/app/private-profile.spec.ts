@@ -19,7 +19,7 @@ describe('Private profile', () => {
     observedAt: new Date(Date.now() - daysAgo * day).toISOString(), sourceUpdatedAt: new Date(Date.now() - daysAgo * day).toISOString(),
     revision: 'r', previousRevision: null, previousSummary: null, evidence: [],
   });
-  const api = { moveToTheme: vi.fn() };
+  const api = { moveToTheme: vi.fn(), mergeTheme: vi.fn() };
   const status = (projects: ResearchProject[], themes: ResearchStatus['themes'], updates: ResearchUpdate[] = []): ResearchStatus => ({
     account: { id: 'a', name: 'R', email: 'r@example.invalid' }, credentialExpiresAt: null, pendingLink: null, accountError: null,
     busy: false, dummy: false, privacyUrl: '', consentVersion: 'v', pollSeconds: 300, pendingRevocations: 0,
@@ -71,10 +71,27 @@ describe('Private profile', () => {
     expect([...dialog.querySelectorAll('.member-name')].map(name => name.textContent)).toEqual(['news-slant', 'news-slant-slides']);
     const select = dialog.querySelectorAll<HTMLSelectElement>('.move select')[1];
     expect([...select.options].map(option => option.textContent)).toEqual(['This card', 'A card of its own', 'Pricing']);
+    const merge = dialog.querySelector<HTMLSelectElement>('.merge-card select')!;
+    expect([...merge.options].map(option => option.textContent)).toEqual(['Choose a card…', 'Pricing']);
     select.value = '';
     select.dispatchEvent(new Event('change'));
     await vi.waitFor(() => expect(api.moveToTheme).toHaveBeenCalledWith(slidesId, null));
     await vi.waitFor(() => expect(changed).toHaveBeenCalled());
+    fixture.destroy();
+  });
+
+  it('merges a whole card into another card', async () => {
+    api.mergeTheme.mockResolvedValue(undefined);
+    const fixture = TestBed.createComponent(PrivateProfile);
+    fixture.componentRef.setInput('status', grouped());
+    fixture.detectChanges();
+    fixture.nativeElement.querySelector('.profile-card').click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const merge = document.querySelector<HTMLSelectElement>('mat-dialog-container .merge-card select')!;
+    merge.value = otherCard;
+    merge.dispatchEvent(new Event('change'));
+    await vi.waitFor(() => expect(api.mergeTheme).toHaveBeenCalledWith(cardId, otherCard));
     fixture.destroy();
   });
 

@@ -33,7 +33,7 @@ export class ResearchPanel implements OnInit {
   readonly selectedUpdate = signal<ResearchUpdate | null>(null);
   /** Included projects with an error or a changed notice, named in the feed so it is clear which ones need attention. */
   readonly attentionProjects = computed(() => (this.state()?.projects ?? [])
-    .filter(project => !!project.error || project.consentRequired).map(project => project.name));
+    .filter(project => (!!project.error && project.phase !== 'retrying') || project.consentRequired).map(project => project.name));
   readonly needsProjectAttention = computed(() => this.attentionProjects().length > 0);
   readonly progressPercent = computed(() => {
     const running = this.state()?.processing;

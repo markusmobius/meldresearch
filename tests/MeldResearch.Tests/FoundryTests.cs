@@ -305,6 +305,17 @@ public sealed class FoundryTests
         reply = JsonSerializer.Serialize(new { cardId = new string('b', 32), explanation = "Invented." });
         Assert.Equal("invalid_theme_match", (await Assert.ThrowsAsync<ResearchFailure>(() => foundry.MatchThemeAsync(match, CancellationToken.None))).Code);
 
+        string third = new('c', 32);
+        var regroup = new ThemeRegroupRequest([new(card, "Scooping in academia", "Disclosure.", []), new(third, "Scooping in drug discovery", "Priority.", [])]);
+        reply = JsonSerializer.Serialize(new { groups = new[] { new { cardIds = new[] { card, third }, explanation = "Same programme." } } });
+        Assert.Equal([card, third], Assert.Single((await foundry.RegroupThemesAsync(regroup, CancellationToken.None)).Groups).CardIds);
+        foreach (var invalid in new object[] { new[] { new { cardIds = new[] { card }, explanation = "Alone." } },
+                     new[] { new { cardIds = new[] { card, new string('d', 32) }, explanation = "Invented." } } })
+        {
+            reply = JsonSerializer.Serialize(new { groups = invalid });
+            Assert.Equal("invalid_theme_groups", (await Assert.ThrowsAsync<ResearchFailure>(() => foundry.RegroupThemesAsync(regroup, CancellationToken.None))).Code);
+        }
+
         var merge = new ThemeMergeRequest([new("news-slant", Profile), new("news-slant-slides", Profile)]);
         reply = JsonSerializer.Serialize(new { profile = Profile }, ResearchJson.Options);
         Assert.Equal(Json(Profile), Json((await foundry.MergeThemeAsync(merge, CancellationToken.None)).Profile));

@@ -43,3 +43,4 @@
 .updates li:first-child { border-top: 0; }
 .update-date { color: #64748b; font-size: 12px; }
 .update-summary { color: #334155; }
+.merge-card { display: flex; margin-top: 12px; }

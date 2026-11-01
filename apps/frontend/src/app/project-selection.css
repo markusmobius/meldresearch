@@ -55,3 +55,4 @@ button.summarize mat-icon { width: 16px; height: 16px; font-size: 16px; }
 @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
 /* Why an included project's last attempt failed (the row's phase says it is retrying). */
 .row-error { display: block; margin-top: 4px; max-width: 72ch; font-size: 0.78rem; line-height: 1.4; color: #b42318; }
+.row-error.transient { color: #64748b; }

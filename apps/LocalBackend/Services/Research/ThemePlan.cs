@@ -66,17 +66,78 @@ internal static class ThemePlan
         members.All(member => merged.TryGetValue(member.ProjectId, out var print) && print == Fingerprint(member.Profile!));
 
     public static bool HasWork(LocalResearchState state, Guid account) =>
-        Cleaned(state, account) is not null || Unplaced(state, account) is not null || Stale(state, account) is not null;
+        Cleaned(state, account) is not null || Unplaced(state, account) is not null || RegroupDue(state, account) ||
+        Stale(state, account) is not null;
 
-    /// <summary>Puts a project on the chosen card (or a new one), removing it from any other card of the account.</summary>
-    public static LocalResearchState Place(LocalResearchState state, Guid account, string projectId, string? themeId, DateTimeOffset now)
+    /// <summary>The account's cards and their members, independent of order; regrouping runs again only when it changes.</summary>
+    public static string Signature(LocalResearchState state, Guid account) => ResearchEvidence.Hash(string.Join("|",
+        Themes(state, account).Select(theme => theme.Id + ":" + string.Join(",", theme.Members.Order(StringComparer.Ordinal)))
+            .Order(StringComparer.Ordinal)));
+
+    /// <summary>
+    /// The cards should be compared once more: they changed since the last regrouping, every card has a summary, nothing waits
+    /// to be placed, and no project is still on its first import (one that keeps failing does not hold regrouping back).
+    /// </summary>
+    public static bool RegroupDue(LocalResearchState state, Guid account)
+    {
+        var themes = Themes(state, account);
+        if (themes.Count < 2 || themes.Any(theme => theme.Profile is null) || Unplaced(state, account) is not null) return false;
+        if (state.Projects.Any(project => project.AccountId == account && project.Enabled && !project.ImportComplete && project.FailureCount < 3))
+            return false;
+        return state.ThemesRegroupedFor != Signature(state, account);
+    }
+
+    /// <summary>
+    /// Combines each group of cards into its largest card. Members the user placed by hand stay where they are (their card
+    /// remains), so automatic regrouping never undoes a manual choice.
+    /// </summary>
+    public static LocalResearchState ApplyGroups(LocalResearchState state, Guid account, IReadOnlyList<ThemeGroup> groups)
+    {
+        var themes = (state.Themes ?? []).ToList();
+        foreach (var group in groups)
+        {
+            var cards = themes.Where(theme => theme.AccountId == account && group.CardIds.Contains(theme.Id)).ToList();
+            if (cards.Count < 2) continue;
+            var target = cards.OrderByDescending(theme => theme.Members.Count).ThenBy(theme => theme.CreatedAt).First();
+            var moved = new List<string>();
+            foreach (var source in cards.Where(theme => theme != target))
+            {
+                var pinned = source.Pinned ?? [];
+                moved.AddRange(source.Members.Where(member => !pinned.Contains(member)));
+                var kept = source.Members.Where(pinned.Contains).ToArray();
+                int index = themes.IndexOf(source);
+                if (kept.Length == 0) themes.RemoveAt(index);
+                else themes[index] = source with { Members = kept };
+            }
+            if (moved.Count != 0) themes[themes.IndexOf(target)] = target with { Members = [.. target.Members, .. moved] };
+        }
+        return state with { Themes = themes };
+    }
+
+    /// <summary>
+    /// Puts a project on the chosen card (or a new one), removing it from any other card of the account. A placement by the
+    /// user pins the project there.
+    /// </summary>
+    public static LocalResearchState Place(LocalResearchState state, Guid account, string projectId, string? themeId, DateTimeOffset now,
+        bool pin = false)
     {
         var themes = (state.Themes ?? []).Select(theme => theme.AccountId == account && theme.Members.Contains(projectId)
-                ? theme with { Members = theme.Members.Where(member => member != projectId).ToArray() } : theme)
+                ? theme with { Members = theme.Members.Where(member => member != projectId).ToArray(),
+                    Pinned = theme.Pinned?.Where(member => member != projectId).ToArray() } : theme)
             .Where(theme => theme.AccountId != account || theme.Members.Count != 0).ToList();
         int index = themeId is null ? -1 : themes.FindIndex(theme => theme.AccountId == account && theme.Id == themeId);
-        if (index >= 0) themes[index] = themes[index] with { Members = [.. themes[index].Members, projectId] };
-        else themes.Add(new ResearchTheme(account, Guid.NewGuid().ToString("N"), [projectId], null, null, now));
+        if (index >= 0)
+            themes[index] = themes[index] with { Members = [.. themes[index].Members, projectId],
+                Pinned = pin ? [.. themes[index].Pinned ?? [], projectId] : themes[index].Pinned };
+        else themes.Add(new ResearchTheme(account, Guid.NewGuid().ToString("N"), [projectId], null, null, now, pin ? [projectId] : null));
         return state with { Themes = themes };
+    }
+
+    /// <summary>The user combines one card into another: every member moves and is pinned there.</summary>
+    public static LocalResearchState MergeCards(LocalResearchState state, Guid account, string sourceId, string targetId, DateTimeOffset now)
+    {
+        var source = Themes(state, account).First(theme => theme.Id == sourceId);
+        foreach (var member in source.Members) state = Place(state, account, member, targetId, now, pin: true);
+        return state;
     }
 }

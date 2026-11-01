@@ -54,6 +54,12 @@ internal static class ResearchEndpoints
             await service.MoveToThemeAsync(projectId, request.ThemeId, ct);
             return TypedResults.NoContent();
         }).WithName("MoveResearchProjectToTheme").WithSummary("Move an imported project to another research card, or to a card of its own.");
+        group.MapPut("/themes/{themeId}/merge", async Task<NoContent> (
+            string themeId, MergeThemeRequest request, IResearchCoordinator service, CancellationToken ct) =>
+        {
+            await service.MergeThemeIntoAsync(themeId, request.IntoThemeId, ct);
+            return TypedResults.NoContent();
+        }).WithName("MergeResearchTheme").WithSummary("Combine a research card into another; its projects are pinned there.");
         group.MapPost("/projects/{projectId}/summary", async Task<Accepted> (
             string projectId, IResearchCoordinator service, CancellationToken ct) =>
         {

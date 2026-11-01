@@ -39,6 +39,7 @@ internal interface IResearchRemote
     Task<ProjectSummaryResponse> SummarizeProjectAsync(string token, ProjectSummaryRequest request, CancellationToken ct);
     Task<ThemeMatchResponse> MatchThemeAsync(string token, ThemeMatchRequest request, CancellationToken ct);
     Task<ThemeMergeResponse> MergeThemeAsync(string token, ThemeMergeRequest request, CancellationToken ct);
+    Task<ThemeRegroupResponse> RegroupThemesAsync(string token, ThemeRegroupRequest request, CancellationToken ct);
     Task<ResearcherSearchResponse> SearchResearcherAsync(string token, ResearcherSearchRequest request, CancellationToken ct);
     Task<ResearcherWorksResponse> ResearcherWorksAsync(string token, ResearcherWorksRequest request, CancellationToken ct);
 }
@@ -60,12 +61,28 @@ internal sealed class ResearchRemote(ResearchOptions options, IHttpClientFactory
         CallAsync<ThemeMatchResponse>("api/research/theme-match", HttpMethod.Post, request, token, ct);
     public Task<ThemeMergeResponse> MergeThemeAsync(string token, ThemeMergeRequest request, CancellationToken ct) =>
         CallAsync<ThemeMergeResponse>("api/research/theme-merge", HttpMethod.Post, request, token, ct);
+    public Task<ThemeRegroupResponse> RegroupThemesAsync(string token, ThemeRegroupRequest request, CancellationToken ct) =>
+        CallAsync<ThemeRegroupResponse>("api/research/theme-regroup", HttpMethod.Post, request, token, ct);
     public Task<ResearcherSearchResponse> SearchResearcherAsync(string token, ResearcherSearchRequest request, CancellationToken ct) =>
         CallAsync<ResearcherSearchResponse>("api/researcher/candidates", HttpMethod.Post, request, token, ct);
     public Task<ResearcherWorksResponse> ResearcherWorksAsync(string token, ResearcherWorksRequest request, CancellationToken ct) =>
         CallAsync<ResearcherWorksResponse>("api/researcher/works", HttpMethod.Post, request, token, ct);
 
+    /// <summary>
+    /// A dropped connection (no response) is retried once after a moment: every remote call is stateless or idempotent on the
+    /// server, so repeating it cannot duplicate anything.
+    /// </summary>
     private async Task<T> CallAsync<T>(string route, HttpMethod method, object? body, string? token, CancellationToken ct)
+    {
+        try { return await CallOnceAsync<T>(route, method, body, token, ct); }
+        catch (ResearchFailure failure) when (failure.Code == "remote_unavailable" && !ct.IsCancellationRequested)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2), ct);
+            return await CallOnceAsync<T>(route, method, body, token, ct);
+        }
+    }
+
+    private async Task<T> CallOnceAsync<T>(string route, HttpMethod method, object? body, string? token, CancellationToken ct)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(route.StartsWith("api/research", StringComparison.Ordinal) ? TimeSpan.FromMinutes(4) : TimeSpan.FromSeconds(20));

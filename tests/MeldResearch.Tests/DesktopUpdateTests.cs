@@ -309,6 +309,7 @@ public sealed class DesktopUpdateTests : IDisposable
         public Task ForgetAsync(string projectId, CancellationToken ct) => throw new NotSupportedException();
         public Task RequestSummaryAsync(string projectId, CancellationToken ct) => throw new NotSupportedException();
         public Task MoveToThemeAsync(string projectId, string? themeId, CancellationToken ct) => throw new NotSupportedException();
+        public Task MergeThemeIntoAsync(string themeId, string intoThemeId, CancellationToken ct) => throw new NotSupportedException();
         public void RequestSync() { }
     }
 

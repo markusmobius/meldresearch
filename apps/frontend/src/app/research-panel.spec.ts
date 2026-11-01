@@ -54,9 +54,11 @@ describe('Research Updates onboarding', () => {
   });
 
   it('shows which project and file Foundry is working on, and names projects that need attention', async () => {
-    const project = (name: string, error: string | null) => ({ projectId: name, name, enabled: true, consentRequired: false, error }) as unknown as ResearchStatus['projects'][number];
+    const project = (name: string, error: string | null, phase = error ? 'error' : 'ready') =>
+      ({ projectId: name, name, enabled: true, consentRequired: false, error, phase }) as unknown as ResearchStatus['projects'][number];
     api.status.mockResolvedValue({ ...base, busy: true,
-      projects: [project('Agentic Markets', null), project('NewsSlant', 'Foundry rejected the request.'), project('Favors', 'Too large.')],
+      projects: [project('Agentic Markets', null), project('NewsSlant', 'Foundry rejected the request.'), project('Favors', 'Too large.'),
+        project('Briefly offline', "Meld's server is unavailable.", 'retrying')],
       processing: { projectId: 'Agentic Markets', name: 'Agentic Markets', kind: 'import', filesDone: 3, filesTotal: 12, queued: 2,
         currentFile: 'sections/model.tex', alsoRunning: ['NewsSlant', 'Favors'] } });
     const fixture = await screen('home');

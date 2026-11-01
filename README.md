@@ -228,18 +228,30 @@ Chrome Web Store instead.
   project's files stay strictly in order because every step builds on the previous
   summary. The remote service admits at most `Foundry:MaxConcurrency` (default 4)
   Foundry requests at a time and `Foundry:MaxConcurrencyPerAccount` (default 3) per
-  account; further requests wait up to `Foundry:QueueSeconds` (default 120) instead
-  of being refused. A Foundry 429 or 503 is retried up to three times after its
-  `Retry-After` (or 2, 4 s with jitter), and a 429 pauses all requests for that time.
-  If the service is still busy, the local app tries that project again in 30
-  seconds without reporting an error.
+  account; further requests wait up to `Foundry:QueueSeconds` (default 30, at most
+  60) instead of being refused. A Foundry 429 or 503 is retried up to three times
+  after its `Retry-After` (or 2, 4 s with jitter), and a 429 pauses all requests for
+  that time. All waiting inside the service stops after 45 seconds so a request stays
+  within Cloudflare's 100-second origin limit; the service then answers "busy" and the
+  local app tries that project again in 30 seconds without reporting an error.
+- **Server problems.** The local app drops idle connections after 50 s and retries a
+  dropped connection once. Connection, timeout, proxy and busy failures are retried
+  with the usual backoff but shown as *Waiting to retry* (not an error) until a
+  project has failed four times in a row, and the account banner appears only after
+  five minutes without the server.
 - **Research cards.** About me groups included projects into research cards: once a
   project's first import finishes, Foundry decides from the summaries whether it
   continues an existing card (same question, model, data or paper; a shared field is
   not enough) or starts a new one, and a card with several projects gets one combined
   summary, made again only when a member's summary changes. Each project's own
-  summary and Updates are kept. The card dialog moves a project to another card or to
-  a card of its own; Meld never moves a placed project by itself.
+  summary and Updates are kept. A card is one research *programme*: companion
+  theory/experiment papers, extensions and the same idea in another setting belong
+  together; sharing only a field or method does not. Because projects are placed one
+  at a time, a regrouping pass compares all cards once whenever they changed and no
+  first import is running (one Foundry call), and combines cards of one programme.
+  The card dialog moves a project to another card or a card of its own, or merges the
+  whole card into another; projects placed by hand are pinned and never moved by
+  regrouping.
 - **One-time resets.** Raising `ResearchCoordinator.ResetEpoch` makes every
   installation erase, on its first start of that release, all projects (summaries,
   hashes, Updates, queue), include/exclude choices, project summaries, the OpenAlex

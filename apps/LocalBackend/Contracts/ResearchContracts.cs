@@ -33,6 +33,9 @@ public sealed record ResearchThemeResponse(string Id, ProjectProfile? Profile, I
 /// <summary>Moves a project to another research card, or to a new card of its own when ThemeId is null.</summary>
 public sealed record MoveToThemeRequest(string? ThemeId);
 
+/// <summary>Combines a research card into another card.</summary>
+public sealed record MergeThemeRequest(string IntoThemeId);
+
 /// <summary>A project's one-paragraph summary from its main .tex file. Status: queued, running, ready or error.</summary>
 public sealed record ProjectSummaryResponseItem(string ProjectId, string Status, string? Summary, string? MainPath,
     DateTimeOffset? UpdatedAt, DateTimeOffset? SourceUpdatedAt, string? Error);

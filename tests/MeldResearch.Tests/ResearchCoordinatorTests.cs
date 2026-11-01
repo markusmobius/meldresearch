@@ -623,6 +623,58 @@ public sealed class ResearchCoordinatorTests
     }
 
     [Fact]
+    public async Task RegroupingCombinesSeparateCardsOfOneProgrammeOnceAndNeverMovesPinnedProjects()
+    {
+        var store = new MemoryStore(new(1, Credential, null, null, [IncludedAs(ProjectId, "scooping-academia"), IncludedAs(SecondId, "scooping-drugs")], []));
+        var remote = new Remote { Regroup = request => [new([.. request.Cards.Select(card => card.Id)], "Same scooping programme.")] };
+        using var coordinator = Coordinator(store, remote, TwoProjects());
+        await Drain(coordinator);
+        // Placed separately (the matcher said no), then combined by the regrouping pass and summarized once.
+        var theme = Assert.Single(store.State.Themes!);
+        Assert.Equal([ProjectId, SecondId], theme.Members.Order());
+        Assert.Single(remote.Regroups);
+        Assert.Equal(2, remote.Regroups[0].Cards.Count);
+        Assert.Single(remote.Merges);
+
+        // Unchanged cards are not compared again.
+        await Drain(coordinator, force: true);
+        Assert.Single(remote.Regroups);
+
+        // The user splits a project out: it is pinned, so regrouping (which still proposes combining) leaves it.
+        await coordinator.MoveToThemeAsync(SecondId, null, CancellationToken.None);
+        await Drain(coordinator);
+        Assert.Equal(2, store.State.Themes!.Count);
+        Assert.Equal(2, remote.Regroups.Count);
+        Assert.Contains(store.State.Themes, card => card.Members.SequenceEqual([SecondId]) && card.Pinned!.Contains(SecondId));
+
+        // A manual merge combines the cards again and pins the moved project.
+        var split = store.State.Themes.Single(card => card.Members.Contains(SecondId));
+        var other = store.State.Themes.Single(card => card != split);
+        await coordinator.MergeThemeIntoAsync(split.Id, other.Id, CancellationToken.None);
+        await Drain(coordinator);
+        var merged = Assert.Single(store.State.Themes!);
+        Assert.Equal(other.Id, merged.Id);
+        Assert.Contains(SecondId, merged.Pinned!);
+        Assert.Equal("invalid_theme_move", (await Assert.ThrowsAsync<ResearchFailure>(() =>
+            coordinator.MergeThemeIntoAsync(merged.Id, merged.Id, CancellationToken.None))).Code);
+    }
+
+    [Fact]
+    public async Task ServerOutagesAreShownAsRetryingUntilTheyPersist()
+    {
+        var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
+        var remote = new Remote { Failure = new ResearchFailure(503, "remote_unavailable", "The Meld Research remote service is unavailable.") };
+        using var coordinator = Coordinator(store, remote, new Source(Files(("main.tex", "Synthetic research."))));
+        await coordinator.RunCycleAsync(false, CancellationToken.None);
+        Assert.Equal("retrying", (await coordinator.StatusAsync(CancellationToken.None)).Projects[0].Phase);
+        Assert.Null(store.State.AccountError);
+        store.State = store.State with { Projects = [store.State.Projects[0] with { FailureCount = ResearchCoordinator.TransientFailuresShown }] };
+        Assert.Equal("error", (await coordinator.StatusAsync(CancellationToken.None)).Projects[0].Phase);
+        Assert.True(ResearchCoordinator.Transient("remote_gateway_error"));
+        Assert.False(ResearchCoordinator.Transient("ungrounded_research_analysis"));
+    }
+
+    [Fact]
     public void ACardIsCombinedAgainOnlyOnceAllMembersAreSettled()
     {
         var profile = new ProjectProfile("T", "D", ["C"], ["t"]);
@@ -732,6 +784,13 @@ public sealed class ResearchCoordinatorTests
             Merges.Add(request);
             return Task.FromResult(new ThemeMergeResponse(new("Combined research line", string.Join(" + ", request.Members.Select(member => member.ProjectName)),
                 ["Combined."], ["combined"]), "chat"));
+        }
+        public List<ThemeRegroupRequest> Regroups { get; } = [];
+        public Func<ThemeRegroupRequest, IReadOnlyList<ThemeGroup>> Regroup { get; set; } = _ => [];
+        public Task<ThemeRegroupResponse> RegroupThemesAsync(string token, ThemeRegroupRequest request, CancellationToken ct)
+        {
+            Regroups.Add(request);
+            return Task.FromResult(new ThemeRegroupResponse(Regroup(request), "chat"));
         }
         public List<ProjectSummaryRequest> Summaries { get; } = [];
         public Task<ProjectSummaryResponse> SummarizeProjectAsync(string token, ProjectSummaryRequest request, CancellationToken ct)

@@ -38,16 +38,18 @@ internal sealed record ProjectSummaryState(Guid AccountId, string ProjectId, str
 /// <summary>
 /// A research card in the private profile: one line of research made of one or more included Overleaf projects. Profile is
 /// the combined summary; MergedFrom maps each member to the fingerprint of the summary it was combined from, so a card is
-/// summarized again only when a member's summary changed or members were added or removed.
+/// summarized again only when a member's summary changed or members were added or removed. Pinned members were placed by
+/// the user and are never moved by automatic regrouping.
 /// </summary>
 internal sealed record ResearchTheme(Guid AccountId, string Id, IReadOnlyList<string> Members, ProjectProfile? Profile,
-    IReadOnlyDictionary<string, string>? MergedFrom, DateTimeOffset CreatedAt);
+    IReadOnlyDictionary<string, string>? MergedFrom, DateTimeOffset CreatedAt, IReadOnlyList<string>? Pinned = null);
 
 /// <summary>ResetEpoch records the last one-time research reset this installation applied (see ResearchCoordinator.ResetEpoch).</summary>
 internal sealed record LocalResearchState(int Version, LinkedCredential? Credential, PendingDeviceLink? PendingLink,
     string? AccountError, IReadOnlyList<MonitoredProject> Projects, IReadOnlyList<LinkedCredential> PendingRevocations,
     IReadOnlyList<ProjectDecision>? Decisions = null, IReadOnlyList<ResearcherState>? Researchers = null, int ResetEpoch = 0,
-    IReadOnlyList<ProjectSummaryState>? Summaries = null, IReadOnlyList<ResearchTheme>? Themes = null);
+    IReadOnlyList<ProjectSummaryState>? Summaries = null, IReadOnlyList<ResearchTheme>? Themes = null,
+    string? ThemesRegroupedFor = null);
 
 /// <summary>The user's active choice whether an Overleaf project is part of their private profile.</summary>
 internal sealed record ProjectDecision(Guid AccountId, string ProjectId, bool Included, DateTimeOffset DecidedAt);

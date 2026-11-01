@@ -115,7 +115,8 @@
         @if (decided === 'included' && watched) { &middot; <span class="phase" [attr.data-phase]="watched.phase">{{ phaseLabel(watched) }}</span> }
       </small>
       @if (decided === 'included' && watched?.error) {
-        <span class="row-error" role="status">{{ watched?.error }} Meld retries automatically; <strong>Check now</strong> retries at once.</span>
+        <span class="row-error" [class.transient]="watched?.phase === 'retrying'" role="status">{{ watched?.error }} Meld retries automatically;
+          <strong>Check now</strong> retries at once.</span>
       }
       @if (isRecentProject(project)) {
         @let summary = summaryFor(project.id);

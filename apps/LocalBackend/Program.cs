@@ -56,8 +56,13 @@ builder.Services.AddSingleton<IResearchStore, ResearchStore>();
 builder.Services.AddSingleton<IResearchRemote, ResearchRemote>();
 builder.Services.AddSingleton<RemoteConnectivity>();
 builder.Services.AddSingleton<IOverleafEvidenceSource, OverleafEvidenceSource>();
+// Idle connections are dropped before Cloudflare or nginx closes them, so a request never starts on a dead connection.
 builder.Services.AddHttpClient("research-remote", client => client.Timeout = Timeout.InfiniteTimeSpan)
-    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        AllowAutoRedirect = false, UseCookies = false, PooledConnectionIdleTimeout = TimeSpan.FromSeconds(50),
+        PooledConnectionLifetime = TimeSpan.FromMinutes(10)
+    });
 builder.Services.AddSingleton<ResearchCoordinator>();
 builder.Services.AddSingleton<IResearchCoordinator>(services => services.GetRequiredService<ResearchCoordinator>());
 builder.Services.AddHostedService(services => services.GetRequiredService<ResearchCoordinator>());
