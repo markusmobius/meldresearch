@@ -55,6 +55,33 @@ public sealed class ResearchCoordinatorTests
     }
 
     [Fact]
+    public async Task ACheckWithoutTextChangesKeepsTheFilesEditTimes()
+    {
+        var edited = new Dictionary<string, DateTimeOffset>
+        {
+            ["a.tex"] = DateTimeOffset.UtcNow.AddDays(-1), ["b.tex"] = DateTimeOffset.UtcNow.AddDays(-3)
+        };
+        var source = new Source(Files(("main.tex", "Main text."), ("a.tex", "Section A."), ("b.tex", "Section B."))) { EditTimes = edited };
+        var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
+        using var coordinator = Coordinator(store, new Remote(), source);
+        await Drain(coordinator);
+        Assert.Equal(edited, store.State.Projects[0].Baseline!.EditTimes);
+
+        // A forced check whose only change is a bibliography: no processing, and the times of files still present remain.
+        source.Snapshot = Files(("main.tex", "Main text."), ("a.tex", "Section A."), ("b.tex", "Section B."), ("refs.bib", "@book{x}"));
+        source.EditTimes = null;
+        await Drain(coordinator, force: true);
+        Assert.Contains("No model calls", store.State.Projects[0].Explanation);
+        Assert.Equal(edited, store.State.Projects[0].Baseline!.EditTimes);
+
+        // A removed file loses its time (deleting it is processed, which reads the history again).
+        source.Snapshot = Files(("main.tex", "Main text."), ("a.tex", "Section A."), ("refs.bib", "@book{x}"));
+        source.EditTimes = new Dictionary<string, DateTimeOffset> { ["a.tex"] = edited["a.tex"] };
+        await Drain(coordinator, force: true);
+        Assert.Equal(["a.tex"], store.State.Projects[0].Baseline!.EditTimes!.Keys);
+    }
+
+    [Fact]
     public async Task TheQueueResumesAfterARestartWithoutRedoingFinishedFiles()
     {
         var source = new Source(Files(("a.tex", "A."), ("b.tex", "B."), ("c.tex", "C.")));

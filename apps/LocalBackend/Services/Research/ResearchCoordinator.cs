@@ -750,6 +750,10 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 var work = ProcessingPlan.Work(project.Processed, manifest);
                 if (work.Count == 0)
                 {
+                    // Nothing to process, so Overleaf's history is not read again: the files' known edit times are kept.
+                    var paths = manifest.Files.Select(file => file.Path).ToHashSet(StringComparer.Ordinal);
+                    var kept = project.Baseline?.EditTimes?.Where(entry => paths.Contains(entry.Key)).ToDictionary(StringComparer.Ordinal);
+                    manifest = manifest with { EditTimes = kept is { Count: > 0 } ? kept : null };
                     await CommitAsync(credential, project, item => Clean(item) with
                     {
                         Name = metadata.Name, Baseline = manifest, Pending = null, PendingOrder = null, PendingSince = null,
