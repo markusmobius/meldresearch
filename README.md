@@ -529,12 +529,19 @@ Account → Meld account → Your data
 ([ResearchArchive](apps/LocalBackend/Services/Research/ResearchArchive.cs),
 [LeaveService](apps/LocalBackend/Services/Research/LeaveService.cs)):
 
-- **Download my data** (`GET /api/research/export`) is a ZIP of indented,
-  unencrypted JSON: `meld-research-export.json` (format, time, account),
+- **Download my data** queues a download (`POST /api/research/export`; one at a
+  time, asking again while one is prepared returns it). The page polls
+  `GET /api/research/export`, keeps the button disabled while it is prepared,
+  starts the download itself when ready and shows a link
+  (`GET /api/research/export/{id}`) that works for five minutes, also after a
+  reload. The ZIP is held only in the app's memory, never written to disk by
+  Meld. It is a ZIP of indented, unencrypted JSON: `meld-research-export.json` (format, time, account),
   `profile.json` (choices, research cards, summaries, OpenAlex author and works),
   `projects/<id>.json` (summary, Updates, processing state and the source texts
   by SHA-256) and a README. These are the same records encrypted sync uses.
-- **Upload data** (`POST /api/research/import`, at most 256 MB) checks the format
+- **Upload data** (`POST /api/research/import`, at most 256 MB) locks the whole
+  interface (a modal overlay; the page behind it is inert and the browser asks
+  before leaving) until it finished or failed, then shows the outcome. It checks the format
   and every text hash, rebinds the records to the signed-in account (so an export
   from a deleted account restores into a new one), merges choices by newest
   decision, keeps local work that folded in more files, and marks the rest

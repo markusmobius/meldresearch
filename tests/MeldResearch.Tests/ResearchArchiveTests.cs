@@ -43,7 +43,8 @@ public sealed class ResearchArchiveTests
         var snapshot = Files(("main.tex", "Main text about scooping."), ("a.tex", "Section A: Müller & <Schäfer>."));
         using var first = New(Credential, snapshot, null, Included());
         await Drain(first.Coordinator);
-        var (zip, name) = await first.Archive.ExportAsync(None);
+        var export = await first.Archive.ExportAsync(None);
+        var (zip, name) = (export.Zip, export.FileName);
         Assert.Matches("^meld-research-\\d{4}-\\d{2}-\\d{2}\\.zip$", name);
 
         using (var archive = new ZipArchive(new MemoryStream(zip)))
@@ -81,12 +82,66 @@ public sealed class ResearchArchiveTests
     }
 
     [Fact]
+    public async Task DownloadsArePreparedOneAtATimeAndStayAvailableForFiveMinutes()
+    {
+        var clock = new TestClock(DateTimeOffset.UtcNow);
+        using var computer = New(Credential, Files(("main.tex", "Main text.")), null, Included());
+        await Drain(computer.Coordinator);
+        var archive = new ResearchArchive(computer.Store, computer.Coordinator, Updates, clock, NullLogger<ResearchArchive>.Instance);
+        Assert.Null(archive.CurrentExport(Account.Id));
+
+        await archive.StartExportAsync(None);
+        await archive.PreparedAsync();
+        var ready = archive.CurrentExport(Account.Id)!;
+        Assert.Equal(("ready", 1, $"/api/research/export/{ready.Id}"), (ready.State, ready.Projects, ready.Url));
+        Assert.Equal(ready.ReadyAt + ResearchArchive.DownloadAvailable, ready.ExpiresAt);
+        var file = archive.Download(ready.Id, Account.Id)!;
+        Assert.Equal(ready.Bytes, file.Zip.LongLength);
+        Assert.Null(archive.Download(ready.Id, Guid.NewGuid()));
+        Assert.Null(archive.CurrentExport(Guid.NewGuid()));
+        Assert.Null(archive.Download("other", Account.Id));
+
+        // While a download is being prepared, asking again returns the same one instead of queueing another.
+        var gate = new TaskCompletionSource();
+        var slow = new ResearchArchive(new SlowStore(computer.Store, gate.Task), computer.Coordinator, Updates, clock, NullLogger<ResearchArchive>.Instance);
+        var first = await slow.StartExportAsync(None);
+        var second = await slow.StartExportAsync(None);
+        Assert.Equal(("preparing", first.Id), (second.State, second.Id));
+        gate.SetResult();
+        await slow.PreparedAsync();
+        Assert.Equal("ready", slow.CurrentExport(Account.Id)!.State);
+
+        clock.UtcNow += ResearchArchive.DownloadAvailable - TimeSpan.FromSeconds(1);
+        Assert.NotNull(archive.CurrentExport(Account.Id));
+        clock.UtcNow += TimeSpan.FromSeconds(1);
+        Assert.Null(archive.CurrentExport(Account.Id));
+        Assert.Null(archive.Download(ready.Id, Account.Id));
+        Assert.NotEqual(ready.Id, (await archive.StartExportAsync(None)).Id);
+    }
+
+    private sealed class TestClock(DateTimeOffset now) : TimeProvider
+    {
+        public DateTimeOffset UtcNow { get; set; } = now;
+        public override DateTimeOffset GetUtcNow() => UtcNow;
+    }
+
+    /// <summary>Holds reads of source texts until released, so a download stays in preparation.</summary>
+    private sealed class SlowStore(IResearchStore inner, Task release) : IResearchStore
+    {
+        public Task<LocalResearchState> ReadAsync(CancellationToken ct) => inner.ReadAsync(ct);
+        public Task<LocalResearchState> ChangeAsync(Func<LocalResearchState, LocalResearchState> change, CancellationToken ct) => inner.ChangeAsync(change, ct);
+        public Task WriteTextAsync(string sha256, string text, CancellationToken ct) => inner.WriteTextAsync(sha256, text, ct);
+        public async Task<string?> ReadTextAsync(string sha256, CancellationToken ct) { await release; return await inner.ReadTextAsync(sha256, ct); }
+        public void PruneTexts(IReadOnlySet<string> keep) => inner.PruneTexts(keep);
+    }
+
+    [Fact]
     public async Task AnImportIsUploadedByEncryptedSync()
     {
         var snapshot = Files(("main.tex", "Main text."));
         using var first = New(Credential, snapshot, null, Included());
         await Drain(first.Coordinator);
-        var (zip, _) = await first.Archive.ExportAsync(None);
+        var zip = (await first.Archive.ExportAsync(None)).Zip;
 
         var box = new BlobBox();
         using var fresh = New(Credential, snapshot, box);
@@ -107,7 +162,7 @@ public sealed class ResearchArchiveTests
         var snapshot = Files(("main.tex", "Main text."), ("a.tex", "A."));
         using var first = New(Credential, snapshot, null, Included());
         Assert.True(await first.Coordinator.RunCycleAsync(false, None, maxSteps: 1));
-        var (partial, _) = await first.Archive.ExportAsync(None);
+        var partial = (await first.Archive.ExportAsync(None)).Zip;
         await Drain(first.Coordinator);
         var finished = first.Store.State.Projects.Single();
         await first.Coordinator.DecideProjectAsync(ProjectId, new(false, null), None);
@@ -124,7 +179,7 @@ public sealed class ResearchArchiveTests
         var snapshot = Files(("main.tex", "Main text."));
         using var first = New(Credential, snapshot, null, Included());
         await Drain(first.Coordinator);
-        var (zip, _) = await first.Archive.ExportAsync(None);
+        var zip = (await first.Archive.ExportAsync(None)).Zip;
         byte[] tampered = Rewrite(zip, $"projects/{ProjectId}.json", text => text.Replace("Main text.", "Forged text."));
 
         using var fresh = New(Credential, snapshot);

@@ -1,62 +1,121 @@
 import { TestBed } from '@angular/core/testing';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { AccountData } from './account-data';
-import { LeaveResult, ResearchApi } from './research-api';
+import { InterfaceLock } from './interface-lock';
+import { ExportStatus, LeaveResult, ResearchApi } from './research-api';
 
 describe('Your data', () => {
-  const api = { importData: vi.fn(), leave: vi.fn() };
+  const api = { importData: vi.fn(), leave: vi.fn(), exportStatus: vi.fn(), startExport: vi.fn() };
+  const job = (state: ExportStatus['state'], extra: Partial<ExportStatus> = {}): ExportStatus => ({
+    id: 'job1', state, startedAt: '2026-11-01T12:00:00Z', readyAt: null, expiresAt: null, fileName: null, bytes: null, projects: 0,
+    url: null, error: null, ...extra,
+  });
+  const ready = (id = 'job1') => job('ready', { id, readyAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 300_000).toISOString(),
+    fileName: 'meld-research-2026-11-01.zip', bytes: 20480, projects: 2, url: `/api/research/export/${id}` });
   beforeEach(() => {
     vi.resetAllMocks();
+    api.exportStatus.mockResolvedValue(null);
     TestBed.configureTestingModule({ imports: [AccountData], providers: [provideNoopAnimations(), { provide: ResearchApi, useValue: api }] });
   });
-  function setup(synced = true) {
+  afterEach(() => vi.useRealTimers());
+  async function setup(synced = true) {
     const fixture = TestBed.createComponent(AccountData);
     fixture.componentRef.setInput('synced', synced);
+    fixture.detectChanges();
+    await fixture.whenStable();
     fixture.detectChanges();
     return { fixture, element: fixture.nativeElement as HTMLElement };
   }
 
-  it('downloads through a plain link and explains the file is not encrypted', () => {
-    const { element } = setup();
-    const link = element.querySelector<HTMLAnchorElement>('a.download-data')!;
-    expect(link.getAttribute('href')).toBe('/api/research/export');
-    expect(link.hasAttribute('download')).toBe(true);
+  it('queues a download, blocks another until it is ready, then starts it and shows the link', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    api.startExport.mockResolvedValue(job('preparing'));
+    const { fixture, element } = await setup();
+    const save = vi.spyOn(fixture.componentInstance, 'save').mockImplementation(() => undefined);
     expect(element.textContent).toContain('not encrypted');
+    const button = () => element.querySelector<HTMLButtonElement>('button.download-data')!;
+    button().click();
+    await vi.waitFor(() => expect(api.startExport).toHaveBeenCalledOnce());
+    fixture.detectChanges();
+    expect(button().disabled).toBe(true);
+    expect(element.querySelector('.export-status')?.textContent).toContain('Preparing your download');
+    await fixture.componentInstance.startDownload();
+    expect(api.startExport).toHaveBeenCalledOnce();
+
+    api.exportStatus.mockResolvedValue(ready());
+    await vi.advanceTimersByTimeAsync(1000);
+    fixture.detectChanges();
+    expect(save).toHaveBeenCalledWith('/api/research/export/job1', 'meld-research-2026-11-01.zip');
+    expect(button().disabled).toBe(false);
+    const link = element.querySelector<HTMLAnchorElement>('a.export-link')!;
+    expect(link.getAttribute('href')).toBe('/api/research/export/job1');
+    expect(element.querySelector('.export-ready')?.textContent).toContain('20 KB, 2 projects');
   });
 
-  it('uploads a chosen ZIP and reports what it restored', async () => {
-    api.importData.mockResolvedValue({ projects: 3, included: 2, cards: 2, summaries: 1, publications: true,
-      exportedEmail: 'old@example.invalid', otherAccount: true, exportedAt: '2026-11-01T12:00:00Z' });
-    const { fixture, element } = setup();
+  it('starts a download that was ready before the queue request returned', async () => {
+    api.startExport.mockResolvedValue(ready('quick'));
+    const { fixture } = await setup();
+    const save = vi.spyOn(fixture.componentInstance, 'save').mockImplementation(() => undefined);
+    await fixture.componentInstance.startDownload();
+    expect(save).toHaveBeenCalledExactlyOnceWith('/api/research/export/quick', 'meld-research-2026-11-01.zip');
+  });
+
+  it('after a reload shows a recent download without starting it again', async () => {
+    api.exportStatus.mockResolvedValue(ready('earlier'));
+    const save = vi.spyOn(AccountData.prototype, 'save').mockImplementation(() => undefined);
+    const { element } = await setup();
+    expect(element.querySelector('a.export-link')?.getAttribute('href')).toBe('/api/research/export/earlier');
+    expect(save).not.toHaveBeenCalled();
+    save.mockRestore();
+  });
+
+  it('locks the interface during an upload and reports what it restored', async () => {
+    let finish!: (value: unknown) => void;
+    api.importData.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    const { fixture, element } = await setup();
+    const lock = TestBed.inject(InterfaceLock);
     const changed = vi.fn();
     fixture.componentInstance.changed.subscribe(changed);
     const input = element.querySelector<HTMLInputElement>('input.upload-input')!;
     const file = new File([new Uint8Array([80, 75, 3, 4])], 'meld-research-2026-11-01.zip', { type: 'application/zip' });
     Object.defineProperty(input, 'files', { value: [file] });
-    await fixture.componentInstance.upload({ target: input } as unknown as Event);
+    const uploading = fixture.componentInstance.upload({ target: input } as unknown as Event);
+    expect(lock.running()).toBe(true);
+    expect(lock.state()?.detail).toContain('meld-research-2026-11-01.zip');
+    lock.close();
+    expect(lock.locked()).toBe(true);
+
+    finish({ projects: 3, included: 2, cards: 2, summaries: 1, publications: true,
+      exportedEmail: 'old@example.invalid', otherAccount: true, exportedAt: '2026-11-01T12:00:00Z' });
+    await uploading;
     fixture.detectChanges();
     expect(api.importData).toHaveBeenCalledWith(file);
     expect(changed).toHaveBeenCalled();
-    const status = element.querySelector('.imported')!.textContent!;
-    expect(status).toContain('Imported 3 projects (2 included)');
-    expect(status).toContain("old@example.invalid's earlier account");
-    expect(status).toContain('Encrypted sync uploads it');
+    expect(lock.state()?.outcome).toBe('done');
+    expect(lock.state()?.message).toContain('Imported 3 projects (2 included)');
+    expect(lock.state()?.message).toContain("old@example.invalid's earlier account");
+    expect(element.querySelector('.imported')!.textContent).toContain('Encrypted sync uploads it');
+    lock.close();
+    expect(lock.locked()).toBe(false);
   });
 
-  it('reports a file that cannot be imported', async () => {
+  it('unlocks with the error when an upload fails', async () => {
     api.importData.mockRejectedValue(new Error('invalid'));
-    const { fixture, element } = setup();
+    const { fixture, element } = await setup();
+    const lock = TestBed.inject(InterfaceLock);
     const input = element.querySelector<HTMLInputElement>('input.upload-input')!;
     Object.defineProperty(input, 'files', { value: [new File(['x'], 'x.zip')] });
     await fixture.componentInstance.upload({ target: input } as unknown as Event);
     fixture.detectChanges();
+    expect(lock.state()?.outcome).toBe('failed');
     expect(element.querySelector('[role="alert"]')).not.toBeNull();
+    lock.close();
   });
 
   it('leaves only after the warning and typing DELETE', async () => {
     const result: LeaveResult = { uninstalling: true, accountDeleted: true, logPath: 'C:\\Temp\\meldresearch-uninstall.log' };
     api.leave.mockResolvedValue(result);
-    const { fixture, element } = setup();
+    const { fixture, element } = await setup();
     const left = vi.fn();
     fixture.componentInstance.left.subscribe(left);
     element.querySelector<HTMLButtonElement>('button.leave-toggle')!.click();

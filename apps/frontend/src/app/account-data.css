@@ -13,3 +13,7 @@ p { margin: 0 0 8px; line-height: 1.5; }
 .warning ul { margin: 0 0 8px; padding-left: 20px; line-height: 1.5; }
 .warning mat-form-field { width: 100%; max-width: 320px; margin-top: 4px; }
 .danger:not(:disabled) { background: #b42336; color: #ffffff; }
+.export-status, .export-ready { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; font-size: 13.5px; }
+.export-status mat-spinner { flex: none; margin-top: 2px; }
+.export-ready mat-icon { color: #16a34a; flex: none; }
+.export-link { font-weight: 600; color: #084d42; overflow-wrap: anywhere; }

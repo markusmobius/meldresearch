@@ -111,3 +111,12 @@ small { display: block; color: #64748b; margin-top: 4px; font-size: 12px; }
 .farewell-card p { line-height: 1.55; margin: 0 0 10px; }
 .farewell-card code { overflow-wrap: anywhere; }
 .farewell-icon mat-icon { font-size: 40px; width: 40px; height: 40px; color: #084d42; }
+.interface-lock { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 24px;
+  background: rgba(15, 23, 42, 0.55); font-family: Outfit, sans-serif; }
+.interface-lock-card { width: 100%; max-width: 480px; background: #ffffff; border-radius: 14px; padding: 22px 26px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25); }
+.interface-lock-card h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; font-size: 19px; color: #0f172a; }
+.interface-lock-card h2 mat-icon { color: #084d42; }
+.interface-lock-card mat-progress-bar { margin-bottom: 14px; }
+.interface-lock-card p { line-height: 1.5; margin: 0 0 10px; }
+.interface-lock-card .lock-close { background: #084d42; color: #ffffff; }

@@ -17,7 +17,7 @@
     </section>
   </main>
 } @else {
-<div class="app-layout">
+<div class="app-layout" [attr.inert]="lock.locked() ? '' : null" [attr.aria-hidden]="lock.locked() ? 'true' : null">
   <app-meld-toolbar [page]="view()" [accountName]="research()?.account?.name ?? null" [setupComplete]="setupKnown() && setupComplete()"
     [dummy]="!!status()?.dummy" [updateCount]="research()?.totalUpdates ?? 0"></app-meld-toolbar>
 
@@ -243,4 +243,20 @@
     <a href="mailto:markusmobius@gmail.com">Contact</a>
   </footer>
 </div>
+@if (lock.state(); as locked) {
+  <div class="interface-lock" role="dialog" aria-modal="true" aria-labelledby="interface-lock-title">
+    <section class="interface-lock-card">
+      <h2 id="interface-lock-title"><mat-icon>{{ locked.outcome === 'failed' ? 'error' : locked.outcome === 'done' ? 'check_circle' : 'upload' }}</mat-icon>
+        {{ locked.outcome === 'failed' ? 'Upload stopped' : locked.outcome === 'done' ? 'Upload finished' : locked.title }}</h2>
+      @if (!locked.outcome) {
+        <mat-progress-bar mode="indeterminate" aria-label="Uploading"></mat-progress-bar>
+        <p role="status">{{ locked.detail }}</p>
+        <p class="muted">Keep this page open.</p>
+      } @else {
+        <p [class.alert]="locked.outcome === 'failed'" role="status">{{ locked.message }}</p>
+        <div class="controls"><button mat-flat-button #lockClose class="lock-close" (click)="lock.close()">Close</button></div>
+      }
+    </section>
+  </div>
+}
 }

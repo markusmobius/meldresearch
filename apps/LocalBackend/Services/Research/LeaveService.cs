@@ -13,7 +13,8 @@ namespace MeldResearch.LocalBackend.Services.Research;
 /// small script that runs after this process has exited, because a running program cannot delete itself.
 /// </summary>
 internal sealed class LeaveService(ResearchCoordinator coordinator, IResearchStore store, IResearchRemote remote, UpdateOptions updates,
-    ResearchOptions options, INativeHostRegistrar registrar, IHostApplicationLifetime lifetime, ILogger<LeaveService> logger)
+    ResearchOptions options, INativeHostRegistrar registrar, IHostApplicationLifetime lifetime, ILogger<LeaveService> logger,
+    ResearchArchive? archive = null)
 {
     public const string Confirmation = "DELETE";
 
@@ -41,6 +42,7 @@ internal sealed class LeaveService(ResearchCoordinator coordinator, IResearchSto
                 logger.LogInformation("Deleted the Meld account and its encrypted synced data on Meld's server.");
             }
             await EraseAsync(ct);
+            archive?.Clear();
             if (plan is null)
             {
                 logger.LogInformation("Erased this computer's research. This is not an installed copy, so nothing was uninstalled.");

@@ -1,4 +1,4 @@
-import { Component, DestroyRef, HostListener, OnInit, computed, effect, inject, signal, untracked, viewChild } from '@angular/core';
+import { Component, DestroyRef, ElementRef, HostListener, OnInit, computed, effect, inject, signal, untracked, viewChild } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatTabsModule } from '@angular/material/tabs';
@@ -17,6 +17,8 @@ import { PrivateProfile } from './private-profile';
 import { MeldLog } from './meld-log';
 import { EncryptedSync } from './encrypted-sync';
 import { AccountData } from './account-data';
+import { InterfaceLock } from './interface-lock';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { includedCount, researcherDone, undecidedRecent } from './project-decisions';
 
 export type SetupTab = 'meld' | 'overleaf' | 'openalex';
@@ -37,7 +39,7 @@ interface InstallPromptEvent extends Event {
 
 @Component({
   selector: 'app-root',
-  imports: [ResearchPanel, MeldToolbar, ProjectSelection, ResearcherSetup, PublicationsList, PrivateProfile, MeldLog, EncryptedSync, AccountData, MatButtonModule, MatCardModule, MatTabsModule,
+  imports: [ResearchPanel, MeldToolbar, ProjectSelection, ResearcherSetup, PublicationsList, PrivateProfile, MeldLog, EncryptedSync, AccountData, MatProgressBarModule, MatButtonModule, MatCardModule, MatTabsModule,
     MatExpansionModule, MatIconModule, MatSidenavModule],
   templateUrl: './app.html',
   styleUrl: './app.css',
@@ -101,6 +103,17 @@ export class App implements OnInit {
     if (this.browserState()?.connecting) return 'Connecting browser';
     return 'Browser connector disconnected';
   });
+
+  /** An upload (or similar) locks the whole interface; the overlay shows its progress and then its outcome. */
+  readonly lock = inject(InterfaceLock);
+  private readonly lockClose = viewChild<unknown, ElementRef<HTMLElement>>('lockClose', { read: ElementRef });
+  private readonly focusOutcome = effect(() => this.lockClose()?.nativeElement.focus());
+
+  /** Leaving or reloading during an upload would abandon it, so the browser asks first. */
+  @HostListener('window:beforeunload', ['$event'])
+  confirmLeavingPage(event: BeforeUnloadEvent): void {
+    if (this.lock.running()) { event.preventDefault(); event.returnValue = ''; }
+  }
 
   @HostListener('window:hashchange')
   locationChanged(): void { this.page.set(this.pageFromHash()); }

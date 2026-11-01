@@ -61,6 +61,11 @@ export interface ResearchStatus {
   /** End-to-end encrypted sync of this account's research between the user's computers. */
   sync?: SyncStatus | null;
 }
+/** A data download being prepared, ready (url works until expiresAt, five minutes) or failed. */
+export interface ExportStatus {
+  id: string; state: 'preparing' | 'ready' | 'failed'; startedAt: string; readyAt: string | null; expiresAt: string | null;
+  fileName: string | null; bytes: number | null; projects: number; url: string | null; error: string | null;
+}
 /** What an uploaded export contained; otherAccount when it was downloaded while signed in as another account. */
 export interface ImportResult {
   projects: number; included: number; cards: number; summaries: number; publications: boolean;
@@ -132,9 +137,19 @@ export class ResearchApi {
   startSyncOver(passphrase: string): Promise<{ recoveryKey: string }> {
     return firstValueFrom(this.http.post<{ recoveryKey: string }>('/api/research/encrypted-sync/start-over', { passphrase }));
   }
+  /** The download being prepared, or the last one if it is less than five minutes old. */
+  exportStatus(): Promise<ExportStatus | null> {
+    return firstValueFrom(this.http.get<{ current: ExportStatus | null }>('/api/research/export')).then(response => response.current);
+  }
+  /** Queues a download; while one is being prepared, this returns it instead of starting another. */
+  startExport(): Promise<ExportStatus> {
+    return firstValueFrom(this.http.post<{ current: ExportStatus }>('/api/research/export', {})).then(response => response.current);
+  }
   /** Merges a downloaded export (a ZIP of readable JSON) into this account's research; encrypted sync uploads it. */
   importData(file: Blob): Promise<ImportResult> {
-    return firstValueFrom(this.http.post<ImportResult>('/api/research/import', file, { headers: { 'Content-Type': 'application/zip' } }));
+    // The interface is locked meanwhile, so a request that never answers must still end (with an error).
+    return firstValueFrom(this.http.post<ImportResult>('/api/research/import', file,
+      { headers: { 'Content-Type': 'application/zip' }, timeout: 600_000 }));
   }
   /** Deletes the Meld account, its synced data and this computer's research, and uninstalls the app. */
   leave(confirmation: string): Promise<LeaveResult> {

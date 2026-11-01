@@ -39,6 +39,14 @@ public sealed record SyncPassphraseRequest(string? Passphrase = null, string? Re
 /// <summary>Shown once: the recovery key that unlocks the synced data if the passphrase is forgotten.</summary>
 public sealed record SyncKeyResponse(string RecoveryKey);
 
+/// <summary>
+/// A download being prepared (State preparing), ready (Url downloads it until ExpiresAt) or failed. One at a time; a ready
+/// download stays available for five minutes, kept only in the app's memory.
+/// </summary>
+public sealed record ExportStatusResponse(string Id, string State, DateTimeOffset StartedAt, DateTimeOffset? ReadyAt,
+    DateTimeOffset? ExpiresAt, string? FileName, long? Bytes, int Projects, string? Url, string? Error);
+public sealed record ExportStateResponse(ExportStatusResponse? Current);
+
 /// <summary>What an uploaded export contained; OtherAccount when it was downloaded while signed in as someone else.</summary>
 public sealed record ImportResponse(int Projects, int Included, int Cards, int Summaries, bool Publications, string? ExportedEmail,
     bool OtherAccount, DateTimeOffset ExportedAt);

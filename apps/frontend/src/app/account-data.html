@@ -4,20 +4,26 @@
     summaries, Updates, publications and the Overleaf text they were made from. It is <strong>not encrypted</strong>; keep it private.
     Uploading it later (also after leaving and signing up again) restores it without processing your projects again.</p>
   <div class="controls">
-    <a mat-stroked-button class="download-data" href="/api/research/export" download><mat-icon>download</mat-icon>Download my data</a>
-    <button mat-stroked-button type="button" class="upload-data" [disabled]="importing()" (click)="file.click()">
-      <mat-icon>upload</mat-icon>{{ importing() ? 'Uploading…' : 'Upload data' }}</button>
+    <button mat-stroked-button type="button" class="download-data" [disabled]="preparing()" (click)="startDownload()">
+      <mat-icon>download</mat-icon>{{ preparing() ? 'Preparing download…' : 'Download my data' }}</button>
+    <button mat-stroked-button type="button" class="upload-data" (click)="file.click()"><mat-icon>upload</mat-icon>Upload data</button>
     <input #file type="file" class="upload-input" accept=".zip,application/zip" hidden (change)="upload($event)">
   </div>
+  @if (download(); as job) {
+    @if (job.state === 'preparing') {
+      <p class="export-status" role="status"><mat-spinner diameter="16"></mat-spinner>
+        <span>Preparing your download (queued {{ job.startedAt | date: 'h:mm:ss a' }}). It starts by itself when ready.</span></p>
+    } @else if (job.state === 'ready' && job.url) {
+      <p class="export-ready" role="status"><mat-icon>check_circle</mat-icon><span>
+        Your download is ready: <a class="export-link" [href]="job.url" [attr.download]="job.fileName">{{ job.fileName }}</a>
+        ({{ (job.bytes ?? 0) / 1024 | number: '1.0-0' }} KB, {{ job.projects }} {{ job.projects === 1 ? 'project' : 'projects' }}).
+        The link works until {{ job.expiresAt | date: 'h:mm a' }}.</span></p>
+    } @else if (job.state === 'failed') {
+      <p class="alert" role="alert">{{ job.error }}</p>
+    }
+  }
   @if (imported(); as result) {
-    <p class="imported" role="status"><mat-icon>check_circle</mat-icon><span>
-      Imported {{ result.projects }} {{ result.projects === 1 ? 'project' : 'projects' }} ({{ result.included }} included),
-      {{ result.cards }} research {{ result.cards === 1 ? 'card' : 'cards' }} and {{ result.summaries }}
-      {{ result.summaries === 1 ? 'summary' : 'summaries' }}{{ result.publications ? ', and your OpenAlex publications' : '' }},
-      exported {{ result.exportedAt | date: 'MMM d, y' }}.
-      @if (result.otherAccount) { It came from {{ result.exportedEmail }}'s earlier account and now belongs to this one. }
-      @if (synced()) { Encrypted sync uploads it on its next check. }
-    </span></p>
+    <p class="imported" role="status"><mat-icon>check_circle</mat-icon><span>{{ summary(result) }}</span></p>
   }
 
   <div class="leave">

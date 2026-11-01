@@ -1,6 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
+import { InterfaceLock } from './interface-lock';
 import { App } from './app';
 import { BrowserConnector, ConnectorState } from './browser-connector';
 import { BridgeStatus, OverleafApi, describeFailure } from './overleaf-api';
@@ -55,7 +56,7 @@ describe('Overleaf connection screen', () => {
     decisions: [], overleafProjects: null, researcher: researcher('rejected'), processing: null, ...extra,
   });
   const researchApi = { status: vi.fn(), link: vi.fn(), unlink: vi.fn(), decide: vi.fn(), researcher: vi.fn(), publications: vi.fn(), monitor: vi.fn(),
-    encryptedSync: vi.fn() };
+    encryptedSync: vi.fn(), exportStatus: vi.fn() };
   const sync = (state: string) => ({ state, syncedProjects: 0, lastPushAt: null, lastPullAt: null, error: null });
 
   beforeEach(() => {
@@ -74,6 +75,7 @@ describe('Overleaf connection screen', () => {
     browser.send.mockResolvedValue(connector());
     researchApi.status.mockResolvedValue(researchStatus());
     researchApi.encryptedSync.mockResolvedValue(sync('off'));
+    researchApi.exportStatus.mockResolvedValue(null);
     TestBed.configureTestingModule({ imports: [App], providers: [
       provideNoopAnimations(),
       { provide: OverleafApi, useValue: api }, { provide: BrowserConnector, useValue: browser },
@@ -126,6 +128,29 @@ describe('Overleaf connection screen', () => {
     fixture.componentInstance.recoveryKeyShown.set(false);
     fixture.detectChanges();
     expect(fixture.componentInstance.setupComplete()).toBe(true);
+    fixture.destroy();
+  });
+
+  it('locks the whole interface during an upload until its outcome is closed', async () => {
+    const fixture = await screen('account');
+    const element: HTMLElement = fixture.nativeElement;
+    const lock = TestBed.inject(InterfaceLock);
+    lock.begin('Uploading your data', 'Restoring meld-research.zip.');
+    fixture.detectChanges();
+    expect(element.querySelector('.app-layout')?.hasAttribute('inert')).toBe(true);
+    expect(element.querySelector('.interface-lock[aria-modal="true"]')?.textContent).toContain('Restoring meld-research.zip.');
+    const unload = new Event('beforeunload', { cancelable: true }) as BeforeUnloadEvent;
+    fixture.componentInstance.confirmLeavingPage(unload);
+    expect(unload.defaultPrevented).toBe(true);
+
+    lock.finish('Imported 1 project.');
+    fixture.detectChanges();
+    const close = element.querySelector<HTMLButtonElement>('.interface-lock button.lock-close')!;
+    expect(element.querySelector('.interface-lock')?.textContent).toContain('Upload finished');
+    close.click();
+    fixture.detectChanges();
+    expect(element.querySelector('.interface-lock')).toBeNull();
+    expect(element.querySelector('.app-layout')?.hasAttribute('inert')).toBe(false);
     fixture.destroy();
   });
 

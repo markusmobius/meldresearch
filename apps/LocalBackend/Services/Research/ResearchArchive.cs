@@ -11,6 +11,7 @@ namespace MeldResearch.LocalBackend.Services.Research;
 internal sealed record ExportManifest(string Format, int Version, DateTimeOffset ExportedAt, string AppVersion, ExportAccount Account,
     int Projects, string Notice);
 internal sealed record ExportAccount(Guid Id, string Name, string Email);
+internal sealed record ExportFile(byte[] Zip, string FileName, int Projects, Guid Account);
 
 /// <summary>
 /// Account → Meld account → Your data. Downloads the signed-in account's research as a ZIP of readable JSON (not encrypted):
@@ -19,8 +20,102 @@ internal sealed record ExportAccount(Guid Id, string Name, string Email);
 /// processed again: unchanged Overleaf content makes no model calls.
 /// </summary>
 internal sealed partial class ResearchArchive(IResearchStore store, ResearchCoordinator coordinator, Updates.UpdateOptions updates,
-    TimeProvider clock, ILogger<ResearchArchive> logger)
+    TimeProvider clock, ILogger<ResearchArchive> logger, IHostApplicationLifetime? lifetime = null)
 {
+    public static readonly TimeSpan DownloadAvailable = TimeSpan.FromMinutes(5);
+    private readonly Lock _gate = new();
+    private ExportJob? _job;
+
+    private sealed class ExportJob(string id, Guid account, DateTimeOffset startedAt)
+    {
+        public string Id { get; } = id;
+        public Guid Account { get; } = account;
+        public DateTimeOffset StartedAt { get; } = startedAt;
+        public ExportFile? File { get; set; }
+        public DateTimeOffset? FinishedAt { get; set; }
+        public string? Error { get; set; }
+        public Task Work { get; set; } = Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Queues the download: while one is being prepared, asking again returns it instead of starting another. The finished
+    /// ZIP stays in memory (it is not encrypted, so it is never written to disk) for five minutes.
+    /// </summary>
+    public async Task<ExportStatusResponse> StartExportAsync(CancellationToken ct)
+    {
+        var account = (await store.ReadAsync(ct)).Credential?.Account.Id ??
+            throw new ResearchFailure(401, "meld_account_required", "Sign in with Google first.");
+        ExportJob job;
+        lock (_gate)
+        {
+            if (_job is { FinishedAt: null } running && running.Account == account) return Status(running);
+            job = _job = new ExportJob(Guid.NewGuid().ToString("N"), account, clock.GetUtcNow());
+            job.Work = Task.Run(() => PrepareAsync(job));
+        }
+        return Status(job);
+    }
+
+    /// <summary>The account's current or recent download (null when there is none, or it expired).</summary>
+    public ExportStatusResponse? CurrentExport(Guid? account)
+    {
+        lock (_gate)
+        {
+            Expire();
+            return _job is { } job && job.Account == account ? Status(job) : null;
+        }
+    }
+
+    public ExportFile? Download(string id, Guid? account)
+    {
+        lock (_gate)
+        {
+            Expire();
+            return _job is { File: { } file } job && job.Id == id && job.Account == account ? file : null;
+        }
+    }
+
+    /// <summary>Forgets any prepared download (leaving Meld Research).</summary>
+    public void Clear() { lock (_gate) _job = null; }
+
+    /// <summary>For tests: waits until the current download is prepared.</summary>
+    internal Task PreparedAsync() { lock (_gate) return _job?.Work ?? Task.CompletedTask; }
+
+    private async Task PrepareAsync(ExportJob job)
+    {
+        ExportFile? file = null;
+        string? error = null;
+        try
+        {
+            file = await ExportAsync(lifetime?.ApplicationStopping ?? CancellationToken.None);
+            if (file.Account != job.Account) { file = null; error = "The account changed while the download was prepared."; }
+        }
+        catch (ResearchFailure failure) { error = failure.Message; }
+        catch (Exception exception) when (exception is IOException or System.Security.Cryptography.CryptographicException or OperationCanceledException)
+        {
+            error = "The download could not be prepared. Try again.";
+            logger.LogWarning("Preparing the data download failed ({Type}).", exception.GetType().Name);
+        }
+        lock (_gate)
+        {
+            job.File = file;
+            job.Error = error;
+            job.FinishedAt = clock.GetUtcNow();
+        }
+    }
+
+    private void Expire()
+    {
+        if (_job is { FinishedAt: { } finished } && clock.GetUtcNow() - finished >= DownloadAvailable) _job = null;
+    }
+
+    private static ExportStatusResponse Status(ExportJob job) => job switch
+    {
+        { FinishedAt: null } => new(job.Id, "preparing", job.StartedAt, null, null, null, null, 0, null, null),
+        { File: { } file, FinishedAt: { } ready } => new(job.Id, "ready", job.StartedAt, ready, ready + DownloadAvailable, file.FileName,
+            file.Zip.LongLength, file.Projects, $"/api/research/export/{job.Id}", null),
+        _ => new(job.Id, "failed", job.StartedAt, job.FinishedAt, job.FinishedAt + DownloadAvailable, null, null, 0, null,
+            job.Error ?? "The download could not be prepared. Try again.")
+    };
     public const string Format = "meld-research-export", ManifestName = "meld-research-export.json", ProfileName = "profile.json";
     public const long MaxUploadBytes = 256L * 1024 * 1024;
     private const long MaxExpandedBytes = 1024L * 1024 * 1024;
@@ -34,7 +129,7 @@ internal sealed partial class ResearchArchive(IResearchStore store, ResearchCoor
     [GeneratedRegex("^[A-Za-z0-9_-]{1,64}$")]
     private static partial Regex ProjectIdPattern();
 
-    public async Task<(byte[] Zip, string FileName)> ExportAsync(CancellationToken ct)
+    public async Task<ExportFile> ExportAsync(CancellationToken ct)
     {
         var state = await store.ReadAsync(ct);
         var credential = state.Credential ?? throw new ResearchFailure(401, "meld_account_required", "Sign in with Google first.");
@@ -61,8 +156,8 @@ internal sealed partial class ResearchArchive(IResearchStore store, ResearchCoor
             await using (var stream = readme.Open())
                 await stream.WriteAsync(Encoding.UTF8.GetBytes(Readme), ct);
         }
-        logger.LogInformation("Exported the account's research ({Projects} project(s)) as a download.", projects.Length);
-        return (buffer.ToArray(), $"meld-research-{now:yyyy-MM-dd}.zip");
+        logger.LogInformation("Prepared the account's research ({Projects} project(s)) as a download.", projects.Length);
+        return new(buffer.ToArray(), $"meld-research-{now:yyyy-MM-dd}.zip", projects.Length, account);
     }
 
     public async Task<ImportResponse> ImportAsync(Stream upload, CancellationToken ct)

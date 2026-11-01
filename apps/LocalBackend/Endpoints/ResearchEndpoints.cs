@@ -113,11 +113,17 @@ internal static class ResearchEndpoints
             await research.WithSyncAsync(async (sync, credential) => { await sync.ChangePassphraseAsync(credential, request.Passphrase, ct); return true; }, ct);
             return TypedResults.NoContent();
         }).WithName("ChangeEncryptedSyncPassphrase").WithSummary("Choose a new passphrase for the same synced data; the recovery key keeps working.");
-        group.MapGet("/export", async Task<FileContentHttpResult> (ResearchArchive archive, CancellationToken ct) =>
-        {
-            var (zip, name) = await archive.ExportAsync(ct);
-            return TypedResults.File(zip, "application/zip", name);
-        }).WithName("ExportResearch").WithSummary("Download this account's research as a ZIP of readable (unencrypted) JSON.");
+        group.MapGet("/export", async Task<Ok<ExportStateResponse>> (ResearchArchive archive, IResearchStore store, CancellationToken ct) =>
+            TypedResults.Ok(new ExportStateResponse(archive.CurrentExport((await store.ReadAsync(ct)).Credential?.Account.Id))))
+            .WithName("GetResearchExport").WithSummary("The download being prepared, or the last one if it is less than five minutes old.");
+        group.MapPost("/export", async Task<Ok<ExportStateResponse>> (ResearchArchive archive, CancellationToken ct) =>
+            TypedResults.Ok(new ExportStateResponse(await archive.StartExportAsync(ct))))
+            .WithName("StartResearchExport").WithSummary("Prepare this account's research as a ZIP of readable (unencrypted) JSON; one at a time.");
+        group.MapGet("/export/{id}", async Task<Results<FileContentHttpResult, NotFound>> (
+            string id, ResearchArchive archive, IResearchStore store, CancellationToken ct) =>
+            archive.Download(id, (await store.ReadAsync(ct)).Credential?.Account.Id) is { } file
+                ? TypedResults.File(file.Zip, "application/zip", file.FileName) : TypedResults.NotFound())
+            .WithName("DownloadResearchExport").WithSummary("Download a prepared export (available for five minutes).");
         group.MapPost("/import", async Task<Ok<ImportResponse>> (HttpContext context, ResearchArchive archive, CancellationToken ct) =>
         {
             if (context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
