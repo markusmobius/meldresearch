@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using MeldResearch.Research;
 
 namespace MeldResearch.LocalBackend.Services.Research;
@@ -7,12 +8,18 @@ namespace MeldResearch.LocalBackend.Services.Research;
 internal sealed record ProjectBundle(int Version, string ProjectId, string Name, ProjectProfile? Profile,
     IReadOnlyDictionary<string, string>? Processed, ProjectManifest? Baseline, ProjectManifest? Pending, IReadOnlyList<string>? PendingOrder,
     DateTimeOffset? PendingSince, bool ImportComplete, DateTimeOffset? LastSweepAt, DateTimeOffset? LastSuccessAt,
-    IReadOnlyList<ResearchUpdate> Updates, IReadOnlyDictionary<string, string> Texts, DateTimeOffset SavedAt);
+    IReadOnlyList<ResearchUpdate> Updates, IReadOnlyDictionary<string, string> Texts, DateTimeOffset SavedAt,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Source = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Parent = null);
+
+/// <summary>A research card member that is not an Overleaf project (a Gmail workstream), so other computers can add it.</summary>
+internal sealed record WorkstreamRef(string Id, string Source, string? Parent, string Name);
 
 /// <summary>The account's synced choices: include/exclude decisions, research cards, project summaries and the OpenAlex match.</summary>
 internal sealed record ProfileBundle(int Version, IReadOnlyList<ProjectDecision> Decisions, IReadOnlyDictionary<string, string> ProjectNames,
     IReadOnlyList<ResearchTheme> Themes, string? ThemesRegroupedFor, IReadOnlyList<ProjectSummaryState> Summaries,
-    ResearcherState? Researcher, DateTimeOffset SavedAt);
+    ResearcherState? Researcher, DateTimeOffset SavedAt,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<WorkstreamRef>? Workstreams = null);
 
 /// <summary>
 /// Builds and applies sync bundles. Fingerprints ignore texts (determined by the hashes) and save times, so they change only
@@ -24,7 +31,8 @@ internal static class SyncBundles
 
     public static ProjectBundle Project(MonitoredProject project, IReadOnlyDictionary<string, string> texts, DateTimeOffset now) =>
         new(1, project.ProjectId, project.Name, project.Profile, project.Processed, project.Baseline, project.Pending, project.PendingOrder,
-            project.PendingSince, project.ImportComplete, project.LastSweepAt, project.LastSuccessAt, project.Updates, texts, now);
+            project.PendingSince, project.ImportComplete, project.LastSweepAt, project.LastSuccessAt, project.Updates, texts, now,
+            project.IsOverleaf ? null : project.Source, project.IsOverleaf ? null : project.Parent);
 
     public static string Fingerprint(MonitoredProject project) => Fingerprint(Project(project, new Dictionary<string, string>(), Unsaved));
 
@@ -50,7 +58,15 @@ internal static class SyncBundles
                 .ToDictionary(group => group.Key, group => group.First().Name, StringComparer.Ordinal),
             [.. ThemePlan.Themes(state, account).OrderBy(item => item.Id, StringComparer.Ordinal)], state.ThemesRegroupedFor,
             [.. (state.Summaries ?? []).Where(item => item.AccountId == account).OrderBy(item => item.ProjectId, StringComparer.Ordinal)],
-            state.Researchers?.FirstOrDefault(item => item.AccountId == account), now);
+            state.Researchers?.FirstOrDefault(item => item.AccountId == account), now, Workstreams(state, account));
+
+    private static IReadOnlyList<WorkstreamRef>? Workstreams(LocalResearchState state, Guid account)
+    {
+        var items = state.Projects.Where(item => item.AccountId == account && !item.IsOverleaf)
+            .OrderBy(item => item.ProjectId, StringComparer.Ordinal)
+            .Select(item => new WorkstreamRef(item.ProjectId, item.Source!, item.Parent, item.Name)).ToArray();
+        return items.Length == 0 ? null : items;
+    }
 
     public static string Fingerprint(ProfileBundle bundle) => Hash(bundle with { SavedAt = Unsaved });
 
@@ -102,6 +118,15 @@ internal static class SyncBundles
                     true, consentVersion, null, null, [], [], null, null, null, null, null, 0, 0));
             else if (!decision.Included && index >= 0 && projects[index].Enabled) projects[index] = projects[index] with { Enabled = false };
         }
+        // Workstreams found on another computer (for example from Gmail) are added here; their content follows with the project pull.
+        foreach (var workstream in bundle.Workstreams ?? [])
+        {
+            if (!ResearchSources.IsGmailWorkstreamId(workstream.Id) || workstream.Source != ResearchSources.Gmail ||
+                projects.Any(item => item.AccountId == account && item.ProjectId == workstream.Id)) continue;
+            bool excluded = decisions.Any(item => item.ProjectId == workstream.Id && !item.Included);
+            projects.Add(new MonitoredProject(account, workstream.Id, workstream.Name, !excluded, consentVersion,
+                null, null, [], [], null, null, null, null, null, 0, 0, Source: workstream.Source, Parent: workstream.Parent));
+        }
         return state with
         {
             Projects = projects,
@@ -124,11 +149,13 @@ internal static class SyncBundles
     {
         var projects = state.Projects.ToList();
         int index = projects.FindIndex(item => item.AccountId == account && item.ProjectId == bundle.ProjectId);
-        bool included = (state.Decisions ?? []).FirstOrDefault(item => item.AccountId == account && item.ProjectId == bundle.ProjectId)?.Included ?? false;
+        var decision = (state.Decisions ?? []).FirstOrDefault(item => item.AccountId == account && item.ProjectId == bundle.ProjectId);
+        // An Overleaf project is monitored when its choice says included; a Gmail workstream unless it was excluded.
+        bool included = bundle.Source is null ? decision?.Included ?? false : decision?.Included ?? true;
         if (index < 0)
         {
             projects.Add(new MonitoredProject(account, bundle.ProjectId, bundle.Name, included, consentVersion,
-                null, null, [], [], null, null, null, null, null, 0, 0));
+                null, null, [], [], null, null, null, null, null, 0, 0, Source: bundle.Source, Parent: bundle.Parent));
             index = projects.Count - 1;
         }
         var local = projects[index];
@@ -161,7 +188,8 @@ internal static class SyncBundles
                 PendingOrder = bundle.PendingOrder, PendingSince = bundle.PendingSince, ImportComplete = bundle.ImportComplete,
                 LastSweepAt = bundle.LastSweepAt, LastSuccessAt = bundle.LastSuccessAt, Updates = bundle.Updates,
                 Snapshot = null, Summary = null, Facts = [], ErrorCode = null, Error = null, FailureCount = 0, NextAttemptAt = null,
-                SyncETag = etag, SyncedFor = Fingerprint(bundle), LastSyncedAt = bundle.SavedAt
+                SyncETag = etag, SyncedFor = Fingerprint(bundle), LastSyncedAt = bundle.SavedAt,
+                Source = local.Source ?? bundle.Source, Parent = local.Parent ?? bundle.Parent
             };
         return state with { Projects = [.. state.Projects.Select(item => item == local ? adopted : item)] };
     }

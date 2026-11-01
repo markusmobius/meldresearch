@@ -32,8 +32,15 @@ public sealed record ResearchFile(string Path, string Sha256, long Bytes, string
 public sealed record ResearchSnapshot(string ProjectId, string ProjectName, string Revision,
     DateTimeOffset ObservedAt, DateTimeOffset? SourceUpdatedAt, IReadOnlyList<ResearchFile> Files);
 
-/// <summary>An exact quotation from a named file in the current or previous project snapshot.</summary>
-public sealed record ResearchCitation(string Path, string Quote, EvidenceVersion Version);
+/// <summary>
+/// An exact quotation from a named file in the current or previous project snapshot, or (Email set) from one email; then
+/// Path is the email's subject. Email is omitted from JSON when absent, so Overleaf citations are unchanged.
+/// </summary>
+public sealed record ResearchCitation(string Path, string Quote, EvidenceVersion Version,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] EmailEvidence? Email = null);
+
+/// <summary>Which email a quotation comes from: Gmail's message id, the sender and when it was sent.</summary>
+public sealed record EmailEvidence(string MessageId, string From, DateTimeOffset SentAt);
 
 /// <summary>Knowledge from the earlier whole-snapshot pipeline. Kept only so state written by earlier versions still loads.</summary>
 public sealed record ResearchFact(Guid Id, string Title, string Summary, IReadOnlyList<string> Tags,

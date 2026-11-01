@@ -5,7 +5,7 @@ import { MatExpansionModule } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { OverleafApi, OverleafProject, describeFailure } from './overleaf-api';
-import { ProjectSummary, ResearchApi, ResearchProject, ResearchStatus } from './research-api';
+import { ProjectSummary, ResearchApi, ResearchProject, ResearchStatus, isOverleafProject } from './research-api';
 import { ProjectChoice, isRecent, projectChoice } from './project-decisions';
 
 /** Account → Overleaf → Projects: an active include/exclude choice per recent project, optional choices for older ones. */
@@ -32,6 +32,8 @@ export class ProjectSelection {
 
   choice(id: string): ProjectChoice { return projectChoice(this.status(), id); }
   isRecentProject(project: OverleafProject): boolean { return isRecent(project); }
+  /** This tab manages Overleaf projects only; workstreams from other sources (Gmail) are managed with their source. */
+  readonly overleafProjects = computed(() => (this.status()?.projects ?? []).filter(isOverleafProject));
   monitored(id: string): ResearchProject | undefined { return this.status()?.projects.find(project => project.projectId === id); }
   summaryFor(id: string): ProjectSummary | undefined { return this.status()?.summaries?.find(summary => summary.projectId === id); }
   /** Overleaf reports a newer edit than the one the summary was made from. */

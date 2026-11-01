@@ -1,5 +1,8 @@
 import { OverleafProject } from './overleaf-api';
-import { ResearchStatus } from './research-api';
+import { ResearchStatus, isOverleafProject } from './research-api';
+
+/** Overleaf project ids (Gmail workstreams use "gmail-" ids). */
+const OVERLEAF_ID = /^[0-9a-f]{24}$/;
 
 /** Projects updated within about six months need an active include/exclude choice; older ones are optional. */
 export const RECENT_DAYS = 183;
@@ -25,8 +28,10 @@ export function undecidedRecent(status: ResearchStatus | null, projects: Readonl
 
 export function includedCount(status: ResearchStatus | null): number {
   if (!status) return 0;
-  const ids = new Set(status.projects.map(project => project.projectId));
+  // Only Overleaf projects count: other sources (Gmail) add to the profile but do not complete setup.
+  const ids = new Set(status.projects.filter(isOverleafProject).map(project => project.projectId));
   for (const decision of status.decisions ?? []) {
+    if (!OVERLEAF_ID.test(decision.projectId)) continue;
     if (decision.included) ids.add(decision.projectId); else ids.delete(decision.projectId);
   }
   return ids.size;

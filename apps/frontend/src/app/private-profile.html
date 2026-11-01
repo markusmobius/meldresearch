@@ -58,10 +58,13 @@
             <p class="description muted">The summary appears once the first import of this project finishes.</p>
           }
           @if (card.themeId) {
-            <h3 class="members-title">Overleaf projects on this card</h3>
+            <h3 class="members-title">{{ allOverleaf(card.members) ? 'Overleaf projects on this card' : 'On this card' }}</h3>
             <ul class="members">
               @for (member of card.members; track member.projectId) {
                 <li><span class="member-name">{{ member.name }}</span>
+                  @if (member.source === 'gmail') {
+                    <span class="member-source" [title]="'From Gmail: ' + (member.parent ?? '')"><mat-icon>mail</mat-icon>Gmail{{ member.parent ? ' · ' + member.parent : '' }}</span>
+                  }
                   @if (member.phase === 'ready' || member.phase === 'error') {
                     <label class="move">Move to
                       <select (change)="move(member, $event)" [disabled]="moving()" [attr.aria-label]="'Move ' + member.name + ' to another card'">

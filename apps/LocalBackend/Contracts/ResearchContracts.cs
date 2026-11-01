@@ -10,10 +10,12 @@ public sealed record AccountLinkResponse(string SignInUrl, DateTimeOffset Expire
 
 /// <summary>Local monitoring state, without credentials or stored embeddings.</summary>
 /// Phase: waiting (first read not done), checking (reading Overleaf), queued, importing, updating, ready or error.
+/// Source: null for an Overleaf project, "gmail" for a Gmail workstream (Parent: its Gmail address).
 public sealed record MonitoredProjectResponse(string ProjectId, string Name, bool Enabled, bool ConsentRequired,
     string? Revision, string? Summary, int FactCount, DateTimeOffset? LastAttemptAt, DateTimeOffset? LastSuccessAt,
     string? ErrorCode, string? Error, string? Explanation, int UnprocessedFiles,
-    ProjectProfile? Profile, string Phase, int FilesDone, int FilesTotal, DateTimeOffset? LastSweepAt, DateTimeOffset? NextSweepAt);
+    ProjectProfile? Profile, string Phase, int FilesDone, int FilesTotal, DateTimeOffset? LastSweepAt, DateTimeOffset? NextSweepAt,
+    string? Source = null, string? Parent = null);
 
 /// <summary>The project the queue is working on; CurrentFile is the file being folded into its summary next (or now).</summary>
 public sealed record ProcessingStatusResponse(string ProjectId, string Name, string Kind, int FilesDone, int FilesTotal, int Queued,

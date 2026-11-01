@@ -105,7 +105,11 @@
       <h3>Source evidence</h3>
       <p class="muted">Revision {{ update.revision.slice(0, 12) }}</p>
       @for (citation of update.evidence; track $index) {
-        <p><code>{{ citation.path }}</code> &middot; {{ citation.version }} snapshot</p>
+        @if (citation.email; as email) {
+          <p><mat-icon class="evidence-mail">mail</mat-icon> <strong>{{ citation.path }}</strong> &middot; from {{ email.from }} &middot; {{ email.sentAt | date: 'MMM d, y, h:mm a' }}</p>
+        } @else {
+          <p><code>{{ citation.path }}</code> &middot; {{ citation.version }} snapshot</p>
+        }
         <blockquote>{{ citation.quote }}</blockquote>
       }
       @if (update.previousSummary) { <p><strong>Previous knowledge:</strong> {{ update.previousSummary }}</p> }

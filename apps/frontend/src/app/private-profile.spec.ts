@@ -93,6 +93,29 @@ describe('Private profile', () => {
     fixture.destroy();
   });
 
+  it('shows a Gmail workstream on a card with its Gmail address, and moves it like a project', async () => {
+    const workstreamId = 'gmail-' + 'c'.repeat(32);
+    const value = grouped();
+    const workstream = project(workstreamId, 'Grant renewal', 'Grant renewal', { source: 'gmail', parent: 'markus@example.invalid' });
+    const fixture = TestBed.createComponent(PrivateProfile);
+    fixture.componentRef.setInput('status', { ...value, projects: [...value.projects, workstream],
+      themes: value.themes!.map(theme => theme.id === cardId ? { ...theme, projectIds: [...theme.projectIds, workstreamId] } : theme) });
+    fixture.detectChanges();
+    fixture.nativeElement.querySelector('.profile-card').click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const dialog = document.querySelector('mat-dialog-container')!;
+    expect(dialog.querySelector('.members-title')?.textContent).toBe('On this card');
+    const members = [...dialog.querySelectorAll('.members li')];
+    expect(members[2].querySelector('.member-source')?.textContent).toContain('Gmail · markus@example.invalid');
+    expect(members[0].querySelector('.member-source')).toBeNull();
+    const select = members[2].querySelector<HTMLSelectElement>('.move select')!;
+    select.value = otherCard;
+    select.dispatchEvent(new Event('change'));
+    await vi.waitFor(() => expect(api.moveToTheme).toHaveBeenCalledWith(workstreamId, otherCard));
+    fixture.destroy();
+  });
+
   it('merges a whole card into another card', async () => {
     api.mergeTheme.mockResolvedValue(undefined);
     const fixture = TestBed.createComponent(PrivateProfile);

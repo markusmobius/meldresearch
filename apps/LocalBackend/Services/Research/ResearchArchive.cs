@@ -183,6 +183,10 @@ internal sealed partial class ResearchArchive(IResearchStore store, ResearchCoor
                 var bundle = Read<ProjectBundle>(entry);
                 if (!ProjectIdPattern().IsMatch(bundle.ProjectId) || entry.FullName != $"projects/{bundle.ProjectId}.json")
                     throw Invalid($"{entry.FullName} does not match its project.");
+                // An Overleaf project (no source) has an Overleaf id; a Gmail workstream has a workstream id.
+                if (bundle.Source is null ? !ResearchEvidence.IsProjectId(bundle.ProjectId)
+                    : bundle.Source != ResearchSources.Gmail || !ResearchSources.IsGmailWorkstreamId(bundle.ProjectId))
+                    throw Invalid($"{entry.FullName} has an unknown source.");
                 foreach (var (hash, text) in bundle.Texts)
                     if (ResearchEvidence.Hash(text) != hash) throw Invalid($"A source text in {entry.FullName} was changed.");
                 projects.Add(bundle);

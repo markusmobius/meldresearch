@@ -61,10 +61,10 @@
     }
 
     @if (current.busy) { <p class="muted" role="status">Checking included projects and processing meaningful changes...</p> }
-    @if (current.projects.length) {
+    @if (overleafProjects().length) {
       <h3 class="details-title">Included project details</h3>
       <div class="project-statuses">
-        @for (project of current.projects; track project.projectId) {
+        @for (project of overleafProjects(); track project.projectId) {
           <mat-expansion-panel class="project-card" [expanded]="!!project.error || project.consentRequired">
             <mat-expansion-panel-header>
               <mat-panel-title>{{ project.name }}</mat-panel-title>

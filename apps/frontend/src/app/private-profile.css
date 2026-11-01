@@ -48,3 +48,7 @@
 .update-date { color: #64748b; font-size: 12px; }
 .update-summary { color: #334155; }
 .merge-card { display: flex; margin-top: 12px; }
+/* A member from another source than Overleaf (a Gmail workstream) and its Gmail address. */
+.member-source { display: inline-flex; align-items: center; gap: 3px; margin-left: 8px; padding: 1px 8px; border-radius: 10px;
+  background: #fef2f2; color: #b42336; font-size: 11.5px; font-weight: 600; vertical-align: middle; }
+.member-source mat-icon { font-size: 13px; width: 13px; height: 13px; }

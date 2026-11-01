@@ -6,7 +6,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTabsModule } from '@angular/material/tabs';
 import { describeFailure } from './overleaf-api';
-import { ProjectProfile, ResearchApi, ResearchProject, ResearchStatus, ResearchUpdate } from './research-api';
+import { ProjectProfile, ResearchApi, ResearchProject, ResearchStatus, ResearchUpdate, isOverleafProject } from './research-api';
 
 /** One card: a research line with one or more Overleaf projects, or a project still being imported or grouped. */
 interface ProfileCard {
@@ -36,6 +36,8 @@ const BUSY = new Set(['importing', 'queued', 'waiting', 'checking']);
   styleUrl: './private-profile.css',
 })
 export class PrivateProfile {
+  /** Whether every member is an Overleaf project (cards may also hold Gmail workstreams). */
+  allOverleaf(members: ReadonlyArray<ResearchProject>): boolean { return members.every(isOverleafProject); }
   readonly status = input<ResearchStatus | null>(null);
   readonly changed = output<void>();
   private readonly dialog = inject(MatDialog);

@@ -114,7 +114,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                     project.Profile?.Description ?? project.Summary, project.Profile?.Contributions.Count ?? project.Facts.Count,
                     project.LastAttemptAt, project.LastSuccessAt, project.ErrorCode, project.Error, project.Explanation, project.UnprocessedFiles,
                     project.Profile, Phase(project), done, total, project.LastSweepAt,
-                    project.Enabled && project.LastSweepAt is { } swept ? swept + options.SweepInterval : null);
+                    project.Enabled && project.IsOverleaf && project.LastSweepAt is { } swept ? swept + options.SweepInterval : null,
+                    project.Source, project.Parent);
             }).ToArray(), updates.Take(100).ToArray(), updates.Length,
             (state.Decisions ?? []).Where(decision => decision.AccountId == account)
                 .Select(decision => new ProjectDecisionResponse(decision.ProjectId, decision.Included, decision.DecidedAt)).ToArray(),
@@ -259,25 +260,29 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
 
     public async Task DecideProjectAsync(string projectId, ProjectDecisionRequest request, CancellationToken ct)
     {
-        if (request.Included)
+        if (request.Included && !ResearchSources.IsGmailWorkstreamId(projectId))
         {
             await ChangeMonitoringAsync(projectId, true, request.ConsentVersion, true, ct);
             return;
         }
-        if (!ResearchEvidence.IsProjectId(projectId)) throw new ResearchFailure(400, "invalid_project_id", "Select a valid Overleaf project.");
+        if (!ResearchSources.IsMemberId(projectId)) throw new ResearchFailure(400, "invalid_project_id", "Select a valid project.");
         var account = RequireCredential(await store.ReadAsync(ct));
         CancelProject(projectId);
         await store.ChangeAsync(current =>
         {
             if (current.Credential?.Account.Id != account.Account.Id) throw AccountChanged();
             var existing = current.Projects.FirstOrDefault(project => project.AccountId == account.Account.Id && project.ProjectId == projectId);
+            // A Gmail workstream is included again simply by lifting its exclusion (its Gmail account's consent covers it).
+            if (request.Included && existing is null)
+                throw new ResearchFailure(404, "project_not_monitored", "This Gmail workstream no longer exists.");
             return current with
             {
-                Projects = existing is { Enabled: true } ? Replace(current.Projects, existing with { Enabled = false }) : current.Projects,
-                Decisions = Decide(current.Decisions, account.Account.Id, projectId, false)
+                Projects = existing is not null && existing.Enabled != request.Included
+                    ? Replace(current.Projects, existing with { Enabled = request.Included }) : current.Projects,
+                Decisions = Decide(current.Decisions, account.Account.Id, projectId, request.Included)
             };
         }, ct);
-        // An excluded project leaves its research card.
+        // An excluded project leaves its research card; an included workstream joins one again.
         Wake();
     }
 
@@ -371,7 +376,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
 
     public async Task MoveToThemeAsync(string projectId, string? themeId, CancellationToken ct)
     {
-        if (!ResearchEvidence.IsProjectId(projectId) || (themeId is not null && !ResearchThemes.IsThemeId(themeId)))
+        if (!ResearchSources.IsMemberId(projectId) || (themeId is not null && !ResearchThemes.IsThemeId(themeId)))
             throw new ResearchFailure(400, "invalid_theme_move", "Choose a project and a research card.");
         var account = RequireCredential(await store.ReadAsync(ct)).Account.Id;
         await store.ChangeAsync(current =>
@@ -650,8 +655,9 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     private bool SweepDue(MonitoredProject project, DateTimeOffset now) => Due(project, now) && project.Pending is null &&
         (project.LastSweepAt is not { } swept || now - swept >= options.SweepInterval || !project.ImportComplete);
     private static bool Due(MonitoredProject project, DateTimeOffset now) => project.NextAttemptAt is not { } next || next <= now;
+    /// <summary>Included Overleaf projects with current consent: the projects read from Overleaf and processed file by file.</summary>
     private static MonitoredProject[] Selected(LocalResearchState state, Guid account) =>
-        state.Projects.Where(project => project.AccountId == account && project.Enabled &&
+        state.Projects.Where(project => project.AccountId == account && project.Enabled && project.IsOverleaf &&
             project.ConsentVersion == ResearchEvidence.ConsentVersion).ToArray();
 
     /// <summary>

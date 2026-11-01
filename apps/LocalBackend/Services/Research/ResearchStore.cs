@@ -11,7 +11,9 @@ internal sealed record PendingDeviceLink(string DeviceCode, string Verifier, str
 /// project is first processed file by file. Profile is the running summary; Processed maps each analyzed path to the hash
 /// whose text the summary already reflects. Pending is a newer observed manifest still being worked through in
 /// PendingOrder; together they form the persistent work queue, so processing resumes after a restart. PrioritizedAt is when
-/// the user last included or resumed the project: the most recent choice is read and processed first.
+/// the user last included or resumed the project: the most recent choice is read and processed first. Source is null for an
+/// Overleaf project and "gmail" for a Gmail workstream, whose Parent is the Gmail address it comes from; a workstream has a
+/// profile and Updates like a project but no files, and joins research cards the same way.
 /// </summary>
 internal sealed record MonitoredProject(Guid AccountId, string ProjectId, string Name, bool Enabled, string ConsentVersion,
     ResearchSnapshot? Snapshot, string? Summary, IReadOnlyList<ResearchFact> Facts, IReadOnlyList<ResearchUpdate> Updates,
@@ -20,7 +22,12 @@ internal sealed record MonitoredProject(Guid AccountId, string ProjectId, string
     ProjectProfile? Profile = null, IReadOnlyDictionary<string, string>? Processed = null, ProjectManifest? Baseline = null,
     ProjectManifest? Pending = null, IReadOnlyList<string>? PendingOrder = null, DateTimeOffset? PendingSince = null,
     bool ImportComplete = false, DateTimeOffset? LastSweepAt = null, DateTimeOffset? NextAttemptAt = null,
-    DateTimeOffset? PrioritizedAt = null, string? SyncETag = null, string? SyncedFor = null, DateTimeOffset? LastSyncedAt = null);
+    DateTimeOffset? PrioritizedAt = null, string? SyncETag = null, string? SyncedFor = null, DateTimeOffset? LastSyncedAt = null,
+    string? Source = null, string? Parent = null)
+{
+    /// <summary>An Overleaf project (Source null or "overleaf"): read from Overleaf file by file. Other sources are not swept.</summary>
+    public bool IsOverleaf => Source is null or ResearchSources.Overleaf;
+}
 
 /// <summary>
 /// This computer's key to the account's encrypted sync (kept only inside the encrypted research state). ProfileETag and

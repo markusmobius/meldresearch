@@ -14,6 +14,15 @@ export interface ResearchProject {
   error: string | null; explanation: string | null; unprocessedFiles: number;
   profile: ProjectProfile | null; phase: ProjectPhase; filesDone: number; filesTotal: number;
   lastSweepAt: string | null; nextSweepAt: string | null;
+  /** null for an Overleaf project; 'gmail' for a Gmail workstream, whose parent is its Gmail address. */
+  source?: 'gmail' | null; parent?: string | null;
+}
+/** An Overleaf project (rather than a workstream from another source such as Gmail). */
+export function isOverleafProject(project: Pick<ResearchProject, 'source'>): boolean { return !project.source; }
+/** An exact quotation: from a project file (path), or from one email (email set; path is its subject). */
+export interface ResearchCitation {
+  path: string; quote: string; version: 'current' | 'previous';
+  email?: { messageId: string; from: string; sentAt: string } | null;
 }
 export interface ProcessingStatus {
   projectId: string; name: string; kind: 'import' | 'update'; filesDone: number; filesTotal: number; queued: number;
@@ -26,7 +35,7 @@ export interface ResearchUpdate {
   id: string; projectId: string; projectName: string; kind: 'initialImport' | 'change' | 'correction' | 'removal';
   title: string; summary: string; observedAt: string; sourceUpdatedAt: string | null;
   revision: string; previousRevision: string | null; previousSummary: string | null;
-  evidence: ReadonlyArray<{ path: string; quote: string; version: 'current' | 'previous' }>;
+  evidence: ReadonlyArray<ResearchCitation>;
 }
 export interface ProjectDecision { projectId: string; included: boolean; decidedAt: string; }
 export interface PublicationWork {

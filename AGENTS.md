@@ -38,6 +38,17 @@ instruction file. Start with the [README](README.md) for setup and release detai
 | [Research library](libraries/Research) | Shared contracts, evidence validation, content revisions and state reduction. |
 | [Overleaf extension](browser/overleaf) / [native host](apps/BrowserHost) | Read-only access through the user's normal signed-in Chrome/Edge session. |
 
+- Research card members are source-generic
+  ([ResearchSources](libraries/Research/ResearchSources.cs)): Overleaf projects
+  (24-hex ids, `Source` null) and, in preparation, Gmail workstreams (`gmail-` +
+  32 hex, `Source` "gmail", `Parent` = Gmail address). Only Overleaf projects are
+  swept and processed file by file; other members join, move between and leave
+  cards like projects. Workstreams sync via `WorkstreamRef` in the profile bundle;
+  email evidence is `ResearchCitation.Email`. New optional fields are omitted from
+  JSON when empty so Overleaf data and sync fingerprints stay unchanged. Gmail
+  plan and decisions: Gmail workstreams, Updates first (News later), threads the
+  user wrote in, 30-day first import, Overleaf stays required, hourly jittered
+  imports coordinated by a synced lease, Google testing mode first.
 - Start processing work in [ResearchCoordinator](apps/LocalBackend/Services/Research/ResearchCoordinator.cs),
   [ResearchEvidence](libraries/Research/ResearchEvidence.cs), and
   [FoundryService](apps/RemoteBackend/Services/FoundryService.cs).
