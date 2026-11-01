@@ -100,4 +100,28 @@ describe('Research Updates onboarding', () => {
     expect(document.querySelector('mat-dialog-container')).toBeNull();
     fixture.destroy();
   });
+
+  it('marks Updates from Gmail and shows their email evidence without an Overleaf link', async () => {
+    api.status.mockResolvedValue({ ...base, totalUpdates: 1, updates: [{
+      id: 'gmail-update', projectId: 'gmail-' + 'a'.repeat(32), projectName: 'Social learning paper', kind: 'change',
+      title: 'Robustness confirmed', summary: 'The larger simulations confirm the result.', observedAt: '2026-11-02T10:00:00Z',
+      sourceUpdatedAt: '2026-11-02T10:00:00Z', revision: 'gmail:t1:m2', previousRevision: null, previousSummary: null,
+      evidence: [{ path: 'Robustness results', quote: 'The 200-agent simulations are done.', version: 'current',
+        email: { messageId: 'm2', from: 'Demo <demo@example.invalid>', sentAt: '2026-11-02T10:00:00Z' } }],
+    }] });
+    const fixture = await screen('home');
+    const element: HTMLElement = fixture.nativeElement;
+    const source = element.querySelector('.feed-project')!;
+    expect(source.querySelector('mat-icon')?.textContent).toContain('mail');
+    expect(source.getAttribute('title')).toBe('Gmail workstream: Social learning paper');
+    element.querySelector<HTMLButtonElement>('.feed-card-open')!.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const dialog = document.querySelector('mat-dialog-container')!;
+    expect(dialog.textContent).toContain('Gmail workstream: Social learning paper');
+    expect(dialog.textContent).toContain('from Demo <demo@example.invalid>');
+    expect(dialog.querySelector('a[href*="overleaf.com"]')).toBeNull();
+    expect(dialog.textContent).not.toContain('Revision');
+    fixture.destroy();
+  });
 });

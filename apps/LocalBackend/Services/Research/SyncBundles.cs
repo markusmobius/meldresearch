@@ -67,7 +67,11 @@ internal static class SyncBundles
         return items.Length == 0 ? null : items;
     }
 
-    /// <summary>Connected Gmail accounts from two places merged: per address the newer connection (or removal) wins.</summary>
+    /// <summary>
+    /// Connected Gmail accounts from two places merged per address: the newer connection (or removal) wins; analyzed threads
+    /// are combined (the later analysis of a thread wins), the last import is the later one, and the import lease is the
+    /// synced one, so a computer learns that another one is importing.
+    /// </summary>
     public static IReadOnlyList<GmailAccountState>? MergeGmail(IReadOnlyList<GmailAccountState>? local, IEnumerable<GmailAccountState>? remote, Guid account)
     {
         var merged = (local ?? []).Where(item => item.AccountId != account).ToList();
@@ -75,10 +79,25 @@ internal static class SyncBundles
         foreach (var item in remote ?? [])
         {
             if (item.AccountId != account) continue;
-            if (!mine.TryGetValue(item.Address, out var current) || item.ChangedAt > current.ChangedAt) mine[item.Address] = item;
+            mine[item.Address] = mine.TryGetValue(item.Address, out var current) ? Merge(current, item) : item;
         }
         merged.AddRange(mine.Values);
         return merged.Count == 0 ? local : merged;
+    }
+
+    private static GmailAccountState Merge(GmailAccountState local, GmailAccountState remote)
+    {
+        var connection = remote.ChangedAt > local.ChangedAt ? remote : local;
+        if (connection.Removed) return connection;
+        var threads = (local.Processed ?? []).Concat(remote.Processed ?? []).GroupBy(thread => thread.Id, StringComparer.Ordinal)
+            .Select(group => group.MaxBy(thread => thread.ProcessedAt)!).ToArray();
+        DateTimeOffset? last = local.LastImportAt > remote.LastImportAt || remote.LastImportAt is null ? local.LastImportAt : remote.LastImportAt;
+        var (leaseBy, leaseUntil) = remote.LeaseBy is not null && remote.LeaseBy == local.LeaseBy && local.LeaseUntil > remote.LeaseUntil
+            ? (local.LeaseBy, local.LeaseUntil) : (remote.LeaseBy, remote.LeaseUntil);
+        return connection with
+        {
+            Processed = threads.Length == 0 ? null : GmailImporter.Prune(threads), LastImportAt = last, LeaseBy = leaseBy, LeaseUntil = leaseUntil
+        };
     }
 
     private static IReadOnlyList<WorkstreamRef>? Workstreams(LocalResearchState state, Guid account)

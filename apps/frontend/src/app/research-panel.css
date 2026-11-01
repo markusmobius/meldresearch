@@ -54,4 +54,5 @@ a.processing-strip:hover { background: #e4f1ed; }
 .spin { animation: processing-spin 1.6s linear infinite; }
 @keyframes processing-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+.feed-source { font-size: 14px; width: 14px; height: 14px; vertical-align: -3px; margin-right: 3px; color: #b42336; }
 .evidence-mail { font-size: 16px; width: 16px; height: 16px; vertical-align: text-bottom; color: #b42336; }

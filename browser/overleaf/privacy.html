@@ -21,7 +21,7 @@
       <header class="page-header">
         <div class="page-heading">
           <h1 class="page-title"><span class="material-icons site-only" aria-hidden="true">shield</span>Privacy &amp; Controls</h1>
-          <p class="page-subtitle">Last updated: October 2026 &middot; Meld Research and its Overleaf connector, version 0.6.0</p>
+          <p class="page-subtitle">Last updated: October 2026 &middot; Meld Research and its Overleaf connector, version 0.6.1</p>
         </div>
       </header>
 
@@ -58,10 +58,13 @@
                 ask for your Overleaf password or export your login cookies.</li>
               <li><strong>Gmail (optional):</strong> only if you connect a Gmail account under Account &rarr; Gmail and agree. Google
                 then gives the desktop companion <em>read-only</em> access (the <code>gmail.readonly</code> permission); Meld cannot send,
-                change or delete mail. Meld uses only threads you wrote in (chats excluded), starting with the last 30 days. Today it
-                counts these threads without reading their content; once analysis is enabled, it sends selected text from them
-                (signatures and quoted replies removed) through Meld's service to Azure AI Foundry, one thread at a time, to find your
-                lines of work ("Gmail workstreams") and Updates, which then appear on your research cards with short quoted evidence.
+                change or delete mail. Meld uses only threads you wrote in (chats excluded), starting with the last 30 days, and looks
+                for new mail in them about once an hour. Of each thread with new mail it sends only the new messages (signatures and
+                quoted replies removed; mailing-list and automated mail only if you wrote it), with up to four earlier messages for
+                context, through Meld's service to Azure AI Foundry, one thread at a time, to find your lines of work ("Gmail
+                workstreams") and Updates, which then appear on your research cards with short quoted evidence. Threads that are not
+                research work are skipped. Meld's server does not store the email text; the workstreams, their Updates and quotes, and
+                a list of the threads already analyzed are kept in the encrypted research store and your end-to-end encrypted sync.
                 Google's access grant is kept only in the encrypted research store and in your end-to-end encrypted sync; it is never
                 sent to Meld's server, put into a backup or logged. Meld's server provides only the Google sign-in client. While Meld
                 Research is in Google's testing phase, Google asks you to reconnect every 7 days. Meld's use of information received

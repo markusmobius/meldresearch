@@ -70,6 +70,9 @@ export class ResearchPanel implements OnInit {
     } finally { this.polling = false; }
   }
 
+  /** An Update from a Gmail workstream (its evidence is email, not an Overleaf project). */
+  fromGmail(update: ResearchUpdate): boolean { return update.projectId.startsWith('gmail-'); }
+
   showUpdate(update: ResearchUpdate, template: TemplateRef<unknown>): void {
     this.evidenceDialog?.close();
     this.selectedUpdate.set(update);

@@ -174,7 +174,7 @@ that backend requires real Google OAuth configuration. No synthetic identity is
 available in Live mode.
 
 The source manifest now uses the supplied Chrome draft public key:
-**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.6.0**, wire protocol **2**.
+**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.6.1**, wire protocol **2**.
 It is a public identity key, not a signing secret.
 
 Until the private listing is approved, remove the old development-ID unpacked
@@ -548,10 +548,28 @@ Meld's server only supplies the Desktop OAuth client to signed-in installations
 separate Google Cloud project with the Gmail API enabled, in Testing with the team
 as test users). Google's refresh token is kept in the encrypted research state and
 the end-to-end encrypted sync, never in backups, logs or on the server; removing an
-account revokes it at Google. For now each account shows how many threads the user
-wrote in during the last 30 days (`in:sent newer_than:30d -in:chats`); turning
-them into Gmail workstreams and Updates is the next phase. Dummy mode uses a
-synthetic mailbox and needs no Google setup.
+account revokes it at Google.
+
+[GmailImporter](apps/LocalBackend/Services/Research/GmailImporter.cs) runs inside the
+research worker, a few threads per cycle. About hourly (an hour after the last
+import, offset by up to ±10 minutes per account) it lists the threads the user
+wrote in during the last 30 days (`in:sent newer_than:30d -in:chats`) and reads
+only threads whose Gmail `historyId` changed, oldest first. Messages are cleaned
+locally ([EmailText](apps/LocalBackend/Services/Research/EmailText.cs): plain text
+preferred, quoted replies, forwards and signatures cut, 8,000 characters); bulk
+mail counts only if the user wrote it. Only the new messages go to
+`POST /api/research/email-step` (with up to four earlier ones as context and up
+to eight candidate workstreams); Foundry answers skip / existing / new, and cited
+lines are copied verbatim on the server and checked again locally
+([EmailSteps](libraries/Research/EmailContracts.cs)). Each thread commits
+atomically (workstream, Updates dated by the email's send time, the thread's
+`GmailThreadState`), so an unchanged mailbox makes no model call, also after a
+restart. With encrypted sync the analyzed threads and `LastImportAt` merge
+across computers, and a lease (`LeaseBy`/`LeaseUntil`, 15 minutes, renewed per
+thread) is pushed before any mail is read, so other computers wait instead of
+analyzing mail twice. Account → Gmail shows progress and offers Import now.
+Dummy mode uses a synthetic mailbox (research, grant and lunch threads) and
+needs no Google setup, but analysis uses real Foundry.
 
 ### Backup, restore and leaving
 

@@ -43,6 +43,8 @@ internal interface IResearchRemote
     /// <summary>Deletes the account, its devices and its encrypted synced data on Meld's server.</summary>
     Task DeleteAccountAsync(string token, CancellationToken ct);
     Task<ProfileStepResponse> ProfileStepAsync(string token, ProfileStepRequest request, CancellationToken ct);
+    /// <summary>Folds one Gmail thread's new messages into a workstream (or skips the thread).</summary>
+    Task<EmailStepResponse> EmailStepAsync(string token, EmailStepRequest request, CancellationToken ct);
     Task<ProjectSummaryResponse> SummarizeProjectAsync(string token, ProjectSummaryRequest request, CancellationToken ct);
     Task<ThemeMatchResponse> MatchThemeAsync(string token, ThemeMatchRequest request, CancellationToken ct);
     Task<ThemeMergeResponse> MergeThemeAsync(string token, ThemeMergeRequest request, CancellationToken ct);
@@ -77,6 +79,8 @@ internal sealed class ResearchRemote(ResearchOptions options, IHttpClientFactory
         _ = await CallAsync<JsonElement>("api/account", HttpMethod.Delete, null, token, ct);
     public Task<ProfileStepResponse> ProfileStepAsync(string token, ProfileStepRequest request, CancellationToken ct) =>
         CallAsync<ProfileStepResponse>("api/research/profile-step", HttpMethod.Post, request, token, ct);
+    public Task<EmailStepResponse> EmailStepAsync(string token, EmailStepRequest request, CancellationToken ct) =>
+        CallAsync<EmailStepResponse>("api/research/email-step", HttpMethod.Post, request, token, ct);
     public Task<ProjectSummaryResponse> SummarizeProjectAsync(string token, ProjectSummaryRequest request, CancellationToken ct) =>
         CallAsync<ProjectSummaryResponse>("api/research/project-summary", HttpMethod.Post, request, token, ct);
     public Task<ThemeMatchResponse> MatchThemeAsync(string token, ThemeMatchRequest request, CancellationToken ct) =>

@@ -3,16 +3,17 @@ import { Component, inject, input, output, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatIconModule } from '@angular/material/icon';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { describeFailure } from './overleaf-api';
 import { GmailAccount, GmailStatus, ResearchApi } from './research-api';
 
 /**
  * Account → Gmail: connect one or more Gmail accounts for read-only access. Google's consent page opens in this tab and
- * returns to the app. Each account shows how many threads the user wrote in during the import window.
+ * returns to the app. Each account shows its import: threads analyzed, workstreams found, progress and the next import.
  */
 @Component({
   selector: 'app-gmail-setup',
-  imports: [DatePipe, MatButtonModule, MatCheckboxModule, MatIconModule],
+  imports: [DatePipe, MatButtonModule, MatCheckboxModule, MatIconModule, MatProgressBarModule],
   templateUrl: './gmail-setup.html',
   styleUrl: './gmail-setup.css',
 })
@@ -36,7 +37,7 @@ export class GmailSetup {
   }
   navigate(url: string): void { window.location.assign(url); }
 
-  check(account: GmailAccount): Promise<void> { return this.run(account.address, () => this.api.checkGmail(account.address)); }
+  importNow(account: GmailAccount): Promise<void> { return this.run(account.address, () => this.api.importGmail(account.address)); }
   remove(account: GmailAccount): Promise<void> {
     if (this.confirmRemove() !== account.address) { this.confirmRemove.set(account.address); return Promise.resolve(); }
     return this.run(account.address, () => this.api.removeGmail(account.address)).then(() => this.confirmRemove.set(null));

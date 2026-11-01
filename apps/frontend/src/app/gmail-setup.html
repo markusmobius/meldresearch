@@ -16,16 +16,33 @@
               <strong>{{ account.address }}</strong>
               <span class="account-status" [class]="account.status">{{ statusLabel(account) }}</span>
               @if (account.status === 'connected' && account.threads !== null) {
-                <small>{{ account.threads }} {{ account.threads === 1 ? 'thread' : 'threads' }} you wrote in during the last {{ gmail.windowDays }} days
-                  @if (account.checkedAt) { &middot; checked {{ account.checkedAt | date: 'MMM d, h:mm a' }} }</small>
-              } @else if (account.error) {
+                <small class="account-counts">{{ account.threads }} {{ account.threads === 1 ? 'thread' : 'threads' }} you wrote in during the
+                  last {{ gmail.windowDays }} days &middot; {{ account.analyzed ?? 0 }} analyzed &middot; {{ account.workstreams ?? 0 }}
+                  {{ account.workstreams === 1 ? 'workstream' : 'workstreams' }}</small>
+              }
+              @if (account.status === 'connected' && account.importing; as importing) {
+                @if (importing.waiting) {
+                  <small class="account-import">Another of your computers is importing this account.</small>
+                } @else {
+                  <small class="account-import">Importing: {{ importing.done }} of {{ importing.total }} {{ importing.total === 1 ? 'thread' : 'threads' }} with new mail</small>
+                  <mat-progress-bar mode="determinate" [value]="importing.total ? 100 * importing.done / importing.total : 0" />
+                }
+              } @else if (account.status === 'connected' && account.lastImportAt) {
+                <small class="account-import">Imported {{ account.lastImportAt | date: 'MMM d, h:mm a' }}
+                  @if (account.nextImportAt) { &middot; next around {{ account.nextImportAt | date: 'h:mm a' }} }</small>
+              } @else if (account.status === 'connected') {
+                <small class="account-import">The first import starts shortly.</small>
+              }
+              @if (account.status !== 'connected' && account.error) {
                 <small class="account-error">{{ account.error }}</small>
+              } @else if (account.importError) {
+                <small class="account-error">{{ account.importError }}</small>
               }
             </div>
             <div class="account-actions">
               @if (account.status === 'connected') {
-                <button mat-button type="button" class="check-gmail" [disabled]="!!working()" (click)="check(account)">
-                  <mat-icon>refresh</mat-icon>{{ working() === account.address ? 'Checking…' : 'Check now' }}</button>
+                <button mat-button type="button" class="import-gmail" [disabled]="!!working() || !!account.importing" (click)="importNow(account)">
+                  <mat-icon>sync</mat-icon>{{ working() === account.address ? 'Starting…' : 'Import now' }}</button>
               }
               <button mat-button type="button" class="remove-gmail" [disabled]="!!working()" (click)="remove(account)">
                 <mat-icon>link_off</mat-icon>{{ confirmRemove() === account.address ? 'Remove: are you sure?' : 'Remove' }}</button>
@@ -33,8 +50,6 @@
           </li>
         }
       </ul>
-      <p class="muted next-version"><mat-icon>schedule</mat-icon>Meld is getting ready to turn these threads into Updates; for now it
-        counts them, without reading their content.</p>
     }
 
     <div class="add-account">

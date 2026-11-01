@@ -76,6 +76,13 @@ internal static class RemoteEndpoints
             using var slot = await gate.EnterAsync(account.Id, ct);
             return TypedResults.Ok(await foundry.ProfileStepAsync(request, ct));
         }).WithName("ProfileStep").WithSummary("Fold one Overleaf file into the project summary and report grounded Updates; nothing is stored.");
+        app.MapPost("/api/research/email-step", async Task<Ok<EmailStepResponse>> (
+            EmailStepRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, InferenceGate gate, CancellationToken ct) =>
+        {
+            var account = await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            using var slot = await gate.EnterAsync(account.Id, ct);
+            return TypedResults.Ok(await foundry.EmailStepAsync(request, ct));
+        }).WithName("EmailStep").WithSummary("Fold one email thread's new messages into a Gmail workstream and report cited Updates; nothing is stored.");
         app.MapPost("/api/research/project-summary", async Task<Ok<ProjectSummaryResponse>> (
             ProjectSummaryRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, InferenceGate gate, CancellationToken ct) =>
         {
@@ -409,6 +416,7 @@ internal static class RemoteEndpoints
         InferencePurpose.ResearcherMatching => "Researcher matching",
         InferencePurpose.ProjectSummary => "Project summaries",
         InferencePurpose.ProjectGrouping => "Project grouping",
+        InferencePurpose.EmailExtraction => "Gmail",
         _ => "Other"
     };
 

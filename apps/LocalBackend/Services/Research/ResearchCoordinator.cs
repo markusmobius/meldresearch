@@ -29,7 +29,8 @@ internal interface IResearchCoordinator
 }
 
 internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote remote, IOverleafEvidenceSource source,
-    ResearchOptions options, ILogger<ResearchCoordinator> logger, TimeProvider clock, ResearchSync? sync = null, GmailConnector? gmail = null)
+    ResearchOptions options, ILogger<ResearchCoordinator> logger, TimeProvider clock, ResearchSync? sync = null, GmailConnector? gmail = null,
+    GmailImporter? importer = null)
     : BackgroundService, IResearchCoordinator
 {
     private readonly ResearchSync _sync = sync ?? new(store, remote, clock, Microsoft.Extensions.Logging.Abstractions.NullLogger<ResearchSync>.Instance);
@@ -130,7 +131,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 theme.Members, theme.Profile is null || !ThemePlan.Matches(theme, theme.Members.Select(id => projects.FirstOrDefault(project =>
                     project.ProjectId == id)).Where(project => project?.Profile is not null).ToArray()!),
                 theme.Profile is not null && theme.BlurbFor == ThemePlan.Fingerprint(theme.Profile) ? theme.Blurb : null)).ToArray(),
-            _sync.Status(state), gmail?.Status(state));
+            _sync.Status(state), gmail?.Status(state, importer));
     }
 
     public async Task<AccountLinkResponse> BeginLinkAsync(string callbackUri, CancellationToken ct)
@@ -508,6 +509,9 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         Wake();
     }
 
+    /// <summary>Runs the worker for work that does not need Overleaf read again, such as a Gmail import.</summary>
+    internal void RequestWork() => Wake();
+
     /// <summary>Runs the worker now for whatever is due, such as a newly included project or queued steps.</summary>
     private void Wake()
     {
@@ -591,10 +595,10 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         // so only the changes since then are processed here.
         var mode = await _sync.ModeAsync(credential, state, ct);
         if (mode == SyncMode.Locked) return false;
-        if (mode == SyncMode.Off) return await WorkAsync(credential, force, ct, maxSteps);
+        if (mode == SyncMode.Off) return await WorkAsync(credential, force, null, ct, maxSteps);
         try { if (await _sync.PullDueAsync(credential, force, ct)) PruneTexts(await store.ReadAsync(ct)); }
         catch (ResearchFailure failure) when (failure.Code == "sync_locked") { return false; }
-        try { return await WorkAsync(credential, force, ct, maxSteps); }
+        try { return await WorkAsync(credential, force, _sync, ct, maxSteps); }
         finally
         {
             if (!ct.IsCancellationRequested)
@@ -604,7 +608,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         }
     }
 
-    private async Task<bool> WorkAsync(LinkedCredential credential, bool force, CancellationToken ct, int maxSteps)
+    private async Task<bool> WorkAsync(LinkedCredential credential, bool force, ResearchSync? synced, CancellationToken ct, int maxSteps)
     {
         var state = await store.ReadAsync(ct);
         if (state.Credential?.Account.Id != credential.Account.Id) return false;
@@ -615,7 +619,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         var summaries = (state.Summaries ?? []).Where(item => item.AccountId == credential.Account.Id && item.Status == "queued")
             .OrderBy(item => item.RequestedAt).ToArray();
         bool themes = ThemePlan.HasWork(state, credential.Account.Id) && clock.GetUtcNow() >= _themeRetryAt;
-        if (due.Length == 0 && !queued && summaries.Length == 0 && !themes) return false;
+        bool mail = importer?.HasWork(state, credential.Account.Id, now) == true;
+        if (due.Length == 0 && !queued && summaries.Length == 0 && !themes && !mail) return false;
         Interlocked.Exchange(ref _busy, 1);
         var identity = await remote.AccountAsync(credential.Token, ct);
         if (identity.Id != credential.Account.Id) throw AccountChanged();
@@ -627,13 +632,15 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         // Summaries the user asked for come first: each is one project read and at most one model call.
         if (summaries.Length != 0) await SummarizeAsync(credential, summaries, ct);
         if (due.Length != 0) await SweepAsync(credential, due, force, ct);
+        // A few Gmail threads per cycle, so Overleaf work and card placement continue alongside a long first import.
+        bool mailLeft = mail && await importer!.StepAsync(credential, synced, ct);
         for (int step = 0; step < maxSteps; step++)
         {
             // A project the user just included is read in the next cycle, before any further queued steps.
             if (Volatile.Read(ref _urgent) != 0) return true;
             // Card work first, so a project joins its research card as soon as its import finishes.
             if (await ThemeStepAsync(credential, ct)) continue;
-            if (!await StepRoundAsync(credential, ct)) return false;
+            if (!await StepRoundAsync(credential, ct)) return mailLeft;
         }
         return true;
     }

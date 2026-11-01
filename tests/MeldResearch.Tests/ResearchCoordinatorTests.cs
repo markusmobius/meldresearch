@@ -803,6 +803,13 @@ public sealed class ResearchCoordinatorTests
             lock (Requests) Requests.Add(request);
             return Task.FromResult((Step ?? (item => Summary(item, [])))(request));
         }
+        public List<EmailStepRequest> EmailRequests { get; } = [];
+        public Func<EmailStepRequest, EmailStepResponse>? EmailStep { get; set; }
+        public Task<EmailStepResponse> EmailStepAsync(string token, EmailStepRequest request, CancellationToken ct)
+        {
+            lock (EmailRequests) EmailRequests.Add(request);
+            return Task.FromResult((EmailStep ?? (_ => throw new InvalidOperationException("No email step expected.")))(request));
+        }
         public List<ThemeMatchRequest> Matches { get; } = [];
         public List<ThemeMergeRequest> Merges { get; } = [];
         public Func<ThemeMatchRequest, string?> Match { get; set; } = _ => null;

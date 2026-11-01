@@ -122,11 +122,21 @@ internal static class ResearchEndpoints
             TypedResults.Ok(await gmail.BeginAsync($"http://{context.Request.Host}/gmail/callback", request.ConsentVersion, ct)))
             .WithName("ConnectGmail").WithSummary("Start connecting a Gmail account for read-only access; Google's consent page returns to this app.");
         // Google's redirect back to this app (a top-level navigation); the one-time state proves the sign-in started here.
-        app.MapGet("/gmail/callback", async Task<RedirectHttpResult> (string? code, string? state, string? error, GmailConnector gmail, CancellationToken ct) =>
+        app.MapGet("/gmail/callback", async Task<RedirectHttpResult> (string? code, string? state, string? error, GmailConnector gmail,
+            ResearchCoordinator research, CancellationToken ct) =>
         {
-            await gmail.CompleteAsync(code, state, error, ct);
+            // A newly connected account is imported straight away.
+            if (await gmail.CompleteAsync(code, state, error, ct) is null) research.RequestWork();
             return TypedResults.Redirect("/#gmail");
         }).ExcludeFromDescription();
+        group.MapPost("/gmail/accounts/{address}/import", async Task<NoContent> (string address, GmailConnector gmail, GmailImporter importer,
+            ResearchCoordinator research, IResearchStore store, CancellationToken ct) =>
+        {
+            gmail.Require(await store.ReadAsync(ct), address);
+            importer.Request(address);
+            research.RequestWork();
+            return TypedResults.NoContent();
+        }).WithName("ImportGmailAccount").WithSummary("Import new mail from a connected Gmail account now.");
         group.MapPost("/gmail/accounts/{address}/check", async Task<Ok<GmailAccountResponse>> (string address, GmailConnector gmail, CancellationToken ct) =>
             TypedResults.Ok(await gmail.CheckAsync(address, ct)))
             .WithName("CheckGmailAccount").WithSummary("Count the threads written in during the import window (no mail content is read).");

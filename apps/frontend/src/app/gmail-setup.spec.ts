@@ -4,7 +4,7 @@ import { GmailSetup } from './gmail-setup';
 import { GmailStatus, ResearchApi } from './research-api';
 
 describe('Gmail setup', () => {
-  const api = { connectGmail: vi.fn(), checkGmail: vi.fn(), removeGmail: vi.fn() };
+  const api = { connectGmail: vi.fn(), importGmail: vi.fn(), removeGmail: vi.fn() };
   const status = (extra: Partial<GmailStatus> = {}): GmailStatus => ({
     configured: true, windowDays: 30, consentVersion: 'gmail-2026-11', accounts: [], lastError: null, ...extra,
   });
@@ -38,21 +38,25 @@ describe('Gmail setup', () => {
     expect(api.connectGmail).toHaveBeenCalledWith('gmail-2026-11');
   });
 
-  it('lists accounts with their thread counts, checks one and removes one after confirmation', async () => {
-    api.checkGmail.mockResolvedValue(account('a@example.invalid'));
+  it('lists accounts with their imports, imports one now and removes one after confirmation', async () => {
+    api.importGmail.mockResolvedValue(undefined);
     api.removeGmail.mockResolvedValue(undefined);
-    const { fixture, element } = setup(status({ accounts: [account('a@example.invalid'),
+    const { fixture, element } = setup(status({ accounts: [
+      account('a@example.invalid', { analyzed: 9, workstreams: 2, lastImportAt: '2026-11-01T12:00:00Z', nextImportAt: '2026-11-01T13:04:00Z' }),
       account('b@example.invalid', { status: 'reconnect', threads: null, error: 'Google no longer accepts Meld\'s access.' })] }));
     const changed = vi.fn();
     fixture.componentInstance.changed.subscribe(changed);
     const items = element.querySelectorAll('.account');
     expect(items[0].textContent).toContain('12 threads you wrote in during the last 30 days');
+    expect(items[0].querySelector('.account-counts')?.textContent).toMatch(/9 analyzed\s*·\s*2\s*workstreams/);
+    expect(items[0].querySelector('.account-import')?.textContent).toContain('next around');
     expect(items[1].querySelector('.account-status')?.textContent).toContain('Reconnect needed');
-    expect(items[1].querySelector('.check-gmail')).toBeNull();
+    expect(items[1].querySelector('.import-gmail')).toBeNull();
+    expect(element.textContent).not.toContain('getting ready');
     expect(element.querySelector('button.connect-gmail')?.textContent).toContain('Add another Gmail account');
 
-    items[0].querySelector<HTMLButtonElement>('.check-gmail')!.click();
-    await vi.waitFor(() => expect(api.checkGmail).toHaveBeenCalledWith('a@example.invalid'));
+    items[0].querySelector<HTMLButtonElement>('.import-gmail')!.click();
+    await vi.waitFor(() => expect(api.importGmail).toHaveBeenCalledWith('a@example.invalid'));
     await vi.waitFor(() => expect(changed).toHaveBeenCalled());
 
     const remove = items[1].querySelector<HTMLButtonElement>('.remove-gmail')!;
@@ -62,6 +66,19 @@ describe('Gmail setup', () => {
     expect(remove.textContent).toContain('are you sure');
     remove.click();
     await vi.waitFor(() => expect(api.removeGmail).toHaveBeenCalledWith('b@example.invalid'));
+  });
+
+  it('shows a running import, another computer importing, and why an import paused', () => {
+    const { element } = setup(status({ accounts: [
+      account('a@example.invalid', { importing: { done: 3, total: 8, waiting: false } }),
+      account('b@example.invalid', { importing: { done: 0, total: 0, waiting: true } }),
+      account('c@example.invalid', { lastImportAt: '2026-11-01T12:00:00Z', importError: 'Meld\'s server is not answering.' })] }));
+    const items = element.querySelectorAll('.account');
+    expect(items[0].textContent).toContain('Importing: 3 of 8 threads with new mail');
+    expect(items[0].querySelector('mat-progress-bar')).not.toBeNull();
+    expect(items[0].querySelector<HTMLButtonElement>('.import-gmail')!.disabled).toBe(true);
+    expect(items[1].textContent).toContain('Another of your computers is importing');
+    expect(items[2].querySelector('.account-error')?.textContent).toContain('not answering');
   });
 
   it('shows why the last connection did not complete', () => {

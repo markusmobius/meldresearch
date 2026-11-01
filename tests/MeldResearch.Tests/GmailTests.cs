@@ -56,7 +56,8 @@ public sealed class GmailTests
         Assert.Equal(("code1", "verifier1", "secret", Redirect, "authorization_code"),
             (exchange["code"], exchange["code_verifier"], exchange["client_secret"], exchange["redirect_uri"], exchange["grant_type"]));
 
-        Assert.Equal(["t1", "t2", "t3"], await google.ParticipatedThreadsAsync("at", 30, None));
+        Assert.Equal([new GmailThreadRef("t1", "9"), new GmailThreadRef("t2", ""), new GmailThreadRef("t3", "")],
+            await google.ParticipatedThreadsAsync("at", 30, None));
         Assert.Contains(Uri.EscapeDataString("in:sent newer_than:30d -in:chats"), requests[1].Url);
         Assert.Equal(new GmailProfile("markus@example.invalid", "77"), await google.ProfileAsync("at", None));
         var withdrawn = await Assert.ThrowsAsync<ResearchFailure>(() => google.RefreshAsync(client, "rt", None));
@@ -222,8 +223,12 @@ public sealed class GmailTests
     }
 
     /// <summary>Google stand-in: each exchange connects the next address; access tokens can be made to expire.</summary>
-    private sealed class FakeGoogle : IGmailGoogle
+    internal sealed class FakeGoogle : IGmailGoogle
     {
+        /// <summary>The threads the user wrote in, newest first.</summary>
+        public List<GmailThread> Mailbox { get; set; } = [.. Enumerable.Range(1, 4).Select(index => new GmailThread($"t{index}", "1", $"Thread {index}", []))];
+        public int ThreadReads { get; private set; }
+        public bool Unavailable { get; set; }
         private static readonly string[] Addresses = ["first@example.invalid", "second@example.invalid"];
         private int _next;
         public string Scope { get; set; } = "openid email " + IGmailGoogle.ReadOnlyScope;
@@ -253,11 +258,19 @@ public sealed class GmailTests
         public Task RevokeAsync(string token, CancellationToken ct) { Revoked.Add(token); return Task.CompletedTask; }
         public Task<GmailProfile> ProfileAsync(string accessToken, CancellationToken ct) => Task.FromResult(new GmailProfile(accessToken["access-".Length..], "5"));
 
-        public Task<IReadOnlyList<string>> ParticipatedThreadsAsync(string accessToken, int days, CancellationToken ct)
+        public Task<IReadOnlyList<GmailThreadRef>> ParticipatedThreadsAsync(string accessToken, int days, CancellationToken ct)
         {
             if (ExpireAccess) { ExpireAccess = false; throw new ResearchFailure(401, "gmail_token_expired", "Expired."); }
             if (Withdrawn) throw new ResearchFailure(401, "gmail_token_expired", "Expired.");
-            return Task.FromResult<IReadOnlyList<string>>(["t1", "t2", "t3", "t4"]);
+            if (Unavailable) throw new ResearchFailure(503, "gmail_unavailable", "Gmail did not answer.");
+            return Task.FromResult<IReadOnlyList<GmailThreadRef>>([.. Mailbox.Select(thread => new GmailThreadRef(thread.Id, thread.HistoryId))]);
+        }
+
+        public Task<GmailThread> ThreadAsync(string accessToken, string threadId, CancellationToken ct)
+        {
+            ThreadReads++;
+            return Task.FromResult(Mailbox.FirstOrDefault(thread => thread.Id == threadId) ??
+                throw new ResearchFailure(404, "gmail_thread_missing", "The thread no longer exists."));
         }
     }
 }

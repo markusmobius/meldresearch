@@ -5,7 +5,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { firstValueFrom } from 'rxjs';
 
-export type InferencePurpose = 'profileImport' | 'profileUpdate' | 'projectSummary' | 'projectGrouping' | 'researcherMatching' | 'other';
+export type InferencePurpose = 'profileImport' | 'profileUpdate' | 'projectSummary' | 'projectGrouping' | 'emailExtraction' | 'researcherMatching' | 'other';
 
 export interface InferenceUsageBucket {
   start: string; deployment: string; operation: 'chat' | 'embedding'; purpose: InferencePurpose;
@@ -51,6 +51,7 @@ export class MeldUsage implements OnInit, AfterViewInit {
     { value: 'profileUpdate', label: 'Profile updates' },
     { value: 'projectSummary', label: 'Project summaries' },
     { value: 'projectGrouping', label: 'Project grouping' },
+    { value: 'emailExtraction', label: 'Gmail' },
     { value: 'researcherMatching', label: 'Researcher matching' },
     { value: 'other', label: 'Other' },
   ];

@@ -65,7 +65,8 @@
                 <p class="feed-card-body feed-clamp">{{ update.summary }}</p>
                 <div class="feed-card-actions">
                   <button mat-button class="feed-action" (click)="showUpdate(update, evidence)"><mat-icon>rate_review</mat-icon>Review</button>
-                  <span class="feed-project" [title]="update.projectName">{{ update.projectName }}</span>
+                  <span class="feed-project" [title]="(fromGmail(update) ? 'Gmail workstream: ' : '') + update.projectName">
+                    @if (fromGmail(update)) { <mat-icon class="feed-source">mail</mat-icon> }{{ update.projectName }}</span>
                 </div>
               </article>
             } @empty {
@@ -97,13 +98,14 @@
   @if (selectedUpdate(); as update) {
     <h2 mat-dialog-title>{{ update.title }}</h2>
     <mat-dialog-content class="update-detail">
-      <p class="muted">{{ update.kind === 'initialImport' ? 'Initial import' : update.kind === 'removal' ? 'Knowledge removed' : 'Project update' }}
+      <p class="muted">{{ update.kind === 'initialImport' ? 'Initial import' : update.kind === 'removal' ? 'Knowledge removed' : fromGmail(update) ? 'Update' : 'Project update' }}
         &middot; {{ update.observedAt | date:'medium' }}</p>
       <p>{{ update.summary }}</p>
-      @if (state()?.dummy) { <p>{{ update.projectName }}</p> }
+      @if (fromGmail(update)) { <p><mat-icon class="evidence-mail">mail</mat-icon> Gmail workstream: {{ update.projectName }}</p> }
+      @else if (state()?.dummy) { <p>{{ update.projectName }}</p> }
       @else { <p><a [href]="'https://www.overleaf.com/project/' + update.projectId" target="_blank" rel="noopener noreferrer">{{ update.projectName }}</a></p> }
       <h3>Source evidence</h3>
-      <p class="muted">Revision {{ update.revision.slice(0, 12) }}</p>
+      @if (!fromGmail(update)) { <p class="muted">Revision {{ update.revision.slice(0, 12) }}</p> }
       @for (citation of update.evidence; track $index) {
         @if (citation.email; as email) {
           <p><mat-icon class="evidence-mail">mail</mat-icon> <strong>{{ citation.path }}</strong> &middot; from {{ email.from }} &middot; {{ email.sentAt | date: 'MMM d, y, h:mm a' }}</p>

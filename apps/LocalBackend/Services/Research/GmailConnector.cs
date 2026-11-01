@@ -28,14 +28,14 @@ internal sealed class GmailConnector(IResearchStore store, IResearchRemote remot
     private readonly ConcurrentDictionary<string, (string Token, DateTimeOffset ExpiresAt)> _access = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    public GmailStatusResponse Status(LocalResearchState state)
+    public GmailStatusResponse Status(LocalResearchState state, GmailImporter? importer = null)
     {
         // The answer whether the server offers Gmail is refreshed in the background, so status reads never wait for it.
         if (_configuration is not { } known || clock.GetUtcNow() - known.At >= ConfigurationAge) _ = ConfiguredAsync(CancellationToken.None);
         var account = state.Credential?.Account.Id;
         var accounts = (state.GmailAccounts ?? []).Where(item => item.AccountId == account && !item.Removed)
             .OrderBy(item => item.Address, StringComparer.OrdinalIgnoreCase)
-            .Select(item => new GmailAccountResponse(item.Address, item.Status, item.Error, item.Threads, item.CheckedAt, item.ChangedAt)).ToArray();
+            .Select(item => Response(item, state, importer)).ToArray();
         return new(_configuration?.Configured ?? false, WindowDays, ConsentVersion, accounts, _lastError);
     }
 
@@ -92,7 +92,12 @@ internal sealed class GmailConnector(IResearchStore store, IResearchRemote remot
             await store.ChangeAsync(current =>
             {
                 if (current.Credential?.Account.Id != pending.Account) throw new ResearchFailure(409, "research_state_changed", "The Meld account changed.");
-                var account = new GmailAccountState(pending.Account, profile.Address, tokens.RefreshToken, ConsentVersion, now, HistoryId: profile.HistoryId);
+                // Connecting an account again (for example after Google ended the grant) keeps what was already analyzed.
+                var existing = (current.GmailAccounts ?? []).FirstOrDefault(item => item.AccountId == pending.Account && !item.Removed &&
+                    string.Equals(item.Address, profile.Address, StringComparison.OrdinalIgnoreCase));
+                var account = existing is null
+                    ? new GmailAccountState(pending.Account, profile.Address, tokens.RefreshToken, ConsentVersion, now, HistoryId: profile.HistoryId)
+                    : existing with { RefreshToken = tokens.RefreshToken, ConsentVersion = ConsentVersion, ChangedAt = now, Status = "connected", Error = null };
                 return current with { GmailAccounts = [.. Others(current, pending.Account, profile.Address), account] };
             }, ct);
             _access[profile.Address] = (tokens.AccessToken, tokens.ExpiresAt);
@@ -115,7 +120,7 @@ internal sealed class GmailConnector(IResearchStore store, IResearchRemote remot
         try
         {
             string token = await AccessTokenAsync(credential, account, ct);
-            IReadOnlyList<string> threads;
+            IReadOnlyList<GmailThreadRef> threads;
             try { threads = await google.ParticipatedThreadsAsync(token, WindowDays, ct); }
             catch (ResearchFailure failure) when (failure.Code == "gmail_token_expired")
             {
@@ -124,7 +129,7 @@ internal sealed class GmailConnector(IResearchStore store, IResearchRemote remot
             }
             var checkedAccount = await UpdateAsync(credential.Account.Id, account.Address,
                 item => item with { Status = "connected", Error = null, Threads = threads.Count, CheckedAt = clock.GetUtcNow() }, ct);
-            return Response(checkedAccount);
+            return Response(checkedAccount, null, null);
         }
         catch (ResearchFailure failure)
         {
@@ -164,6 +169,29 @@ internal sealed class GmailConnector(IResearchStore store, IResearchRemote remot
         foreach (var account in (state.GmailAccounts ?? []).Where(item => !item.Removed && item.RefreshToken is not null))
             await RevokeQuietlyAsync(account.RefreshToken!, ct);
         _access.Clear();
+    }
+
+    /// <summary>
+    /// Calls Gmail with a current access token (renewed once if Google says it expired). When Google ended the grant, the
+    /// account is marked for reconnecting.
+    /// </summary>
+    internal async Task<T> WithAccessAsync<T>(LinkedCredential credential, GmailAccountState account, Func<string, Task<T>> call, CancellationToken ct)
+    {
+        try
+        {
+            try { return await call(await AccessTokenAsync(credential, account, ct)); }
+            catch (ResearchFailure failure) when (failure.Code == "gmail_token_expired")
+            {
+                _access.TryRemove(account.Address, out _);
+                return await call(await AccessTokenAsync(credential, account, ct));
+            }
+        }
+        catch (ResearchFailure failure) when (failure.Code is "gmail_reconnect" or "gmail_scope_missing")
+        {
+            try { await UpdateAsync(credential.Account.Id, account.Address, item => item with { Status = "reconnect", Error = failure.Message }, ct); }
+            catch (ResearchFailure) { /* Removed meanwhile. */ }
+            throw;
+        }
     }
 
     private async Task<string> AccessTokenAsync(LinkedCredential credential, GmailAccountState account, CancellationToken ct)
@@ -222,13 +250,20 @@ internal sealed class GmailConnector(IResearchStore store, IResearchRemote remot
     private static IEnumerable<GmailAccountState> Others(LocalResearchState state, Guid account, string address) =>
         (state.GmailAccounts ?? []).Where(item => item.AccountId != account || !string.Equals(item.Address, address, StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>The signed-in account's connected Gmail account with this address (404 otherwise).</summary>
+    public GmailAccountState Require(LocalResearchState state, string address) => Find(state, Credential(state).Account.Id, address);
+
     private static GmailAccountState Find(LocalResearchState state, Guid account, string address) =>
         (state.GmailAccounts ?? []).FirstOrDefault(item => item.AccountId == account && !item.Removed &&
             string.Equals(item.Address, address, StringComparison.OrdinalIgnoreCase)) ??
         throw new ResearchFailure(404, "gmail_account_not_found", "This Gmail account is not connected.");
 
-    private static GmailAccountResponse Response(GmailAccountState item) =>
-        new(item.Address, item.Status, item.Error, item.Threads, item.CheckedAt, item.ChangedAt);
+    private static GmailAccountResponse Response(GmailAccountState item, LocalResearchState? state, GmailImporter? importer) =>
+        new(item.Address, item.Status, item.Error, item.Threads, item.CheckedAt, item.ChangedAt, item.Processed?.Count ?? 0,
+            state?.Projects.Count(project => project.AccountId == item.AccountId && project.Source == ResearchSources.Gmail &&
+                string.Equals(project.Parent, item.Address, StringComparison.OrdinalIgnoreCase)) ?? 0,
+            item.LastImportAt, item.Status == "connected" && item.LastImportAt is not null ? GmailImporter.NextImportAt(item) : null,
+            importer?.Progress(item.Address), importer?.LastError(item.Address));
 
     private LinkedCredential Credential(LocalResearchState state) =>
         state.Credential is { } credential && credential.ExpiresAt > clock.GetUtcNow() ? credential

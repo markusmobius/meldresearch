@@ -11,8 +11,7 @@ p { margin: 0 0 8px; line-height: 1.5; }
 .account-status { align-self: flex-start; padding: 0 8px; border-radius: 10px; font-size: 11.5px; font-weight: 600; background: #dcfce7; color: #166534; }
 .account-status.reconnect, .account-status.error { background: #fee2e2; color: #991b1b; }
 .account-actions { display: flex; flex-wrap: wrap; gap: 4px; flex: none; }
-.next-version { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
-.next-version mat-icon { font-size: 16px; width: 16px; height: 16px; }
+.account-text mat-progress-bar { margin: 4px 0 2px; max-width: 320px; }
 .add-account { margin-top: 14px; padding-top: 12px; border-top: 1px solid #e2e8f0; }
 .gmail-consent { display: block; margin-bottom: 10px; }
 .connect-gmail:not(:disabled) { background: #084d42; color: #ffffff; }

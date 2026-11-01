@@ -74,6 +74,7 @@ builder.Services.AddHttpClient(GmailGoogle.HttpClientName, client => client.Time
 if (researchOptions.Dummy) builder.Services.AddSingleton<IGmailGoogle, DummyGmailGoogle>();
 else builder.Services.AddSingleton<IGmailGoogle, GmailGoogle>();
 builder.Services.AddSingleton<GmailConnector>();
+builder.Services.AddSingleton<GmailImporter>();
 builder.Services.AddSingleton<LeaveService>();
 builder.Services.AddSingleton<IOverleafEvidenceSource, OverleafEvidenceSource>();
 // Idle connections are dropped before Cloudflare or nginx closes them, so a request never starts on a dead connection.

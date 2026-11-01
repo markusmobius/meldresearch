@@ -29,9 +29,16 @@ instruction file. Start with the [README](README.md) for setup and release detai
   the code itself. Meld's server only hands out the Desktop OAuth client
   (`GET /api/gmail/client`, signed-in installations; `Gmail:ClientId/ClientSecret`).
   Refresh tokens live only in the encrypted local state and the E2E-encrypted
-  sync (`GmailAccountState`, newest `ChangedAt` per address wins, removals are
-  tombstones) — never in backups, logs or on the server. Removing an account
+  sync (`GmailAccountState`: connection fields from the newest `ChangedAt`,
+  analyzed threads unioned, latest `LastImportAt`, synced lease wins; removals
+  are tombstones) — never in backups, logs or on the server. Removing an account
   revokes it at Google; leaving revokes all.
+- Gmail import ([GmailImporter](apps/LocalBackend/Services/Research/GmailImporter.cs),
+  called from the coordinator's cycle): only threads whose `historyId` changed
+  are read, and only their new messages are analyzed (`/api/research/email-step`,
+  verbatim line citations). Unchanged mail must make zero model calls. Commit
+  each thread atomically; with sync, push the lease before reading mail and
+  stop if another computer holds it.
 - All model decisions and embeddings use configured Azure AI Foundry.
   Deterministic source hashing is appropriate; canned model responses or local
   novelty heuristics are not substitutes for real inference.
@@ -50,7 +57,7 @@ instruction file. Start with the [README](README.md) for setup and release detai
 
 - Research card members are source-generic
   ([ResearchSources](libraries/Research/ResearchSources.cs)): Overleaf projects
-  (24-hex ids, `Source` null) and, in preparation, Gmail workstreams (`gmail-` +
+  (24-hex ids, `Source` null) and Gmail workstreams (`gmail-` +
   32 hex, `Source` "gmail", `Parent` = Gmail address). Only Overleaf projects are
   swept and processed file by file; other members join, move between and leave
   cards like projects. Workstreams sync via `WorkstreamRef` in the profile bundle;
@@ -228,7 +235,7 @@ Use .NET 10, Node 24/npm and PowerShell 7. Run from this repository's root, e.g.
   restore the removed application Playwright approach. Use the normal browser
   and connector; never execute downloaded TeX.
 - Current Chrome identity: `pejcljoimoeklelcfbfddnkimlkjgfhe`; extension version
-  `0.6.0`, native protocol `2`. Identity derives from the public manifest key,
+  `0.6.1`, native protocol `2`. Identity derives from the public manifest key,
   not a secret signing key. Update related identity/handshake checks together;
   compatible extension releases need not have identical version numbers.
 - Bump the connector manifest version whenever extension files change: installed

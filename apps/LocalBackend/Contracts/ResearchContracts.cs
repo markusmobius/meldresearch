@@ -36,9 +36,16 @@ public sealed record ResearchStatusResponse(MeldAccountResponse? Account, DateTi
 /// </summary>
 public sealed record GmailStatusResponse(bool Configured, int WindowDays, string ConsentVersion, IReadOnlyList<GmailAccountResponse> Accounts,
     string? LastError);
-/// <summary>Status: connected, reconnect (Google withdrew the grant) or error. Threads: threads written in during the window.</summary>
+/// <summary>
+/// Status: connected, reconnect (Google withdrew the grant) or error. Threads: threads written in during the window.
+/// Analyzed: threads analyzed so far; Workstreams: lines of work found in this account; Importing: the import running now;
+/// ImportError: why the last import stopped (it is retried).
+/// </summary>
 public sealed record GmailAccountResponse(string Address, string Status, string? Error, int? Threads, DateTimeOffset? CheckedAt,
-    DateTimeOffset ConnectedAt);
+    DateTimeOffset ConnectedAt, int Analyzed = 0, int Workstreams = 0, DateTimeOffset? LastImportAt = null,
+    DateTimeOffset? NextImportAt = null, GmailImportProgress? Importing = null, string? ImportError = null);
+/// <summary>An import in progress: threads done of the threads with new mail; Waiting: another computer is importing.</summary>
+public sealed record GmailImportProgress(int Done, int Total, bool Waiting = false);
 public sealed record GmailConnectRequest(string? ConsentVersion = null);
 /// <summary>Google's consent page; it returns to this app.</summary>
 public sealed record GmailConnectResponse(string AuthorizationUrl, DateTimeOffset ExpiresAt);

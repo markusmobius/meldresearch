@@ -326,6 +326,43 @@ public sealed class FoundryTests
     }
 
     [Fact]
+    public async Task EmailStepsCopyCitedLinesOfNewMessagesAndDropAnythingElse()
+    {
+        string reply = "";
+        using var http = new HttpClient(new Handler(_ => Task.FromResult(Response(new { choices = new[] { new { finish_reason = "stop", message = new { content = reply } } } }))));
+        using var foundry = Create(http);
+        var now = DateTimeOffset.UtcNow;
+        var request = new EmailStepRequest("t1", "Robustness results", "me@example.invalid",
+            [new("m2", "Me <me@example.invalid>", now, true, "Lukas,\nthe 200-agent simulations are done.\nTable 4 is in the draft.")],
+            [new("m1", "Lukas <lukas@example.invalid>", now.AddDays(-1), false, "Can you run the larger simulations?")], null, []);
+        object Citation(string id, int start, int end) => new { messageId = id, startLine = start, endLine = end };
+        reply = JsonSerializer.Serialize(new
+        {
+            decision = "new", workstreamId = (string?)null, profile = Profile, explanation = "A research result.",
+            updates = new object[]
+            {
+                new { title = "Simulations done", summary = "The user finished the larger simulations.", evidence = new[] { Citation("m2", 2, 3), Citation("m1", 1, 1) } },
+                new { title = "Invented", summary = "Cites nothing real.", evidence = new[] { Citation("m2", 7, 9), Citation("m9", 1, 1) } }
+            }
+        }, ResearchJson.Options);
+        var response = await foundry.EmailStepAsync(request, CancellationToken.None);
+        var update = Assert.Single(response.Updates);
+        var citation = Assert.Single(update.Evidence);
+        Assert.Equal(("Robustness results", "the 200-agent simulations are done.\nTable 4 is in the draft.", "m2"),
+            (citation.Path, citation.Quote, citation.Email!.MessageId));
+        Assert.Equal((EmailSteps.New, (string?)null), (response.Decision, response.WorkstreamId));
+
+        reply = JsonSerializer.Serialize(new { decision = "skip", workstreamId = (string?)null, profile = Profile, explanation = "Scheduling.", updates = Array.Empty<object>() },
+            ResearchJson.Options);
+        response = await foundry.EmailStepAsync(request, CancellationToken.None);
+        Assert.Equal((EmailSteps.Skip, (ProjectProfile?)null), (response.Decision, response.Profile));
+
+        reply = JsonSerializer.Serialize(new { decision = "existing", workstreamId = "gmail-" + new string('e', 32), profile = Profile, explanation = "Invented.",
+            updates = Array.Empty<object>() }, ResearchJson.Options);
+        Assert.Equal("invalid_email_decision", (await Assert.ThrowsAsync<ResearchFailure>(() => foundry.EmailStepAsync(request, CancellationToken.None))).Code);
+    }
+
+    [Fact]
     public async Task RejectionsNameFoundrysStatusAndErrorCodeButNeverItsMessage()
     {
         using var http = new HttpClient(new Handler(_ => Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.Forbidden)

@@ -76,6 +76,9 @@ export interface ResearchStatus {
 export interface GmailAccount {
   address: string; status: 'connected' | 'reconnect' | 'error'; error: string | null; threads: number | null;
   checkedAt: string | null; connectedAt: string;
+  /** Threads analyzed so far and the workstreams found in them; importing: the import running now (waiting: on another computer). */
+  analyzed?: number; workstreams?: number; lastImportAt?: string | null; nextImportAt?: string | null;
+  importing?: { done: number; total: number; waiting: boolean } | null; importError?: string | null;
 }
 export interface GmailStatus {
   configured: boolean; windowDays: number; consentVersion: string; accounts: ReadonlyArray<GmailAccount>; lastError: string | null;
@@ -168,8 +171,9 @@ export class ResearchApi {
   connectGmail(consentVersion: string): Promise<{ authorizationUrl: string; expiresAt: string }> {
     return firstValueFrom(this.http.post<{ authorizationUrl: string; expiresAt: string }>('/api/research/gmail/connect', { consentVersion }));
   }
-  checkGmail(address: string): Promise<GmailAccount> {
-    return firstValueFrom(this.http.post<GmailAccount>(`/api/research/gmail/accounts/${encodeURIComponent(address)}/check`, {}));
+  /** Imports new mail from a connected Gmail account now (also if it was imported recently). */
+  importGmail(address: string): Promise<void> {
+    return firstValueFrom(this.http.post<void>(`/api/research/gmail/accounts/${encodeURIComponent(address)}/import`, {}));
   }
   /** Disconnects a Gmail account: revokes Meld's access at Google and removes it on every computer. */
   removeGmail(address: string): Promise<void> {

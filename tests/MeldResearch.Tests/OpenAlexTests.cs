@@ -88,6 +88,7 @@ public sealed class OpenAlexTests
         public long EmbeddingRequests => 0;
         public InferenceCapacity Capacity => new("chat", "embedding", 0, 2);
         public Task<ProfileStepResponse> ProfileStepAsync(ProfileStepRequest request, CancellationToken ct) => throw new NotSupportedException();
+        public Task<EmailStepResponse> EmailStepAsync(EmailStepRequest request, CancellationToken ct) => throw new NotSupportedException();
         public Task<ResearchEmbeddingResponse> EmbedAsync(ResearchEmbeddingRequest request, CancellationToken ct) => throw new NotSupportedException();
         public Task<ProjectSummaryResponse> SummarizeProjectAsync(ProjectSummaryRequest request, CancellationToken ct) => throw new NotSupportedException();
         public Task<ThemeMatchResponse> MatchThemeAsync(ThemeMatchRequest request, CancellationToken ct) => throw new NotSupportedException();
