@@ -12,6 +12,8 @@ import { ProjectProfile, ResearchApi, ResearchProject, ResearchStatus, ResearchU
 interface ProfileCard {
   id: string; themeId: string | null; profile: ProfileOrNull; members: ReadonlyArray<ResearchProject>;
   recent: ReadonlyArray<ResearchUpdate>; updating: boolean; progress: ResearchProject | null;
+  /** The card's 4-5 sentence description; until it is written, the full description is shown. */
+  blurb: string | null;
   /** The most recent Overleaf edit of any of the card's projects (or, failing that, its latest Update); orders the cards. */
   lastEdited: number | null;
 }
@@ -62,12 +64,13 @@ export class PrivateProfile {
       if (!members.length) continue;
       members.forEach(member => placed.add(member.projectId));
       cards.push({ id: theme.id, themeId: theme.id, profile: theme.profile ?? members[0].profile, members, recent: recent(theme.projectIds),
-        updating: theme.updating, progress: members.find(member => BUSY.has(member.phase)) ?? null, lastEdited: lastEdited(theme.projectIds) });
+        updating: theme.updating, progress: members.find(member => BUSY.has(member.phase)) ?? null, lastEdited: lastEdited(theme.projectIds),
+        blurb: theme.blurb ?? null });
     }
     // Projects still importing, or imported and about to be placed on a card.
     for (const project of shown.filter(item => !placed.has(item.projectId))) {
       cards.push({ id: project.projectId, themeId: null, profile: project.profile, members: [project], recent: recent([project.projectId]),
-        updating: !!project.profile, progress: BUSY.has(project.phase) ? project : null, lastEdited: lastEdited([project.projectId]) });
+        updating: !!project.profile, progress: BUSY.has(project.phase) ? project : null, lastEdited: lastEdited([project.projectId]), blurb: null });
     }
     // Most recently edited research first.
     return cards.sort((a, b) => (b.lastEdited ?? 0) - (a.lastEdited ?? 0));

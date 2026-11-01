@@ -40,6 +40,8 @@
         </div>
       }
 
+      @if (view() === 'log') { <app-meld-log class="page-container" [projects]="research()?.projects ?? []"></app-meld-log> }
+
       @if (view() === 'account' && setupKnown()) {
         <div class="page-container setup-layout">
           <nav class="setup-tabs" role="tablist" aria-label="Connections">

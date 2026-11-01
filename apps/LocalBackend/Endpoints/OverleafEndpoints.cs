@@ -32,6 +32,12 @@ internal static class OverleafEndpoints
             return TypedResults.Ok(updater.Status);
         }).WithName("GetDesktopVersion").WithSummary("Read the installed desktop release and automatic-update state.");
 
+        app.MapGet("/api/logs", (AppLogStore log, string? level, string? source, int? limit) =>
+            TypedResults.Ok(log.Read(level, source, limit ?? 300)))
+            .WithName("GetActivityLog").WithSummary("Read the newest activity log entries (no research content or credentials).");
+        app.MapGet("/api/logs/status", (AppLogStore log) => TypedResults.Ok(log.Status()))
+            .WithName("GetActivityLogStatus").WithSummary("Count warnings and errors of the last ten minutes for the More menu.");
+
         app.MapGet("/api/remote-ping", async Task<Ok<RemotePingResponse>> (RemoteConnectivity remote, CancellationToken ct) =>
             TypedResults.Ok(await remote.CheckAsync(ct)))
             .WithName("PingRemoteService").WithSummary("Report whether the Meld Research remote service is reachable (no credentials are sent).");

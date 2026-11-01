@@ -1,0 +1,28 @@
+:host { display: block; }
+/* Project Meld's Log page: a dark, monospace view of the newest entries. */
+.page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.page-title { display: flex; align-items: center; gap: 10px; margin: 0; color: #1e293b; font-size: 24px; font-weight: 700; line-height: 32px; letter-spacing: 0; }
+.page-subtitle { margin: 4px 0 0; color: #64748b; font-size: 13px; line-height: 20px; }
+.page-actions { display: flex; align-items: center; gap: 8px; }
+.log-select { background: #111827; color: #cbd5e1; border: 1px solid #1e293b; border-radius: 4px; padding: 4px 8px; font: inherit; font-size: 0.78rem; }
+.log-page-body { background: #0f141b; border-radius: 10px; padding: 10px 0; max-height: calc(100vh - 260px); overflow-y: auto;
+  font-family: 'Cascadia Code', 'Consolas', 'SF Mono', monospace; font-size: 0.78rem; color: #cbd5e1; }
+.log-empty { padding: 24px 16px; color: #64748b; text-align: center; font-family: 'Outfit', sans-serif; }
+.log-unreachable { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 24px 16px; color: #fbbf24; font-family: 'Outfit', sans-serif; }
+.log-unreachable mat-icon { font-size: 20px; width: 20px; height: 20px; }
+.log-row { display: flex; gap: 10px; padding: 2px 12px; align-items: baseline; white-space: pre-wrap; word-break: break-word; }
+.log-row:hover { background: #151c26; }
+.log-ts { color: #64748b; flex: 0 0 auto; }
+.log-source { color: #38bdf8; flex: 0 0 72px; text-align: right; }
+.log-msg { flex: 1 1 auto; }
+.log-project { color: #34d399; margin-right: 6px; }
+.log-project::after { content: ':'; }
+.log-repeats { color: #94a3b8; }
+.log-detail { color: #64748b; }
+.log-row.log-warn .log-msg { color: #fbbf24; }
+.log-row.log-error .log-msg, .log-row.log-error .log-source { color: #f87171; }
+@media (max-width: 700px) {
+  .log-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; padding: 8px 12px; }
+  .log-source { text-align: left; }
+  .log-msg { grid-column: 1 / -1; min-width: 0; }
+}

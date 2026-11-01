@@ -67,7 +67,12 @@ internal static class ThemePlan
 
     public static bool HasWork(LocalResearchState state, Guid account) =>
         Cleaned(state, account) is not null || Unplaced(state, account) is not null || RegroupDue(state, account) ||
-        Stale(state, account) is not null;
+        Stale(state, account) is not null || BlurbDue(state, account) is not null;
+
+    /// <summary>A card whose 4-5 sentence description was made from an earlier version of its summary (or not yet at all).</summary>
+    public static ResearchTheme? BlurbDue(LocalResearchState state, Guid account) =>
+        Stale(state, account) is not null ? null
+        : Themes(state, account).FirstOrDefault(theme => theme.Profile is not null && theme.BlurbFor != Fingerprint(theme.Profile));
 
     /// <summary>The account's cards and their members, independent of order; regrouping runs again only when it changes.</summary>
     public static string Signature(LocalResearchState state, Guid account) => ResearchEvidence.Hash(string.Join("|",

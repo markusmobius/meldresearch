@@ -125,7 +125,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 item.UpdatedAt, item.SourceUpdatedAt, item.Error)).ToArray(),
             account is not { } owner ? [] : ThemePlan.Themes(state, owner).Select(theme => new ResearchThemeResponse(theme.Id, theme.Profile,
                 theme.Members, theme.Profile is null || !ThemePlan.Matches(theme, theme.Members.Select(id => projects.FirstOrDefault(project =>
-                    project.ProjectId == id)).Where(project => project?.Profile is not null).ToArray()!))).ToArray());
+                    project.ProjectId == id)).Where(project => project?.Profile is not null).ToArray()!),
+                theme.Profile is not null && theme.BlurbFor == ThemePlan.Fingerprint(theme.Profile) ? theme.Blurb : null)).ToArray());
     }
 
     public async Task<AccountLinkResponse> BeginLinkAsync(string callbackUri, CancellationToken ct)
@@ -418,6 +419,22 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 }, ct);
                 return true;
             }
+            if (ThemePlan.BlurbDue(state, account) is { } described)
+            {
+                var profile = described.Profile!;
+                string blurb = (await remote.DescribeCardAsync(credential.Token, new(profile), ct)).Blurb;
+                if (!ResearchThemes.ValidBlurb(blurb)) throw new ResearchFailure(502, "invalid_card_blurb", "Foundry returned an unsupported card description.");
+                string print = ThemePlan.Fingerprint(profile);
+                await store.ChangeAsync(current =>
+                {
+                    if (current.Credential?.Account.Id != account) return current;
+                    var theme = current.Themes?.FirstOrDefault(item => item.AccountId == account && item.Id == described.Id);
+                    // The card's summary changed meanwhile: the next step describes the new version.
+                    if (theme?.Profile is null || ThemePlan.Fingerprint(theme.Profile) != print) return current;
+                    return current with { Themes = [.. current.Themes!.Select(item => item == theme ? theme with { Blurb = blurb, BlurbFor = print } : item)] };
+                }, ct);
+                return true;
+            }
         }
         catch (ResearchFailure failure)
         {
@@ -645,6 +662,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                     project.Baseline?.SourceUpdatedAt is { } known && known == metadata.UpdatedAt)
                 {
                     await ChangeProjectAsync(project, item => item with { Name = metadata.Name, LastSweepAt = now }, token);
+                    logger.LogInformation("Checked: unchanged on Overleaf since the last check. Nothing was downloaded.");
                     return;
                 }
                 var snapshot = await source.SnapshotAsync(metadata, token);
@@ -664,6 +682,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                         ImportComplete = item.Profile is not null, LastSweepAt = now, LastSuccessAt = now, UnprocessedFiles = unanalyzed,
                         Explanation = "No supported text changes. No model calls were made."
                     }, token);
+                    logger.LogInformation("Checked: no supported text changes. No model calls were made.");
                     return;
                 }
                 manifest = manifest with { EditTimes = await source.EditTimesAsync(project.ProjectId, token) };
@@ -673,7 +692,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                     Name = metadata.Name, Pending = manifest, PendingOrder = order, PendingSince = item.PendingSince ?? now,
                     LastSweepAt = now, UnprocessedFiles = unanalyzed
                 }, token);
-                logger.LogInformation("Queued {Count} changed file(s) for summary processing. Names and evidence omitted.", order.Count);
+                logger.LogInformation("Queued {Count} changed file(s) for summary processing.", order.Count);
             });
         }
     }
@@ -711,6 +730,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                     Explanation = firstImport ? "Initial import complete: the summary now reflects every supported file." : item.Explanation
                 }, token);
                 PruneTexts(finished);
+                logger.LogInformation(firstImport ? "Initial import finished: {Files} file(s) folded into the summary." :
+                    "Changes processed: {Files} file(s) folded into the summary.", project.PendingOrder?.Count ?? 0);
                 return;
             }
             var processed = project.Processed ?? new Dictionary<string, string>();
@@ -734,8 +755,10 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 file is null ? ResearchUpdateKind.Removal : ResearchUpdateKind.Change, update.Title, update.Summary, observed, edited,
                 project.Baseline?.Revision, pending.Revision, Guid.NewGuid(), update.Evidence, null)).ToArray();
             await CommitStepAsync(credential, project, path, before, file?.Sha256, response, updates, token);
-            if (updates.Length != 0)
-                logger.LogInformation("Summary step committed {Count} update(s). Names and evidence omitted.", updates.Length);
+            var (done, total) = ProcessingPlan.Progress(project);
+            logger.LogInformation(updates.Length == 0 ? "{Kind}: file {Done} of {Total} folded into the summary." :
+                "{Kind}: file {Done} of {Total} folded into the summary with {Count} new Update(s).",
+                initial ? "Import" : "Update", done + 1, total, updates.Length);
         });
     }
 
@@ -745,6 +768,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         using var work = CancellationTokenSource.CreateLinkedTokenSource(ct);
         work.CancelAfter(ProjectDeadline);
         lock (_cycleGate) _active[project.ProjectId] = work;
+        // Log entries of this work name the project by its Overleaf id; the Log page shows its name.
+        using var scope = logger.BeginScope(new Dictionary<string, object?> { ["ProjectId"] = project.ProjectId });
         try { await action(work.Token); }
         catch (Exception error) when (error is ResearchFailure { Status: 429 } or ApiFailure { Status: 429 })
         {
@@ -756,7 +781,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             string code = error is ResearchFailure failure ? failure.Code : error is ApiFailure api ? api.Code : "invalid_research_archive";
             string detail = error is ResearchFailure or ApiFailure ? error.Message : "Overleaf returned an invalid archive. Existing research was retained.";
             if (code == "research_state_changed") return;
-            logger.LogWarning("Research project processing failed: {Code}. Evidence omitted.", code);
+            logger.LogWarning("Processing failed ({Code}): {Detail}", code, detail);
             await RecordErrorAsync(project, code, detail, ct);
         }
         catch (OperationCanceledException) when (work.IsCancellationRequested && !ct.IsCancellationRequested)

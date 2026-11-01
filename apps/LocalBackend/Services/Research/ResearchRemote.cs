@@ -40,6 +40,7 @@ internal interface IResearchRemote
     Task<ThemeMatchResponse> MatchThemeAsync(string token, ThemeMatchRequest request, CancellationToken ct);
     Task<ThemeMergeResponse> MergeThemeAsync(string token, ThemeMergeRequest request, CancellationToken ct);
     Task<ThemeRegroupResponse> RegroupThemesAsync(string token, ThemeRegroupRequest request, CancellationToken ct);
+    Task<CardBlurbResponse> DescribeCardAsync(string token, CardBlurbRequest request, CancellationToken ct);
     Task<ResearcherSearchResponse> SearchResearcherAsync(string token, ResearcherSearchRequest request, CancellationToken ct);
     Task<ResearcherWorksResponse> ResearcherWorksAsync(string token, ResearcherWorksRequest request, CancellationToken ct);
 }
@@ -63,6 +64,8 @@ internal sealed class ResearchRemote(ResearchOptions options, IHttpClientFactory
         CallAsync<ThemeMergeResponse>("api/research/theme-merge", HttpMethod.Post, request, token, ct);
     public Task<ThemeRegroupResponse> RegroupThemesAsync(string token, ThemeRegroupRequest request, CancellationToken ct) =>
         CallAsync<ThemeRegroupResponse>("api/research/theme-regroup", HttpMethod.Post, request, token, ct);
+    public Task<CardBlurbResponse> DescribeCardAsync(string token, CardBlurbRequest request, CancellationToken ct) =>
+        CallAsync<CardBlurbResponse>("api/research/card-blurb", HttpMethod.Post, request, token, ct);
     public Task<ResearcherSearchResponse> SearchResearcherAsync(string token, ResearcherSearchRequest request, CancellationToken ct) =>
         CallAsync<ResearcherSearchResponse>("api/researcher/candidates", HttpMethod.Post, request, token, ct);
     public Task<ResearcherWorksResponse> ResearcherWorksAsync(string token, ResearcherWorksRequest request, CancellationToken ct) =>

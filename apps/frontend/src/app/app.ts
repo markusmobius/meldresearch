@@ -14,6 +14,7 @@ import { ProjectSelection } from './project-selection';
 import { ResearcherSetup } from './researcher-setup';
 import { PublicationsList } from './publications';
 import { PrivateProfile } from './private-profile';
+import { MeldLog } from './meld-log';
 import { includedCount, researcherDone, undecidedRecent } from './project-decisions';
 
 export type SetupTab = 'meld' | 'overleaf' | 'openalex';
@@ -34,7 +35,7 @@ interface InstallPromptEvent extends Event {
 
 @Component({
   selector: 'app-root',
-  imports: [ResearchPanel, MeldToolbar, ProjectSelection, ResearcherSetup, PublicationsList, PrivateProfile, MatButtonModule, MatCardModule, MatTabsModule,
+  imports: [ResearchPanel, MeldToolbar, ProjectSelection, ResearcherSetup, PublicationsList, PrivateProfile, MeldLog, MatButtonModule, MatCardModule, MatTabsModule,
     MatExpansionModule, MatIconModule, MatSidenavModule],
   templateUrl: './app.html',
   styleUrl: './app.css',
@@ -103,7 +104,7 @@ export class App implements OnInit {
   locationChanged(): void { this.page.set(this.pageFromHash()); }
 
   private pageFromHash(): LocalPage {
-    return location.hash === '#about-me' ? 'about-me' : location.hash === '#account' ? 'account' : 'home';
+    return location.hash === '#about-me' ? 'about-me' : location.hash === '#account' ? 'account' : location.hash === '#log' ? 'log' : 'home';
   }
 
   // Setup: the Meld account (Google), then Overleaf (connection, then an active choice per recent project), then
@@ -130,7 +131,8 @@ export class App implements OnInit {
   readonly setupTab = computed<SetupTab>(() => this.chosenTab() ?? (this.accountLinked() ? 'overleaf' : 'meld'));
   readonly overleafTab = computed<OverleafTab>(() => this.chosenOverleafTab() ??
     (this.overleafReady() && !this.connectorStale() && !this.setupNeeded() && this.connector()?.kind === 'available' ? 'projects' : 'connection'));
-  readonly view = computed<LocalPage>(() => this.setupKnown() && this.setupComplete() ? this.page() : 'account');
+  // The Log stays reachable during setup: it is where setup problems are explained.
+  readonly view = computed<LocalPage>(() => this.page() === 'log' ? 'log' : this.setupKnown() && this.setupComplete() ? this.page() : 'account');
   readonly overleafLabel = computed(() => {
     if (!this.verified() || this.connectorStale()) return this.connectionLabel();
     const processing = this.research()?.processing;

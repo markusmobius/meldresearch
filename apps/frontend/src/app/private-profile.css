@@ -16,9 +16,8 @@
 .card-title { font-size: 16px; font-weight: 600; color: #0f172a; line-height: 1.35; }
 .card-source { display: flex; align-items: center; gap: 4px; color: #64748b; font-size: 12px; font-weight: 400; overflow-wrap: anywhere; }
 .card-source mat-icon { width: 14px; height: 14px; font-size: 14px; flex: none; }
-/* About four lines on the card; the dialog shows the whole paragraph. */
-.card-description { display: -webkit-box; -webkit-line-clamp: 4; line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
-  font-size: 13.5px; line-height: 1.55; color: #334155; }
+/* The card's 4-5 sentence description (written by Foundry from the whole card); the dialog shows everything. */
+.card-description { font-size: 13.5px; line-height: 1.55; color: #334155; }
 .card-edited { color: #64748b; font-size: 12px; }
 .topic.more { background: #f1f5f9; color: #475569; }
 .topics { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }

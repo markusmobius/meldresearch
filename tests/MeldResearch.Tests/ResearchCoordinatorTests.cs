@@ -557,6 +557,11 @@ public sealed class ResearchCoordinatorTests
         Assert.Empty(remote.Merges);
         var status = Assert.Single((await coordinator.StatusAsync(CancellationToken.None)).Themes!);
         Assert.False(status.Updating);
+        // The card gets one 4-5 sentence description from its whole summary, made again only when that summary changes.
+        Assert.Equal(theme.Profile, Assert.Single(remote.Blurbs).Profile);
+        Assert.Equal("Four or five sentences about " + theme.Profile!.Title + ".", status.Blurb);
+        await Drain(coordinator, force: true);
+        Assert.Single(remote.Blurbs);
     }
 
     [Fact]
@@ -784,6 +789,12 @@ public sealed class ResearchCoordinatorTests
             Merges.Add(request);
             return Task.FromResult(new ThemeMergeResponse(new("Combined research line", string.Join(" + ", request.Members.Select(member => member.ProjectName)),
                 ["Combined."], ["combined"]), "chat"));
+        }
+        public List<CardBlurbRequest> Blurbs { get; } = [];
+        public Task<CardBlurbResponse> DescribeCardAsync(string token, CardBlurbRequest request, CancellationToken ct)
+        {
+            lock (Blurbs) Blurbs.Add(request);
+            return Task.FromResult(new CardBlurbResponse("Four or five sentences about " + request.Profile.Title + ".", "chat"));
         }
         public List<ThemeRegroupRequest> Regroups { get; } = [];
         public Func<ThemeRegroupRequest, IReadOnlyList<ThemeGroup>> Regroup { get; set; } = _ => [];

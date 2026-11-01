@@ -28,8 +28,9 @@ describe('Private profile', () => {
   const grouped = () => status(
     [project(paperId, 'news-slant', 'Paper'), project(slidesId, 'news-slant-slides', 'Slides'), project(otherId, 'pricing', 'Pricing')],
     [{ id: cardId, projectIds: [paperId, slidesId], updating: false,
-       profile: { title: 'Why outlets differ', description: 'One paragraph about news slant.', contributions: ['Selective sampling model.'], topics: ['media'] } },
-     { id: otherCard, projectIds: [otherId], updating: false, profile: null }],
+       profile: { title: 'Why outlets differ', description: 'One paragraph about news slant.', contributions: ['Selective sampling model.'], topics: ['media'] },
+       blurb: 'Four sentences about news slant.' },
+     { id: otherCard, projectIds: [otherId], updating: false, profile: null, blurb: null }],
     [update('recent', slidesId, 5, 'Slides updated'), update('old', paperId, 200, 'Old change')]);
   beforeEach(() => {
     vi.resetAllMocks();
@@ -47,7 +48,7 @@ describe('Private profile', () => {
     expect(cards).toHaveLength(2);
     expect(cards[0].querySelector('.card-title')?.textContent).toBe('Why outlets differ');
     expect(cards[0].querySelector('.card-source')?.textContent).toContain('news-slant · news-slant-slides');
-    expect(cards[0].querySelector('.card-description')?.textContent).toBe('One paragraph about news slant.');
+    expect(cards[0].querySelector('.card-description')?.textContent).toBe('Four sentences about news slant.');
     expect(cards[0].querySelector('.contributions')).toBeNull();
     expect(cards[0].querySelector('.recent-badge')?.textContent).toContain('1 update in the last 3 months');
     // A card without a combined summary yet shows its project's own summary, with at most three topics.

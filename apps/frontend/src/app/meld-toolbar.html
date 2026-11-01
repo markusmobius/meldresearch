@@ -36,11 +36,16 @@
     <button mat-button class="nav-link-btn nav-more-btn" [matMenuTriggerFor]="moreMenu"
       [class.active-link]="page().endsWith('.html')" aria-label="More" title="More">
       <mat-icon>more_horiz</mat-icon><span class="nav-label">More</span>
+      @if (localSite() && logIssues()) { <span class="more-dot" aria-hidden="true"></span> }
     </button>
     <mat-menu #moreMenu="matMenu">
       <a mat-menu-item href="/docs.html"><mat-icon>description</mat-icon><span>Docs</span></a>
       <a mat-menu-item href="/privacy.html"><mat-icon>shield</mat-icon><span>Privacy</span></a>
       <a mat-menu-item href="/team.html"><mat-icon>people</mat-icon><span>Project Team</span></a>
+      @if (localSite()) {
+        <a mat-menu-item href="/#log" [class.active-menu-item]="page() === 'log'"><mat-icon>terminal</mat-icon><span>Log</span>
+          @if (logIssues()) { <span class="turn-badge" [attr.aria-label]="logIssues() + ' recent warnings or errors'">{{ logIssues() }}</span> }</a>
+      }
     </mat-menu>
   </nav>
   <span class="spacer"></span>

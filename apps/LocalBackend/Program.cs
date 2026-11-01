@@ -26,6 +26,10 @@ string localUrl = $"http://127.0.0.1:{port}";
 builder.WebHost.ConfigureKestrel(options => options.Listen(IPAddress.Loopback, port));
 builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
 builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
+// More → Log: Meld's own content-free messages, kept in memory and in a small capped file under the runtime folder.
+var appLog = new AppLogStore(Path.Combine(RuntimeFiles.Root, "logs"));
+builder.Services.AddSingleton(appLog);
+builder.Logging.AddProvider(new AppLogProvider(appLog));
 builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ApiExceptionHandler>();

@@ -21,7 +21,7 @@
       <header class="page-header">
         <div class="page-heading">
           <h1 class="page-title"><span class="material-icons site-only" aria-hidden="true">shield</span>Privacy &amp; Controls</h1>
-          <p class="page-subtitle">Last updated: October 2026 &middot; Meld Research and its Overleaf connector, version 0.5.4</p>
+          <p class="page-subtitle">Last updated: October 2026 &middot; Meld Research and its Overleaf connector, version 0.5.5</p>
         </div>
       </header>
 
@@ -41,6 +41,9 @@
           <section class="privacy-section" data-privacy-section="boundaries">
             <h2><span class="material-icons site-only" aria-hidden="true">storage</span> Where Your Data Goes</h2>
             <ul>
+              <li><strong>Activity log:</strong> the desktop companion keeps a log of its own activity (for example checks,
+                processing progress and errors) in memory and in a small file on your computer, shown under More &rarr; Log. It names
+                projects only by their Overleaf identifier and contains no research text or credentials; it is not uploaded.</li>
               <li><strong>Your computer:</strong> the desktop companion stores source text, project summaries (your private profile),
                 Update history, and installation credentials in an encrypted research store, plus project snapshots you download.
                 The research store is not uploaded to the Meld website.</li>
@@ -50,8 +53,8 @@
                 a changed file, its previous version) together with the project's current summary through the configured Meld service
                 to the configured Azure AI Foundry chat deployment. The updated summary and grounded Updates are returned to your
                 computer. To show related projects (for example a paper and its slides) on one card of your private profile, the
-                summaries of your included projects are also sent to decide which projects belong together and to combine their
-                summaries. Processing runs in the background without a separate prompt for each model request.</li>
+                summaries of your included projects are also sent to decide which projects belong together, to combine their
+                summaries and to write each card's short description. Processing runs in the background without a separate prompt for each model request.</li>
               <li><strong>The Meld website:</strong> keeps your account and approved installations in its own database. The remote
                 Meld application does not persist a project archive or log research payloads. To monitor cost and capacity, it records
                 for each model request only its time, deployment, purpose, outcome, token counts and duration, not its content or

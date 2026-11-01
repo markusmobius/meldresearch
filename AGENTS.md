@@ -57,6 +57,9 @@ instruction file. Start with the [README](README.md) for setup and release detai
   per card-set change when imports are idle, merge members' summaries only when a
   member's summary fingerprint changes, and never move a pinned (hand-placed) project.
   Keep every remote request under Cloudflare's 100 s origin limit (45 s wait budget).
+- More → Log ([AppLog](apps/LocalBackend/Services/AppLog.cs)) records only Meld's own
+  log categories. Keep log messages free of research text, project names and
+  credentials; tag project work with a ProjectId scope instead.
 - Models select source line ranges; the server copies and validates actual
   citation text. Preserve grounding, evidence limits and visible validation errors.
 - The remote backend persists accounts, devices, one-time app sign-in codes, the
@@ -178,7 +181,7 @@ Use .NET 10, Node 24/npm and PowerShell 7. Run from this repository's root, e.g.
   restore the removed application Playwright approach. Use the normal browser
   and connector; never execute downloaded TeX.
 - Current Chrome identity: `pejcljoimoeklelcfbfddnkimlkjgfhe`; extension version
-  `0.5.4`, native protocol `2`. Identity derives from the public manifest key,
+  `0.5.5`, native protocol `2`. Identity derives from the public manifest key,
   not a secret signing key. Update related identity/handshake checks together;
   compatible extension releases need not have identical version numbers.
 - Bump the connector manifest version whenever extension files change: installed

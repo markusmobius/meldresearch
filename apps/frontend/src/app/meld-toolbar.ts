@@ -4,7 +4,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatToolbarModule } from '@angular/material/toolbar';
 
-export type LocalPage = 'home' | 'about-me' | 'account';
+export type LocalPage = 'home' | 'about-me' | 'account' | 'log';
 
 export interface RemoteAccount { name: string; email: string; signOutToken?: string; superuser?: boolean; }
 
@@ -65,6 +65,10 @@ export class MeldToolbar {
   readonly updateTarget = signal<string | null>(null);
   readonly shortVersion = shortVersion;
   private loadedVersion: string | null = null;
+  /** Local app only: warnings and errors logged in the last ten minutes (More → Log badge). */
+  readonly logIssues = signal(0);
+  /** Local app only: More offers the activity log. */
+  readonly localSite = signal(false);
   /** Replaced in tests; reloading picks up the new release's frontend. */
   reload: () => void = () => location.reload();
   readonly versionTitle = computed(() => {
@@ -81,8 +85,9 @@ export class MeldToolbar {
       // Like Project Meld: watch for an update every few seconds while one is underway, otherwise every 20 seconds.
       let timer: ReturnType<typeof setTimeout> | undefined;
       let stopped = false;
+      this.localSite.set(true);
       const tick = async () => {
-        await Promise.all([this.loadVersion(), this.ping()]);
+        await Promise.all([this.loadVersion(), this.ping(), this.loadLogStatus()]);
         if (!stopped) timer = setTimeout(() => void tick(), this.updateTarget() ? 3000 : 20000);
       };
       void tick();
@@ -105,6 +110,15 @@ export class MeldToolbar {
       else if (!UPDATING.has(local.updateStatus)) this.updateTarget.set(null);
     } catch {
       // While Meld restarts into an update it does not answer; the overlay stays until the new version does.
+    }
+  }
+
+  private async loadLogStatus(): Promise<void> {
+    try {
+      const response = await fetch('/api/logs/status', { headers: { Accept: 'application/json' } });
+      if (response.ok) this.logIssues.set((await response.json() as { recentIssues: number }).recentIssues ?? 0);
+    } catch {
+      // The badge is informational.
     }
   }
 

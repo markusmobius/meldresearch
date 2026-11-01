@@ -165,7 +165,7 @@ that backend requires real Google OAuth configuration. No synthetic identity is
 available in Live mode.
 
 The source manifest now uses the supplied Chrome draft public key:
-**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.5.4**, wire protocol **2**.
+**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.5.5**, wire protocol **2**.
 It is a public identity key, not a signing secret.
 
 Until the private listing is approved, remove the old development-ID unpacked
@@ -251,7 +251,15 @@ Chrome Web Store instead.
   first import is running (one Foundry call), and combines cards of one programme.
   The card dialog moves a project to another card or a card of its own, or merges the
   whole card into another; projects placed by hand are pinned and never moved by
-  regrouping.
+  regrouping. Cards are ordered by their projects' most recent Overleaf edit and show
+  a 4-5 sentence description Foundry writes from the whole card (one call, made
+  again only when the card's summary changes).
+- **Log.** More → Log shows the local app's own activity (checks, progress per file,
+  grouping, updates, warnings and errors), newest first, with level and source
+  filters, as in Project Meld. Entries name projects by Overleaf id (the page shows
+  the name) and contain no research text or credentials; the newest 2,000 are kept in
+  `logs/app-log.jsonl` under the runtime folder so they survive restarts. A badge
+  counts warnings and errors of the last ten minutes.
 - **One-time resets.** Raising `ResearchCoordinator.ResetEpoch` makes every
   installation erase, on its first start of that release, all projects (summaries,
   hashes, Updates, queue), include/exclude choices, project summaries, the OpenAlex

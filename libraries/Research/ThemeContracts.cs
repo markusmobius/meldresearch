@@ -17,6 +17,10 @@ public sealed record ThemeMember(string ProjectName, ProjectProfile Profile);
 public sealed record ThemeMergeRequest(IReadOnlyList<ThemeMember> Members);
 public sealed record ThemeMergeResponse(ProjectProfile Profile, string ChatModel);
 
+/// <summary>A research card's full summary, to be described in 4-5 sentences for the card itself.</summary>
+public sealed record CardBlurbRequest(ProjectProfile Profile);
+public sealed record CardBlurbResponse(string Blurb, string ChatModel);
+
 /// <summary>All of the user's research cards, to find cards that belong to one research programme.</summary>
 public sealed record ThemeRegroupRequest(IReadOnlyList<ThemeCandidate> Cards);
 /// <summary>A set of cards to combine into one; cards in no group stay as they are.</summary>
@@ -68,6 +72,10 @@ public static class ResearchThemes
         var seen = new HashSet<string>(StringComparer.Ordinal);
         return groups.All(group => group?.CardIds is { Count: >= 2 } ids && ids.All(id => id is not null && known.Contains(id) && seen.Add(id)));
     }
+
+    public const int MaxBlurb = 1400;
+
+    public static bool ValidBlurb(string? blurb) => !string.IsNullOrWhiteSpace(blurb) && blurb.Length <= MaxBlurb && !blurb.Contains('\n');
 
     /// <summary>Card ids are 32 lowercase hex characters (a GUID without dashes).</summary>
     public static bool IsThemeId(string? id) =>

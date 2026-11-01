@@ -64,8 +64,10 @@ describe('Local version and connection indicator', () => {
   });
 
   it('shows no indicator until the first check and treats a failed check as offline', async () => {
-    let fail!: (reason: unknown) => void;
-    vi.stubGlobal('fetch', vi.fn(() => new Promise((_, reject) => { fail = reject; })));
+    // Every request of the first refresh (version, connection, log status) fails together.
+    const pending: Array<(reason: unknown) => void> = [];
+    const fail = (reason: unknown) => pending.forEach(reject => reject(reason));
+    vi.stubGlobal('fetch', vi.fn(() => new Promise((_, reject) => { pending.push(reject); })));
     const fixture = TestBed.createComponent(MeldToolbar);
     await fixture.whenStable();
     expect((fixture.nativeElement as HTMLElement).querySelector('.connection-dot')).toBeNull();

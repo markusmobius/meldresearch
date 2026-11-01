@@ -28,7 +28,8 @@ public sealed record ResearchStatusResponse(MeldAccountResponse? Account, DateTi
     IReadOnlyList<ProjectSummaryResponseItem>? Summaries = null, IReadOnlyList<ResearchThemeResponse>? Themes = null);
 
 /// <summary>A research card: its combined summary (null until made) and its Overleaf projects. Updating while being summarized again.</summary>
-public sealed record ResearchThemeResponse(string Id, ProjectProfile? Profile, IReadOnlyList<string> ProjectIds, bool Updating);
+public sealed record ResearchThemeResponse(string Id, ProjectProfile? Profile, IReadOnlyList<string> ProjectIds, bool Updating,
+    string? Blurb = null);
 
 /// <summary>Moves a project to another research card, or to a new card of its own when ThemeId is null.</summary>
 public sealed record MoveToThemeRequest(string? ThemeId);

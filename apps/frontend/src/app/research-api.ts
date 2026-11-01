@@ -59,7 +59,8 @@ export interface ResearchStatus {
   /** Research cards: one line of research made of one or more included Overleaf projects, with a combined summary. */
   themes?: ReadonlyArray<ResearchTheme> | null;
 }
-export interface ResearchTheme { id: string; profile: ProjectProfile | null; projectIds: ReadonlyArray<string>; updating: boolean; }
+/** blurb: a 4-5 sentence description written from the card's whole summary (null until made). */
+export interface ResearchTheme { id: string; profile: ProjectProfile | null; projectIds: ReadonlyArray<string>; updating: boolean; blurb?: string | null; }
 export interface ProjectSummary {
   projectId: string; status: 'queued' | 'running' | 'ready' | 'error'; summary: string | null; mainPath: string | null;
   updatedAt: string | null; sourceUpdatedAt: string | null; error: string | null;
