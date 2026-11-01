@@ -28,6 +28,40 @@ public sealed class RemoteAccountTests : IDisposable
     }
 
     [Fact]
+    public async Task ANewAccountIdComesFromTheGoogleIdentitySoARebuiltServerFindsTheSameSyncFolder()
+    {
+        var first = await (await ServiceAsync(new EphemeralDataProtectionProvider())).RegisterAsync(_principal, CancellationToken.None);
+        Assert.Equal(AccountService.AccountId("google:synthetic-subject"), first.Id);
+        Assert.Equal(8, first.Id.Version);
+        Assert.NotEqual(first.Id, AccountService.AccountId("google:another-subject"));
+        Assert.NotEqual(first.Id, AccountService.AccountId("dummy:synthetic-subject"));
+
+        // A server rebuilt with an empty database (and new Data Protection keys) gives the same person the same id.
+        SqliteConnection.ClearAllPools();
+        foreach (var file in Directory.GetFiles(_temporary.Path, "remote.db*")) File.Delete(file);
+        var empty = await ServiceAsync(new EphemeralDataProtectionProvider());
+        Assert.Null(await empty.FindAsync(_principal, CancellationToken.None));
+        var rebuilt = await empty.RegisterAsync(_principal, CancellationToken.None);
+        Assert.Equal(first.Id, rebuilt.Id);
+    }
+
+    [Fact]
+    public async Task AnExistingAccountKeepsTheIdItWasCreatedWith()
+    {
+        var protection = new EphemeralDataProtectionProvider();
+        var service = await ServiceAsync(protection);
+        var legacy = Guid.NewGuid();
+        await using (var database = await Databases().CreateDbContextAsync())
+        {
+            var protector = protection.CreateProtector("MeldResearch.Remote.Database.v1");
+            database.Accounts.Add(new() { Id = legacy, Subject = "google:synthetic-subject", CreatedAt = Now,
+                ProtectedName = protector.Protect("Synthetic Person"), ProtectedEmail = protector.Protect("synthetic@example.invalid") });
+            await database.SaveChangesAsync();
+        }
+        Assert.Equal(legacy, (await service.RegisterAsync(_principal, CancellationToken.None)).Id);
+    }
+
+    [Fact]
     public async Task SignInRequiresAnExistingAccountAndTheVerifierAndIsSingleUse()
     {
         var service = await ServiceAsync(new EphemeralDataProtectionProvider());

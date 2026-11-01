@@ -497,6 +497,13 @@ encrypted on the client ([SyncCrypto](libraries/Research/SyncCrypto.cs)):
   over elsewhere) locks the computer until the new passphrase is entered.
 - Forgotten passphrase and recovery key: **Start over** deletes the account's
   blobs, creates a new key and uploads this computer's research again.
+- A new computer (or a wiped one) finds the synced research by signing in with
+  the same Google account: the account id names the folder. New accounts get an
+  id derived from the Google subject (`AccountService.AccountId`, a version-8
+  UUID), so even a server rebuilt with an empty `remote.db` recreates the same
+  id and folder. Accounts created before this keep their random id; for them,
+  back up `~/meldresearch-data/remote.db` (good practice for all accounts and
+  devices anyway), otherwise a lost database orphans their synced copy.
 
 The remote backend ([SyncStorage](apps/RemoteBackend/Services/SyncStorage.cs))
 never sees plaintext. With a bearer installation token it lists the account's

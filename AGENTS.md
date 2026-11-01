@@ -80,7 +80,10 @@ instruction file. Start with the [README](README.md) for setup and release detai
   passphrase, recovery key or data key to the server, never upload under a key the
   account's `key.json` no longer matches, and keep uploads ETag-conditional.
   With sync offered, nothing is processed until this computer has the key; pulled
-  work must not be processed again.
+  work must not be processed again. New account ids are derived from the sign-in
+  subject (`AccountService.AccountId`) so a rebuilt server finds the same sync
+  folder; never change that derivation or existing accounts' ids (the id is bound
+  into the encryption).
 - The local app signs in through the website with a loopback redirect + PKCE
   ([LocalSignIn](apps/RemoteBackend/Services/LocalSignIn.cs)): `/connect` returns
   a one-time code only to `http://127.0.0.1|localhost:<port>/account/callback`,

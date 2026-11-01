@@ -32,7 +32,7 @@ internal sealed class AccountService(
         if (await FindAccountAsync(database, identity.Subject, ct) is { } existing) return Response(existing);
         var account = new AccountEntity
         {
-            Id = Guid.NewGuid(), Subject = identity.Subject, CreatedAt = clock.GetUtcNow(),
+            Id = AccountId(identity.Subject), Subject = identity.Subject, CreatedAt = clock.GetUtcNow(),
             ProtectedName = _protector.Protect(identity.Name), ProtectedEmail = _protector.Protect(identity.Email)
         };
         database.Accounts.Add(account);
@@ -125,6 +125,21 @@ internal sealed class AccountService(
         await using var transaction = await database.Database.BeginTransactionAsync(ct);
         await database.Devices.Where(device => device.TokenHash == hash).ExecuteDeleteAsync(ct);
         await transaction.CommitAsync(ct);
+    }
+
+    /// <summary>
+    /// A new account's id, derived from its sign-in identity (provider and Google subject) rather than random. The id names
+    /// the account's encrypted-sync folder and is bound into its encryption, so a server rebuilt without its database
+    /// recreates the same id at the next sign-in and the user's synced research is found again. Existing accounts keep the
+    /// id they were created with (they are looked up by subject). Knowing the id grants nothing: every request is
+    /// authorized by the installation credential.
+    /// </summary>
+    internal static Guid AccountId(string subject)
+    {
+        byte[] bytes = SHA256.HashData(Encoding.UTF8.GetBytes("meldresearch-account-v1|" + subject))[..16];
+        bytes[6] = (byte)((bytes[6] & 0x0F) | 0x80);
+        bytes[8] = (byte)((bytes[8] & 0x3F) | 0x80);
+        return new Guid(bytes, bigEndian: true);
     }
 
     private static Task<AccountEntity?> FindAccountAsync(RemoteDbContext database, string subject, CancellationToken ct) =>
