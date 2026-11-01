@@ -29,7 +29,7 @@ internal interface IResearchCoordinator
 }
 
 internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote remote, IOverleafEvidenceSource source,
-    ResearchOptions options, ILogger<ResearchCoordinator> logger, TimeProvider clock, ResearchSync? sync = null)
+    ResearchOptions options, ILogger<ResearchCoordinator> logger, TimeProvider clock, ResearchSync? sync = null, GmailConnector? gmail = null)
     : BackgroundService, IResearchCoordinator
 {
     private readonly ResearchSync _sync = sync ?? new(store, remote, clock, Microsoft.Extensions.Logging.Abstractions.NullLogger<ResearchSync>.Instance);
@@ -130,7 +130,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 theme.Members, theme.Profile is null || !ThemePlan.Matches(theme, theme.Members.Select(id => projects.FirstOrDefault(project =>
                     project.ProjectId == id)).Where(project => project?.Profile is not null).ToArray()!),
                 theme.Profile is not null && theme.BlurbFor == ThemePlan.Fingerprint(theme.Profile) ? theme.Blurb : null)).ToArray(),
-            _sync.Status(state));
+            _sync.Status(state), gmail?.Status(state));
     }
 
     public async Task<AccountLinkResponse> BeginLinkAsync(string callbackUri, CancellationToken ct)

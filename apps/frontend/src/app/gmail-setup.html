@@ -1,0 +1,55 @@
+@if (status(); as gmail) {
+  <section class="gmail" aria-label="Gmail">
+    <p>Meld can also learn from your email. It reads only <strong>threads you wrote in</strong> during the last
+      {{ gmail.windowDays }} days (and later new ones), skipping chats. Meld finds the lines of work in them and adds them to
+      your research cards as <em>Gmail workstreams</em>, which you can move to any card.</p>
+    <p class="muted">Access is read-only and comes from this computer, not from Meld's server. Meld keeps it encrypted, shares it
+      only with your other computers through encrypted sync, and never puts it into a backup. Removing an account withdraws Meld's
+      access at Google. While Meld Research is in Google's testing phase, Google asks you to reconnect every 7 days.</p>
+
+    @if (gmail.accounts.length) {
+      <ul class="accounts">
+        @for (account of gmail.accounts; track account.address) {
+          <li class="account" [class.attention]="account.status !== 'connected'">
+            <mat-icon class="account-icon">mail</mat-icon>
+            <div class="account-text">
+              <strong>{{ account.address }}</strong>
+              <span class="account-status" [class]="account.status">{{ statusLabel(account) }}</span>
+              @if (account.status === 'connected' && account.threads !== null) {
+                <small>{{ account.threads }} {{ account.threads === 1 ? 'thread' : 'threads' }} you wrote in during the last {{ gmail.windowDays }} days
+                  @if (account.checkedAt) { &middot; checked {{ account.checkedAt | date: 'MMM d, h:mm a' }} }</small>
+              } @else if (account.error) {
+                <small class="account-error">{{ account.error }}</small>
+              }
+            </div>
+            <div class="account-actions">
+              @if (account.status === 'connected') {
+                <button mat-button type="button" class="check-gmail" [disabled]="!!working()" (click)="check(account)">
+                  <mat-icon>refresh</mat-icon>{{ working() === account.address ? 'Checking…' : 'Check now' }}</button>
+              }
+              <button mat-button type="button" class="remove-gmail" [disabled]="!!working()" (click)="remove(account)">
+                <mat-icon>link_off</mat-icon>{{ confirmRemove() === account.address ? 'Remove: are you sure?' : 'Remove' }}</button>
+            </div>
+          </li>
+        }
+      </ul>
+      <p class="muted next-version"><mat-icon>schedule</mat-icon>Meld is getting ready to turn these threads into Updates; for now it
+        counts them, without reading their content.</p>
+    }
+
+    <div class="add-account">
+      <mat-checkbox class="gmail-consent" [checked]="agreed()" (change)="agreed.set($event.checked)">
+        I agree that Meld reads the threads I wrote in (read-only) and sends selected text through Meld's service to Azure AI
+        Foundry to find my lines of work and Updates, as described in the <a href="/privacy.html" target="_blank" rel="noopener">privacy notice</a>.
+      </mat-checkbox>
+      <div class="controls">
+        <button mat-flat-button type="button" class="connect-gmail" [disabled]="!agreed() || !!working()" (click)="connect()">
+          <mat-icon>add</mat-icon>{{ working() === 'connect' ? 'Opening Google…' : gmail.accounts.length ? 'Add another Gmail account' : 'Connect Gmail' }}</button>
+      </div>
+      @if (gmail.accounts.some(needsReconnect)) {
+        <p class="muted">To reconnect an account, choose it again on Google's page.</p>
+      }
+    </div>
+    @if (error() || gmail.lastError; as message) { <p class="alert" role="alert">{{ message }}</p> }
+  </section>
+}

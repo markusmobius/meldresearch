@@ -14,7 +14,7 @@ namespace MeldResearch.LocalBackend.Services.Research;
 /// </summary>
 internal sealed class LeaveService(ResearchCoordinator coordinator, IResearchStore store, IResearchRemote remote, UpdateOptions updates,
     ResearchOptions options, INativeHostRegistrar registrar, IHostApplicationLifetime lifetime, ILogger<LeaveService> logger,
-    ResearchArchive? archive = null)
+    ResearchArchive? archive = null, GmailConnector? gmail = null)
 {
     public const string Confirmation = "DELETE";
 
@@ -41,6 +41,8 @@ internal sealed class LeaveService(ResearchCoordinator coordinator, IResearchSto
                 deleted = true;
                 logger.LogInformation("Deleted the Meld account and its encrypted synced data on Meld's server.");
             }
+            // Meld's access to connected Gmail accounts is revoked at Google before the grants are erased.
+            if (gmail is not null) await gmail.RevokeAllAsync(state, ct);
             await EraseAsync(ct);
             archive?.Clear();
             if (plan is null)

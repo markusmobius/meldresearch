@@ -28,7 +28,20 @@ public sealed record ResearchStatusResponse(MeldAccountResponse? Account, DateTi
     IReadOnlyList<ResearchUpdate> Updates, int TotalUpdates, IReadOnlyList<ProjectDecisionResponse> Decisions,
     OverleafProjectsSnapshot? OverleafProjects, ResearcherStatusResponse? Researcher, ProcessingStatusResponse? Processing,
     IReadOnlyList<ProjectSummaryResponseItem>? Summaries = null, IReadOnlyList<ResearchThemeResponse>? Themes = null,
-    SyncStatusResponse? Sync = null);
+    SyncStatusResponse? Sync = null, GmailStatusResponse? Gmail = null);
+
+/// <summary>
+/// Account → Gmail. Configured: Meld's server offers Gmail. Accounts never carry Google's grants. LastError: why the last
+/// connection attempt did not complete (shown once on return from Google).
+/// </summary>
+public sealed record GmailStatusResponse(bool Configured, int WindowDays, string ConsentVersion, IReadOnlyList<GmailAccountResponse> Accounts,
+    string? LastError);
+/// <summary>Status: connected, reconnect (Google withdrew the grant) or error. Threads: threads written in during the window.</summary>
+public sealed record GmailAccountResponse(string Address, string Status, string? Error, int? Threads, DateTimeOffset? CheckedAt,
+    DateTimeOffset ConnectedAt);
+public sealed record GmailConnectRequest(string? ConsentVersion = null);
+/// <summary>Google's consent page; it returns to this app.</summary>
+public sealed record GmailConnectResponse(string AuthorizationUrl, DateTimeOffset ExpiresAt);
 
 /// <summary>
 /// Encrypted sync on this computer: off (not offered by the server), signed-out, checking, setup (choose a passphrase),

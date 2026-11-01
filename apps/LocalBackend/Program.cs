@@ -68,6 +68,12 @@ builder.Services.AddHttpClient("sync-blobs", client => client.Timeout = Timeout.
     });
 builder.Services.AddSingleton<ResearchSync>();
 builder.Services.AddSingleton<ResearchArchive>();
+// Read-only Gmail: Google's endpoints are called directly from this computer (Dummy: a synthetic mailbox).
+builder.Services.AddHttpClient(GmailGoogle.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(60))
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
+if (researchOptions.Dummy) builder.Services.AddSingleton<IGmailGoogle, DummyGmailGoogle>();
+else builder.Services.AddSingleton<IGmailGoogle, GmailGoogle>();
+builder.Services.AddSingleton<GmailConnector>();
 builder.Services.AddSingleton<LeaveService>();
 builder.Services.AddSingleton<IOverleafEvidenceSource, OverleafEvidenceSource>();
 // Idle connections are dropped before Cloudflare or nginx closes them, so a request never starts on a dead connection.

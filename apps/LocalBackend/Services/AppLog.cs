@@ -143,6 +143,7 @@ internal sealed class AppLogProvider(AppLogStore store) : ILoggerProvider, ISupp
             "ResearchCoordinator" => "research",
             "ResearchSync" => "sync",
             "ResearchArchive" or "LeaveService" => "account",
+            "GmailConnector" or "GmailGoogle" => "gmail",
             "ResearcherService" => "openalex",
             "DesktopUpdater" => "update",
             "BrowserRelay" or "OverleafService" or "OverleafEvidenceSource" or "ExtensionSetupService" or "DummyBrowserRelay" => "overleaf",

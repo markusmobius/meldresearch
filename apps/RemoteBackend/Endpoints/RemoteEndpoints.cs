@@ -33,7 +33,7 @@ internal static class RemoteEndpoints
         {
             ct.ThrowIfCancellationRequested();
             return TypedResults.Ok(new RemoteStatusResponse(options.Dummy, options.GoogleConfigured, foundry.Configured,
-                new Uri(options.PublicOrigin, "privacy.html").AbsoluteUri, ExtensionIdentity.Id, StoreUrl, sync.Configured));
+                new Uri(options.PublicOrigin, "privacy.html").AbsoluteUri, ExtensionIdentity.Id, StoreUrl, sync.Configured, options.GmailConfigured));
         }).WithName("GetRemoteStatus").WithSummary("Read non-secret account and Foundry configuration status.");
 
         app.MapPost("/api/sign-in/redeem", async Task<Ok<RedeemSignInResponse>> (
@@ -50,6 +50,15 @@ internal static class RemoteEndpoints
             await accounts.RevokeAsync(context.Request.Headers.Authorization.ToString(), ct);
             return TypedResults.NoContent();
         }).WithName("RevokeLinkedDevice").WithSummary("Revoke the calling installation's credential.");
+        app.MapGet("/api/gmail/client", async Task<Ok<GmailClientResponse>> (
+            HttpContext context, IAccountService accounts, RemoteOptions options, CancellationToken ct) =>
+        {
+            await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            if (options.Dummy) return TypedResults.Ok(new GmailClientResponse("dummy-gmail-client", "dummy", true));
+            if (!options.GmailConfigured)
+                throw new ResearchFailure(503, "gmail_not_configured", "Reading Gmail is not configured on this Meld server.");
+            return TypedResults.Ok(new GmailClientResponse(options.GmailClientId!, options.GmailClientSecret!, false));
+        }).WithName("GetGmailClient").WithSummary("The desktop OAuth client for read-only Gmail access (signed-in installations only).");
         app.MapDelete("/api/account", async Task<NoContent> (
             HttpContext context, IAccountService accounts, ISyncStorage sync, ILogger<IAccountService> logger, CancellationToken ct) =>
         {

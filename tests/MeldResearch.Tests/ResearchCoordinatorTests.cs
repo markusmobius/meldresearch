@@ -839,7 +839,11 @@ public sealed class ResearchCoordinatorTests
         }
         public Task<RemoteStatusResponse> StatusAsync(CancellationToken ct) =>
             Task.FromResult(new RemoteStatusResponse(false, true, true, "https://meld.example.invalid/privacy.html", "synthetic", "https://chromewebstore.google.com",
-                SyncConfigured: Box is not null));
+                SyncConfigured: Box is not null, GmailConfigured: GmailClient is not null));
+        /// <summary>The Gmail desktop client Meld's server hands out; null means the server does not offer Gmail.</summary>
+        public GmailClientResponse? GmailClient { get; init; } = new("test-client.apps.googleusercontent.com", "test-secret", false);
+        public Task<GmailClientResponse> GmailClientAsync(string token, CancellationToken ct) => GmailClient is { } client
+            ? Task.FromResult(client) : Task.FromException<GmailClientResponse>(new ResearchFailure(503, "gmail_not_configured", "No Gmail."));
         /// <summary>Encrypted sync storage shared by the "computers" of a test; null means the server offers no sync.</summary>
         public BlobBox? Box { get; init; }
         private BlobBox RequireBox => Box ?? throw new ResearchFailure(503, "sync_not_configured", "No sync.");

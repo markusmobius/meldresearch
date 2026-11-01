@@ -174,7 +174,7 @@ that backend requires real Google OAuth configuration. No synthetic identity is
 available in Live mode.
 
 The source manifest now uses the supplied Chrome draft public key:
-**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.5.9**, wire protocol **2**.
+**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.6.0**, wire protocol **2**.
 It is a public identity key, not a signing secret.
 
 Until the private listing is approved, remove the old development-ID unpacked
@@ -534,6 +534,24 @@ storage account `ratiodatanew` (settings in
 keys); the account must accept public network access (the companion connects
 from users' computers). No CORS is needed: the local backend, not the browser,
 calls Blob Storage.
+
+### Gmail (optional, read-only)
+
+Account → Gmail (shown when Meld's server offers it) connects one or more Gmail
+accounts with the read-only `gmail.readonly` permission
+([GmailConnector](apps/LocalBackend/Services/Research/GmailConnector.cs),
+[GmailGoogle](apps/LocalBackend/Services/Research/GmailGoogle.cs)). The local app
+opens Google's consent page, which returns to `http://127.0.0.1:<port>/gmail/callback`;
+the app checks its one-time state and redeems the code with its PKCE verifier.
+Meld's server only supplies the Desktop OAuth client to signed-in installations
+(`GET /api/gmail/client`, settings `Gmail:ClientId` and `Gmail:ClientSecret` from a
+separate Google Cloud project with the Gmail API enabled, in Testing with the team
+as test users). Google's refresh token is kept in the encrypted research state and
+the end-to-end encrypted sync, never in backups, logs or on the server; removing an
+account revokes it at Google. For now each account shows how many threads the user
+wrote in during the last 30 days (`in:sent newer_than:30d -in:chats`); turning
+them into Gmail workstreams and Updates is the next phase. Dummy mode uses a
+synthetic mailbox and needs no Google setup.
 
 ### Backup, restore and leaving
 

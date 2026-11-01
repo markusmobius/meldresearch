@@ -144,7 +144,8 @@ internal sealed partial class ResearchArchive(IResearchStore store, ResearchCoor
                 new(account, credential.Account.Name, credential.Account.Email), projects.Length,
                 "Your Meld Research data in readable JSON. It is not encrypted: keep it private. Upload it in Meld Research under " +
                 "Account > Meld account > Your data to restore it."));
-            Write(zip, ProfileName, SyncBundles.Profile(state, account, now));
+            // Connected Gmail accounts (and their Google grants) never go into a backup, which is not encrypted.
+            Write(zip, ProfileName, SyncBundles.Profile(state, account, now) with { GmailAccounts = null });
             foreach (var project in projects)
             {
                 var texts = new SortedDictionary<string, string>(StringComparer.Ordinal);
@@ -208,7 +209,8 @@ internal sealed partial class ResearchArchive(IResearchStore store, ResearchCoor
                 Decisions = [.. profile.Decisions.Select(item => item with { AccountId = account })],
                 Themes = [.. profile.Themes.Select(item => item with { AccountId = account })],
                 Summaries = [.. profile.Summaries.Select(item => item with { AccountId = account })],
-                Researcher = profile.Researcher is { } researcher ? researcher with { AccountId = account } : null
+                Researcher = profile.Researcher is { } researcher ? researcher with { AccountId = account } : null,
+                GmailAccounts = null
             };
             foreach (var bundle in projects)
                 foreach (var (hash, text) in bundle.Texts)

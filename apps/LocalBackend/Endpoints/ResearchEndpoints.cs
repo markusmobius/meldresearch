@@ -116,6 +116,25 @@ internal static class ResearchEndpoints
             await research.WithSyncAsync(async (sync, credential) => { await sync.ChangePassphraseAsync(credential, request.Passphrase, ct); return true; }, ct);
             return TypedResults.NoContent();
         }).WithName("ChangeEncryptedSyncPassphrase").WithSummary("Choose a new passphrase for the same synced data; the recovery key keeps working.");
+        group.MapPost("/gmail/connect", async Task<Ok<GmailConnectResponse>> (
+            GmailConnectRequest request, HttpContext context, GmailConnector gmail, CancellationToken ct) =>
+            // The Host is already restricted to this app's own loopback address and port; Google returns there.
+            TypedResults.Ok(await gmail.BeginAsync($"http://{context.Request.Host}/gmail/callback", request.ConsentVersion, ct)))
+            .WithName("ConnectGmail").WithSummary("Start connecting a Gmail account for read-only access; Google's consent page returns to this app.");
+        // Google's redirect back to this app (a top-level navigation); the one-time state proves the sign-in started here.
+        app.MapGet("/gmail/callback", async Task<RedirectHttpResult> (string? code, string? state, string? error, GmailConnector gmail, CancellationToken ct) =>
+        {
+            await gmail.CompleteAsync(code, state, error, ct);
+            return TypedResults.Redirect("/#gmail");
+        }).ExcludeFromDescription();
+        group.MapPost("/gmail/accounts/{address}/check", async Task<Ok<GmailAccountResponse>> (string address, GmailConnector gmail, CancellationToken ct) =>
+            TypedResults.Ok(await gmail.CheckAsync(address, ct)))
+            .WithName("CheckGmailAccount").WithSummary("Count the threads written in during the import window (no mail content is read).");
+        group.MapDelete("/gmail/accounts/{address}", async Task<NoContent> (string address, GmailConnector gmail, CancellationToken ct) =>
+        {
+            await gmail.RemoveAsync(address, ct);
+            return TypedResults.NoContent();
+        }).WithName("RemoveGmailAccount").WithSummary("Disconnect a Gmail account: revoke Meld's access at Google and remove it everywhere.");
         group.MapGet("/export", async Task<Ok<ExportStateResponse>> (ResearchArchive archive, IResearchStore store, CancellationToken ct) =>
             TypedResults.Ok(new ExportStateResponse(archive.CurrentExport((await store.ReadAsync(ct)).Credential?.Account.Id))))
             .WithName("GetResearchExport").WithSummary("The download being prepared, or the last one if it is less than five minutes old.");

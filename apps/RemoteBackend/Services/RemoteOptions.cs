@@ -11,6 +11,10 @@ internal sealed class RemoteOptions
     public string? GoogleClientId { get; init; }
     public bool GoogleConfigured => !string.IsNullOrWhiteSpace(GoogleClientId);
     public string? DownloadDirectory { get; init; }
+    /// <summary>The OAuth "Desktop app" client for read-only Gmail (a separate Google Cloud project; config Gmail:ClientId/ClientSecret).</summary>
+    public string? GmailClientId { get; init; }
+    public string? GmailClientSecret { get; init; }
+    public bool GmailConfigured => Dummy || (!string.IsNullOrWhiteSpace(GmailClientId) && !string.IsNullOrWhiteSpace(GmailClientSecret));
     /// <summary>Verified Google emails that may see operator pages such as LLM usage (config Superusers, comma-separated).</summary>
     public IReadOnlySet<string> Superusers { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -46,6 +50,8 @@ internal sealed class RemoteOptions
             DataDirectory = data, PublicOrigin = uri, Dummy = dummy,
             GoogleClientId = configuration["Google:ClientId"] is { Length: > 0 } clientId ? clientId.Trim() : null,
             DownloadDirectory = configuration["DownloadDirectory"] is { Length: > 0 } downloads ? Path.GetFullPath(downloads) : null,
+            GmailClientId = configuration["Gmail:ClientId"] is { Length: > 0 } gmailId ? gmailId.Trim() : null,
+            GmailClientSecret = configuration["Gmail:ClientSecret"] is { Length: > 0 } gmailSecret ? gmailSecret.Trim() : null,
             Superusers = (configuration["Superusers"] ?? DefaultSuperuser).Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase)
         };

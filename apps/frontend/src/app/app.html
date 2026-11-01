@@ -95,6 +95,15 @@
               <span class="setup-tab-text"><strong>Overleaf</strong><small>{{ overleafLabel() }}</small></span>
               <mat-icon class="setup-state" [class.done]="stepDone('overleaf')">{{ stepIcon('overleaf') }}</mat-icon>
             </button>
+            @if (gmailOffered()) {
+              <button type="button" role="tab" class="setup-tab gmail-tab" [class.active]="setupTab() === 'gmail'"
+                [attr.aria-selected]="setupTab() === 'gmail'" [disabled]="!stepOpen('gmail')" [class.locked]="!stepOpen('gmail')"
+                [attr.title]="stepOpen('gmail') ? null : 'Finish the previous step first'" (click)="chooseTab('gmail')">
+                <mat-icon>mail</mat-icon>
+                <span class="setup-tab-text"><strong>Gmail</strong><small>{{ gmailLabel() }}</small></span>
+                <mat-icon class="setup-state" [class.done]="stepDone('gmail')">{{ stepIcon('gmail') }}</mat-icon>
+              </button>
+            }
             <button type="button" role="tab" class="setup-tab" [class.active]="setupTab() === 'openalex'"
               [attr.aria-selected]="setupTab() === 'openalex'" [disabled]="!stepOpen('openalex')" [class.locked]="!stepOpen('openalex')"
               [attr.title]="stepOpen('openalex') ? null : 'Finish the previous step first'" (click)="chooseTab('openalex')">
@@ -164,6 +173,20 @@
                   } @else {
                     <app-backup-data [setup]="!setupComplete()" [synced]="research()?.sync?.state === 'ready'"
                       (changed)="researchChanged()" (settled)="settleRestore()"></app-backup-data>
+                  }
+                </mat-card-content>
+              </mat-card>
+            } @else if (setupTab() === 'gmail') {
+              <mat-card class="gmail-card" aria-label="Gmail">
+                <mat-card-header><mat-icon mat-card-avatar>mail</mat-icon>
+                  <mat-card-title>Gmail</mat-card-title>
+                  <mat-card-subtitle>{{ stepLabel('gmail') }} &middot; optional</mat-card-subtitle>
+                </mat-card-header>
+                <mat-card-content>
+                  @if (accountLinked()) {
+                    <app-gmail-setup [status]="research()?.gmail ?? null" (changed)="researchChanged()"></app-gmail-setup>
+                  } @else {
+                    <p class="muted">Sign in with your Meld account first.</p>
                   }
                 </mat-card-content>
               </mat-card>

@@ -65,7 +65,18 @@ internal sealed record LocalResearchState(int Version, LinkedCredential? Credent
     string? AccountError, IReadOnlyList<MonitoredProject> Projects, IReadOnlyList<LinkedCredential> PendingRevocations,
     IReadOnlyList<ProjectDecision>? Decisions = null, IReadOnlyList<ResearcherState>? Researchers = null, int ResetEpoch = 0,
     IReadOnlyList<ProjectSummaryState>? Summaries = null, IReadOnlyList<ResearchTheme>? Themes = null,
-    string? ThemesRegroupedFor = null, SyncState? Sync = null);
+    string? ThemesRegroupedFor = null, SyncState? Sync = null, IReadOnlyList<GmailAccountState>? GmailAccounts = null);
+
+/// <summary>
+/// A Gmail account connected for read-only access. RefreshToken is Google's long-lived grant; it is kept only in this encrypted
+/// state and in the end-to-end encrypted sync (never in backups or logs, never sent to Meld's server). ChangedAt orders
+/// connections across computers; a removed account stays as a tombstone (Removed, no token) so other computers drop it too.
+/// Status: connected, reconnect (Google withdrew the grant, for example after 7 days in testing mode) or error. Threads is
+/// how many threads the user wrote in during the import window at the last check.
+/// </summary>
+internal sealed record GmailAccountState(Guid AccountId, string Address, string? RefreshToken, string ConsentVersion,
+    DateTimeOffset ChangedAt, bool Removed = false, string Status = "connected", string? Error = null, int? Threads = null,
+    DateTimeOffset? CheckedAt = null, string? HistoryId = null, DateTimeOffset? LastImportAt = null);
 
 /// <summary>The user's active choice whether an Overleaf project is part of their private profile.</summary>
 internal sealed record ProjectDecision(Guid AccountId, string ProjectId, bool Included, DateTimeOffset DecidedAt);

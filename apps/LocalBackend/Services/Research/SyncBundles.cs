@@ -19,7 +19,8 @@ internal sealed record WorkstreamRef(string Id, string Source, string? Parent, s
 internal sealed record ProfileBundle(int Version, IReadOnlyList<ProjectDecision> Decisions, IReadOnlyDictionary<string, string> ProjectNames,
     IReadOnlyList<ResearchTheme> Themes, string? ThemesRegroupedFor, IReadOnlyList<ProjectSummaryState> Summaries,
     ResearcherState? Researcher, DateTimeOffset SavedAt,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<WorkstreamRef>? Workstreams = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<WorkstreamRef>? Workstreams = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<GmailAccountState>? GmailAccounts = null);
 
 /// <summary>
 /// Builds and applies sync bundles. Fingerprints ignore texts (determined by the hashes) and save times, so they change only
@@ -58,7 +59,27 @@ internal static class SyncBundles
                 .ToDictionary(group => group.Key, group => group.First().Name, StringComparer.Ordinal),
             [.. ThemePlan.Themes(state, account).OrderBy(item => item.Id, StringComparer.Ordinal)], state.ThemesRegroupedFor,
             [.. (state.Summaries ?? []).Where(item => item.AccountId == account).OrderBy(item => item.ProjectId, StringComparer.Ordinal)],
-            state.Researchers?.FirstOrDefault(item => item.AccountId == account), now, Workstreams(state, account));
+            state.Researchers?.FirstOrDefault(item => item.AccountId == account), now, Workstreams(state, account), GmailAccounts(state, account));
+
+    private static IReadOnlyList<GmailAccountState>? GmailAccounts(LocalResearchState state, Guid account)
+    {
+        var items = (state.GmailAccounts ?? []).Where(item => item.AccountId == account).OrderBy(item => item.Address, StringComparer.Ordinal).ToArray();
+        return items.Length == 0 ? null : items;
+    }
+
+    /// <summary>Connected Gmail accounts from two places merged: per address the newer connection (or removal) wins.</summary>
+    public static IReadOnlyList<GmailAccountState>? MergeGmail(IReadOnlyList<GmailAccountState>? local, IEnumerable<GmailAccountState>? remote, Guid account)
+    {
+        var merged = (local ?? []).Where(item => item.AccountId != account).ToList();
+        var mine = (local ?? []).Where(item => item.AccountId == account).ToDictionary(item => item.Address, StringComparer.OrdinalIgnoreCase);
+        foreach (var item in remote ?? [])
+        {
+            if (item.AccountId != account) continue;
+            if (!mine.TryGetValue(item.Address, out var current) || item.ChangedAt > current.ChangedAt) mine[item.Address] = item;
+        }
+        merged.AddRange(mine.Values);
+        return merged.Count == 0 ? local : merged;
+    }
 
     private static IReadOnlyList<WorkstreamRef>? Workstreams(LocalResearchState state, Guid account)
     {
@@ -136,6 +157,7 @@ internal static class SyncBundles
             Summaries = [.. (state.Summaries ?? []).Where(item => item.AccountId != account), .. summaries],
             Researchers = researcher is not null
                 ? [.. (state.Researchers ?? []).Where(item => item.AccountId != account), researcher] : state.Researchers,
+            GmailAccounts = MergeGmail(state.GmailAccounts, bundle.GmailAccounts, account),
             Sync = etag is null ? state.Sync : state.Sync! with { ProfileETag = etag, ProfileSyncedFor = Fingerprint(bundle) }
         };
     }

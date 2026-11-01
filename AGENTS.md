@@ -16,12 +16,22 @@ instruction file. Start with the [README](README.md) for setup and release detai
   Preserve the ported 64px toolbar, share icon, Outfit typography, pill navigation,
   full-height scrolling workspace and compact Update cards. Do not replace them
   with a new hero/marketing dashboard or import unrelated Meld functionality.
-- Overleaf is the only private-data source. The only other source is the user's
-  public OpenAlex record (ported from Project Meld): searched only on request,
-  candidates confirmed by the user, works stored in the local encrypted state.
-  The feed contains research **Updates only**, including initial imports and
-  meaningful project changes. Do not add WorkIQ, other news sources, TRAPI, or
-  alternate inference fallbacks.
+- Private-data sources: Overleaf (required) and, optionally, the user's Gmail
+  accounts (read-only `gmail.readonly`, connected by the user under Account →
+  Gmail; [GmailConnector](apps/LocalBackend/Services/Research/GmailConnector.cs)).
+  The only other source is the user's public OpenAlex record (ported from
+  Project Meld): searched only on request, candidates confirmed by the user, works
+  stored in the local encrypted state. The feed contains research **Updates
+  only** (News from email is a later phase). Do not add WorkIQ, other news
+  sources, TRAPI, or alternate inference fallbacks.
+- Gmail access: Google's consent page returns to the local app's loopback
+  `/gmail/callback` (state + PKCE S256, single use, 10 minutes); the app redeems
+  the code itself. Meld's server only hands out the Desktop OAuth client
+  (`GET /api/gmail/client`, signed-in installations; `Gmail:ClientId/ClientSecret`).
+  Refresh tokens live only in the encrypted local state and the E2E-encrypted
+  sync (`GmailAccountState`, newest `ChangedAt` per address wins, removals are
+  tombstones) — never in backups, logs or on the server. Removing an account
+  revokes it at Google; leaving revokes all.
 - All model decisions and embeddings use configured Azure AI Foundry.
   Deterministic source hashing is appropriate; canned model responses or local
   novelty heuristics are not substitutes for real inference.
@@ -218,7 +228,7 @@ Use .NET 10, Node 24/npm and PowerShell 7. Run from this repository's root, e.g.
   restore the removed application Playwright approach. Use the normal browser
   and connector; never execute downloaded TeX.
 - Current Chrome identity: `pejcljoimoeklelcfbfddnkimlkjgfhe`; extension version
-  `0.5.9`, native protocol `2`. Identity derives from the public manifest key,
+  `0.6.0`, native protocol `2`. Identity derives from the public manifest key,
   not a secret signing key. Update related identity/handshake checks together;
   compatible extension releases need not have identical version numbers.
 - Bump the connector manifest version whenever extension files change: installed

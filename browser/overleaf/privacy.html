@@ -21,7 +21,7 @@
       <header class="page-header">
         <div class="page-heading">
           <h1 class="page-title"><span class="material-icons site-only" aria-hidden="true">shield</span>Privacy &amp; Controls</h1>
-          <p class="page-subtitle">Last updated: October 2026 &middot; Meld Research and its Overleaf connector, version 0.5.9</p>
+          <p class="page-subtitle">Last updated: October 2026 &middot; Meld Research and its Overleaf connector, version 0.6.0</p>
         </div>
       </header>
 
@@ -56,6 +56,18 @@
                 Research. Neither the Meld website nor Azure can read them: the passphrase never leaves your computer.</li>
               <li><strong>Overleaf:</strong> the connector reads projects through your normal signed-in browser session. Meld does not
                 ask for your Overleaf password or export your login cookies.</li>
+              <li><strong>Gmail (optional):</strong> only if you connect a Gmail account under Account &rarr; Gmail and agree. Google
+                then gives the desktop companion <em>read-only</em> access (the <code>gmail.readonly</code> permission); Meld cannot send,
+                change or delete mail. Meld uses only threads you wrote in (chats excluded), starting with the last 30 days. Today it
+                counts these threads without reading their content; once analysis is enabled, it sends selected text from them
+                (signatures and quoted replies removed) through Meld's service to Azure AI Foundry, one thread at a time, to find your
+                lines of work ("Gmail workstreams") and Updates, which then appear on your research cards with short quoted evidence.
+                Google's access grant is kept only in the encrypted research store and in your end-to-end encrypted sync; it is never
+                sent to Meld's server, put into a backup or logged. Meld's server provides only the Google sign-in client. While Meld
+                Research is in Google's testing phase, Google asks you to reconnect every 7 days. Meld's use of information received
+                from Google APIs adheres to the
+                Google API Services User Data Policy (developers.google.com/terms/api-services-user-data-policy), including the Limited Use requirements: it is used only for these features, not sold, not
+                used for advertising or model training, and not read by people.</li>
               <li><strong>Azure AI Foundry:</strong> after you include a project, the companion sends it one file at a time (and, for
                 a changed file, its previous version) together with the project's current summary through the configured Meld service
                 to the configured Azure AI Foundry chat deployment. The updated summary and grounded Updates are returned to your
@@ -145,12 +157,13 @@
             <h2><span class="material-icons site-only" aria-hidden="true">visibility</span> Who Can Access Your Research</h2>
             <p>Your Updates are not published to other Meld users, colleagues, or collaborators. Each linked account's local research
               is kept separate, and the website authorizes every request for the installation that sends it. Only the research
-              Updates workflow is enabled with your Overleaf projects and, if you link it, your public OpenAlex record: there is no
-              WorkIQ integration, other news source, or alternative inference provider.</p>
+              Updates workflow is enabled with your Overleaf projects and, if you connect them, your Gmail accounts (read-only) and
+              your public OpenAlex record: there is no WorkIQ integration, other news source, or alternative inference provider.</p>
             <p>The Meld Research application does not sell research data or use it for advertising, unrelated analytics, model
               training, creditworthiness, or lending. Provider-side handling is governed by the configured Azure AI Foundry service
               and applicable Microsoft terms; this notice does not promise provider-side zero retention.</p>
-            <p><strong>Provider roles:</strong> Google supplies account authentication; Overleaf supplies the projects you are
+            <p><strong>Provider roles:</strong> Google supplies account authentication and, if you connect it, read-only access to your
+              Gmail; Overleaf supplies the projects you are
               authorized to access; OpenAlex supplies public author and publication metadata; Azure AI Foundry supplies model inference. Using these providers does not imply their
               endorsement. Their own terms and privacy practices apply to their services.
               Overleaf and any identity provider you choose during its normal sign-in handle requests under their own privacy
@@ -193,7 +206,9 @@
             <p><strong>Pause monitoring</strong> stops a selected project's research processing. <strong>Disconnect account</strong>
               stops local processing and requests remote credential revocation, retrying if the service is unavailable.
               <strong>Forget local research</strong> removes that project's summary, processing state, and update history for the
-              linked account. <strong>Excluding</strong> a project also deletes its encrypted synced copy. <strong>Start over</strong>
+              linked account. <strong>Excluding</strong> a project also deletes its encrypted synced copy. <strong>Removing</strong> a Gmail
+              account (Account &rarr; Gmail) withdraws Meld's access at Google and removes the account and its workstreams on all your
+              computers; you can also withdraw access in your Google account's security settings. <strong>Start over</strong>
               (offered when the passphrase and recovery key are lost) deletes every encrypted synced copy of the account; research on
               the computer where you choose it is uploaded again under the new passphrase. Disconnecting an account does not delete
               its encrypted copy.</p>

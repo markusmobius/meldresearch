@@ -69,6 +69,16 @@ export interface ResearchStatus {
   themes?: ReadonlyArray<ResearchTheme> | null;
   /** End-to-end encrypted sync of this account's research between the user's computers. */
   sync?: SyncStatus | null;
+  /** Connected Gmail accounts (read-only); configured: Meld's server offers Gmail. */
+  gmail?: GmailStatus | null;
+}
+/** connected, reconnect (Google withdrew access, for example weekly while Meld is in Google's testing phase) or error. */
+export interface GmailAccount {
+  address: string; status: 'connected' | 'reconnect' | 'error'; error: string | null; threads: number | null;
+  checkedAt: string | null; connectedAt: string;
+}
+export interface GmailStatus {
+  configured: boolean; windowDays: number; consentVersion: string; accounts: ReadonlyArray<GmailAccount>; lastError: string | null;
 }
 /** A data download being prepared, ready (url works until expiresAt, five minutes) or failed. */
 export interface ExportStatus {
@@ -153,6 +163,17 @@ export class ResearchApi {
   /** Queues a download; while one is being prepared, this returns it instead of starting another. */
   startExport(): Promise<ExportStatus> {
     return firstValueFrom(this.http.post<{ current: ExportStatus }>('/api/research/export', {})).then(response => response.current);
+  }
+  /** Google's consent page for a Gmail account; it returns to this app (the caller navigates there). */
+  connectGmail(consentVersion: string): Promise<{ authorizationUrl: string; expiresAt: string }> {
+    return firstValueFrom(this.http.post<{ authorizationUrl: string; expiresAt: string }>('/api/research/gmail/connect', { consentVersion }));
+  }
+  checkGmail(address: string): Promise<GmailAccount> {
+    return firstValueFrom(this.http.post<GmailAccount>(`/api/research/gmail/accounts/${encodeURIComponent(address)}/check`, {}));
+  }
+  /** Disconnects a Gmail account: revokes Meld's access at Google and removes it on every computer. */
+  removeGmail(address: string): Promise<void> {
+    return firstValueFrom(this.http.delete<void>(`/api/research/gmail/accounts/${encodeURIComponent(address)}`));
   }
   /** Merges a downloaded export (a ZIP of readable JSON) into this account's research; encrypted sync uploads it. */
   importData(file: Blob): Promise<ImportResult> {

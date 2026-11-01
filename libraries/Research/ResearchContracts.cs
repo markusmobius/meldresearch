@@ -72,7 +72,13 @@ public sealed record RedeemSignInResponse(string AccessToken, DateTimeOffset Exp
 
 /// <summary>Non-secret capabilities of the remote service.</summary>
 public sealed record RemoteStatusResponse(bool Dummy, bool GoogleConfigured, bool FoundryConfigured,
-    string PrivacyUrl, string ExtensionId, string ExtensionStoreUrl, bool SyncConfigured = false);
+    string PrivacyUrl, string ExtensionId, string ExtensionStoreUrl, bool SyncConfigured = false, bool GmailConfigured = false);
+
+/// <summary>
+/// The OAuth "Desktop app" client with which the local app asks Google for read-only Gmail access. Google does not treat a
+/// desktop client's secret as confidential; it is still handed only to signed-in installations. Dummy: no Google involved.
+/// </summary>
+public sealed record GmailClientResponse(string ClientId, string ClientSecret, bool Dummy);
 
 /// <summary>A public OpenAlex work. IDs are bare OpenAlex IDs such as W2741809807.</summary>
 public sealed record PublicationWork(string Id, string Title, IReadOnlyList<string> Authors, int Year, string? PublicationDate,

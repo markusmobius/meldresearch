@@ -18,11 +18,12 @@ import { MeldLog } from './meld-log';
 import { EncryptedSync } from './encrypted-sync';
 import { BackupData } from './backup-data';
 import { LeaveMeld } from './leave-meld';
+import { GmailSetup } from './gmail-setup';
 import { InterfaceLock } from './interface-lock';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { includedCount, researcherDone, undecidedRecent } from './project-decisions';
 
-export type SetupTab = 'meld' | 'sync' | 'backup' | 'overleaf' | 'openalex';
+export type SetupTab = 'meld' | 'sync' | 'backup' | 'overleaf' | 'gmail' | 'openalex';
 export type OverleafTab = 'connection' | 'projects';
 /** The account ID for which this browser has connected Overleaf at least once; later Overleaf outages keep the feed. */
 const overleafConfirmedKey = 'meldresearch.overleafConnectedFor';
@@ -45,7 +46,7 @@ interface InstallPromptEvent extends Event {
 
 @Component({
   selector: 'app-root',
-  imports: [ResearchPanel, MeldToolbar, ProjectSelection, ResearcherSetup, PublicationsList, PrivateProfile, MeldLog, EncryptedSync, BackupData, LeaveMeld, MatProgressBarModule, MatButtonModule, MatCardModule, MatTabsModule,
+  imports: [ResearchPanel, MeldToolbar, ProjectSelection, ResearcherSetup, PublicationsList, PrivateProfile, MeldLog, EncryptedSync, BackupData, LeaveMeld, GmailSetup, MatProgressBarModule, MatButtonModule, MatCardModule, MatTabsModule,
     MatExpansionModule, MatIconModule, MatSidenavModule],
   templateUrl: './app.html',
   styleUrl: './app.css',
@@ -122,9 +123,14 @@ export class App implements OnInit {
   }
 
   @HostListener('window:hashchange')
-  locationChanged(): void { this.page.set(this.pageFromHash()); }
+  locationChanged(): void {
+    this.page.set(this.pageFromHash());
+    if (location.hash === '#gmail') this.chosenTab.set('gmail');
+  }
 
   private pageFromHash(): LocalPage {
+    // #gmail: Account → Gmail (Google's consent page returns there).
+    if (location.hash === '#gmail') return 'account';
     return location.hash === '#about-me' ? 'about-me' : location.hash === '#account' ? 'account' : location.hash === '#log' ? 'log' : 'home';
   }
 
@@ -134,7 +140,7 @@ export class App implements OnInit {
   private readonly researchApi = inject(ResearchApi);
   private readonly panel = viewChild(ResearchPanel);
   readonly accountAction = signal('');
-  private readonly chosenTab = signal<SetupTab | null>(null);
+  private readonly chosenTab = signal<SetupTab | null>(location.hash === '#gmail' ? 'gmail' : null);
   private readonly chosenOverleafTab = signal<OverleafTab | null>(null);
   private readonly overleafConfirmedFor = signal(readOverleafConfirmed());
   readonly setupKnown = computed(() => this.research() !== null);
@@ -152,7 +158,16 @@ export class App implements OnInit {
   private readonly restoreSettledFor = signal(readRestoreSettled());
   readonly restoreSettled = computed(() => this.syncDone() &&
     (this.restoreSettledFor() === this.research()?.account?.id || this.includedProjects() > 0));
-  readonly steps = computed<SetupTab[]>(() => ['meld', ...(this.syncOffered() ? ['sync' as const] : []), 'backup', 'overleaf', 'openalex']);
+  /** Gmail is an optional step when Meld's server offers it; connected accounts mark it done. */
+  readonly gmailOffered = computed(() => !!this.research()?.gmail?.configured || !!this.research()?.gmail?.accounts.length);
+  readonly gmailConnected = computed(() => this.research()?.gmail?.accounts.filter(account => account.status === 'connected').length ?? 0);
+  readonly gmailLabel = computed(() => {
+    const accounts = this.research()?.gmail?.accounts ?? [];
+    if (accounts.some(account => account.status !== 'connected')) return 'Reconnect needed';
+    return accounts.length ? `${accounts.length} ${accounts.length === 1 ? 'account' : 'accounts'} connected` : 'Optional';
+  });
+  readonly steps = computed<SetupTab[]>(() => ['meld', ...(this.syncOffered() ? ['sync' as const] : []), 'backup', 'overleaf',
+    ...(this.gmailOffered() ? ['gmail' as const] : []), 'openalex']);
   stepLabel(tab: SetupTab): string { return `Step ${this.steps().indexOf(tab) + 1} of ${this.steps().length}`; }
   readonly overleafReady = computed(() => this.verified() ||
     (!!this.research()?.account && this.overleafConfirmedFor() === this.research()?.account?.id));
@@ -171,7 +186,7 @@ export class App implements OnInit {
    */
   readonly stepProgress = computed(() => {
     const done: Record<SetupTab, boolean> = { meld: this.accountLinked(), sync: this.syncDone(), backup: this.restoreSettled(),
-      overleaf: this.overleafDone(), openalex: this.openAlexDone() };
+      overleaf: this.overleafDone(), gmail: this.gmailConnected() > 0, openalex: this.openAlexDone() };
     const open = {} as Record<SetupTab, boolean>;
     let previousDone = true;
     for (const tab of this.steps()) {
@@ -254,7 +269,8 @@ export class App implements OnInit {
       untracked(() => this.open('overleaf', 'projects'));
     });
     // Once per page load, OpenAlex is offered after the projects are settled (projects come first).
-    let openAlexNudged = false;
+    // Returning from Google to Account → Gmail stays there (the OpenAlex offer waits for the next page load).
+    let openAlexNudged = location.hash === '#gmail';
     effect(() => {
       if (openAlexNudged || !this.setupKnown() || !this.setupComplete() || this.undecided().length || this.openAlexDone()) return;
       if (!this.research()?.overleafProjects && !this.listWaitOver()) return;
