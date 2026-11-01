@@ -102,10 +102,13 @@ async function verifyPublicPages(local, remote) {
       assert.doesNotMatch(html, /(?:&copy;|\u00a9)\s*\d{4}\s+Microsoft|go\.microsoft\.com\/fwlink|Research Ethics Review/);
       for (const destination of ['docs', 'team', 'privacy']) assert.ok(html.includes(`href="${destination}.html"`));
       if (page === 'team') {
-        assert.equal((html.match(/data-team-member/g) ?? []).length, 1);
-        assert.match(html, /<h2 class="team-name">Markus Mobius<\/h2>/);
-        assert.match(html, /src="assets\/markusmobius\.png"/);
-        assert.equal((await request('/assets/markusmobius.png')).status, 200, `${site} team photo must be served.`);
+        assert.equal((html.match(/data-team-member/g) ?? []).length, 4);
+        for (const name of ['Markus Mobius', 'Tanya Rosenblat', 'Lukas Bolte', 'Sid Satya'])
+          assert.match(html, new RegExp(`<h2 class="team-name">${name}</h2>`));
+        for (const image of ['markusmobius.png', 'tanyarosenblat.jpg', 'lukasbolte.jpg', 'sidsatya.jpg'])
+          assert.match(html, new RegExp(`src="assets/${image.replace('.', '\\.')}"`));
+        for (const image of ['markusmobius.png', 'tanyarosenblat.jpg', 'lukasbolte.jpg', 'sidsatya.jpg'])
+          assert.equal((await request(`/assets/${image}`)).status, 200, `${site} team photo ${image} must be served.`);
       } else if (page === 'docs') {
         assert.match(html, /both backends run on your computer/i);
         assert.match(html, /AGENTS\.md/);
@@ -410,7 +413,7 @@ try {
     await signInLocal(local, client(remoteBase), remoteBase, localBase);
     assert.equal((await local('/api/research/account', { method: 'DELETE', csrf: true })).status, 204);
     assert.deepEqual(await (await remote('/api/development/inference-counts')).json(), { chatRequests: 0, embeddingRequests: 0 });
-    console.log('Public pages passed: local green / remote blue themes; anonymous Docs/Privacy/Project Team; Markus Mobius only; accurate provider disclosures; public signed desktop updates; remote session survives navigation and signs out; secretless Google sign-in page and token endpoint; local app Google sign-in round trip (loopback + PKCE); zero model calls.');
+    console.log('Public pages passed: local green / remote blue themes; anonymous Docs/Privacy/Project Team (four members); accurate provider disclosures; public signed desktop updates; remote session survives navigation and signs out; secretless Google sign-in page and token endpoint; local app Google sign-in round trip (loopback + PKCE); zero model calls.');
   } else {
     assert.equal(configuration.foundryConfigured, true);
     await verifyModelFlow(local, remote, localProcess, localArgs, localBase, remoteBase);

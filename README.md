@@ -35,7 +35,9 @@ after setup all stay open. Remote Sync blocks setup
 (also while its state is still being checked); the Overleaf project nudge waits
 for the restore step.
 **More** contains Docs, Privacy and Project Team. Only the Updates feed exists;
-there are no placeholder feed types. The team currently contains only Markus Mobius.
+there are no placeholder feed types. The Project Team page lists Markus Mobius
+(developer), Tanya Rosenblat (University of Michigan), Lukas Bolte (Carnegie
+Mellon University) and Sid Satya (Brown University).
 The app keeps accurate Azure/Microsoft provider disclosures and the required
 third-party notices.
 

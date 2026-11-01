@@ -6,8 +6,11 @@ instruction file. Start with the [README](README.md) for setup and release detai
 
 ## Product and scope
 
-- Meld Research is an independent project. The Project Team currently consists
-  only of Markus Mobius; the public contact is `markusmobius@gmail.com`.
+- Meld Research is an independent project. The Project Team page lists Markus
+  Mobius (developer), Tanya Rosenblat (Professor of Information and Economics,
+  University of Michigan), Lukas Bolte (Assistant Professor, Carnegie Mellon
+  University) and Sid Satya (PhD Candidate, Brown University); Markus Mobius is
+  the developer and public contact (`markusmobius@gmail.com`).
 - Keep Angular and C# with distinct local and remote backends. The UI must use
   **Angular Material and the actual Project Meld interface**, not just its colors.
   Preserve the ported 64px toolbar, share icon, Outfit typography, pill navigation,
