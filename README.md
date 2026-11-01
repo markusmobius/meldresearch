@@ -165,7 +165,7 @@ that backend requires real Google OAuth configuration. No synthetic identity is
 available in Live mode.
 
 The source manifest now uses the supplied Chrome draft public key:
-**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.5.5**, wire protocol **2**.
+**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.5.6**, wire protocol **2**.
 It is a public identity key, not a signing secret.
 
 Until the private listing is approved, remove the old development-ID unpacked
@@ -439,7 +439,13 @@ sign-ins and website sessions therefore survive restarts. Migrations in
 [Data/Migrations](apps/RemoteBackend/Data/Migrations) are applied automatically
 at startup. Names, email addresses, and device names are stored as Data
 Protection ciphertext; app credentials and sign-in codes are stored only as
-SHA-256 hashes. The Google subject is the plain lookup key.
+SHA-256 hashes. The Google subject is the plain lookup key. The Google profile picture
+named in the ID token (https `*.googleusercontent.com` only, no redirects, at most
+512 KB, JPEG/PNG/GIF/WebP checked by content) is copied at sign-in into
+`account_pictures` as Data Protection ciphertext, fetched again only when its URL
+changes and removed when Google sends none. The website and the local app (through
+the installation token, cached in memory for an hour) show it from
+`/api/account/picture`, so no page loads an image from Google.
 
 The same database keeps one `inference_usage` row per Foundry request (time,
 deployment, chat/embedding, purpose, HTTP status, token counts, duration; no

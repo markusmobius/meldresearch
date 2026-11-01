@@ -18,6 +18,21 @@ internal sealed class AccountEntity
     public DateTimeOffset CreatedAt { get; set; }
 }
 
+/// <summary>
+/// The account's Google profile picture, downloaded once at sign-in so pages never load images from Google. The image is
+/// stored as Data Protection ciphertext; SourceHash identifies the Google URL it came from, so an unchanged picture is not
+/// downloaded again.
+/// </summary>
+internal sealed class AccountPictureEntity
+{
+    public Guid AccountId { get; set; }
+    public AccountEntity? Account { get; set; }
+    public required string ContentType { get; set; }
+    public required byte[] ProtectedImage { get; set; }
+    public required string SourceHash { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+}
+
 internal sealed class DeviceEntity
 {
     public Guid Id { get; set; }
@@ -68,6 +83,7 @@ internal sealed class RemoteDbContext(DbContextOptions<RemoteDbContext> options)
     public DbSet<SignInCodeEntity> SignInCodes => Set<SignInCodeEntity>();
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
     public DbSet<InferenceUsageEntity> InferenceUsage => Set<InferenceUsageEntity>();
+    public DbSet<AccountPictureEntity> AccountPictures => Set<AccountPictureEntity>();
 
     // SQLite cannot compare DateTimeOffset values in SQL; UTC Unix milliseconds keep expiry queries server-side.
     protected override void ConfigureConventions(ModelConfigurationBuilder configuration) =>
@@ -101,6 +117,14 @@ internal sealed class RemoteDbContext(DbContextOptions<RemoteDbContext> options)
             code.HasOne(item => item.Account).WithMany().HasForeignKey(item => item.AccountId).OnDelete(DeleteBehavior.Cascade);
         });
         model.Entity<DataProtectionKey>().ToTable("data_protection_keys");
+        model.Entity<AccountPictureEntity>(picture =>
+        {
+            picture.ToTable("account_pictures");
+            picture.HasKey(item => item.AccountId);
+            picture.Property(item => item.ContentType).HasMaxLength(32);
+            picture.Property(item => item.SourceHash).HasMaxLength(64);
+            picture.HasOne(item => item.Account).WithMany().HasForeignKey(item => item.AccountId).OnDelete(DeleteBehavior.Cascade);
+        });
         model.Entity<InferenceUsageEntity>(usage =>
         {
             usage.ToTable("inference_usage");

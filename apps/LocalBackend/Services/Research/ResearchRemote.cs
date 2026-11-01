@@ -29,6 +29,8 @@ internal sealed record ResearchOptions(Uri RemoteOrigin, bool Dummy, int PollSec
     }
 }
 
+internal sealed record AccountPicture(string ContentType, byte[] Image);
+
 internal interface IResearchRemote
 {
     Task<RemoteStatusResponse> StatusAsync(CancellationToken ct);
@@ -41,6 +43,8 @@ internal interface IResearchRemote
     Task<ThemeMergeResponse> MergeThemeAsync(string token, ThemeMergeRequest request, CancellationToken ct);
     Task<ThemeRegroupResponse> RegroupThemesAsync(string token, ThemeRegroupRequest request, CancellationToken ct);
     Task<CardBlurbResponse> DescribeCardAsync(string token, CardBlurbRequest request, CancellationToken ct);
+    /// <summary>The account's profile picture stored by Meld's server; null when there is none.</summary>
+    Task<AccountPicture?> AccountPictureAsync(string token, CancellationToken ct);
     Task<ResearcherSearchResponse> SearchResearcherAsync(string token, ResearcherSearchRequest request, CancellationToken ct);
     Task<ResearcherWorksResponse> ResearcherWorksAsync(string token, ResearcherWorksRequest request, CancellationToken ct);
 }
@@ -64,6 +68,25 @@ internal sealed class ResearchRemote(ResearchOptions options, IHttpClientFactory
         CallAsync<ThemeMergeResponse>("api/research/theme-merge", HttpMethod.Post, request, token, ct);
     public Task<ThemeRegroupResponse> RegroupThemesAsync(string token, ThemeRegroupRequest request, CancellationToken ct) =>
         CallAsync<ThemeRegroupResponse>("api/research/theme-regroup", HttpMethod.Post, request, token, ct);
+    public async Task<AccountPicture?> AccountPictureAsync(string token, CancellationToken ct)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(TimeSpan.FromSeconds(20));
+        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(options.RemoteOrigin, "api/account/picture"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        try
+        {
+            using var http = clients.CreateClient("research-remote");
+            using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
+            if (!response.IsSuccessStatusCode || response.Content.Headers.ContentLength > 512 * 1024) return null;
+            string? type = response.Content.Headers.ContentType?.MediaType;
+            if (type is not ("image/jpeg" or "image/png" or "image/gif" or "image/webp")) return null;
+            byte[] image = await response.Content.ReadAsByteArrayAsync(deadline.Token);
+            return image.Length is > 0 and <= 512 * 1024 ? new(type, image) : null;
+        }
+        catch (Exception error) when (error is HttpRequestException or OperationCanceledException) { return null; }
+    }
+
     public Task<CardBlurbResponse> DescribeCardAsync(string token, CardBlurbRequest request, CancellationToken ct) =>
         CallAsync<CardBlurbResponse>("api/research/card-blurb", HttpMethod.Post, request, token, ct);
     public Task<ResearcherSearchResponse> SearchResearcherAsync(string token, ResearcherSearchRequest request, CancellationToken ct) =>

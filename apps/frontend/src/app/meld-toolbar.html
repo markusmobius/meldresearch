@@ -51,7 +51,9 @@
   <span class="spacer"></span>
   <a mat-button class="nav-link-btn nav-account-btn role-local" [class.active-link]="page() === 'account'"
     href="/#account" aria-label="Account" title="Account">
-    <mat-icon class="account-compact-icon">account_circle</mat-icon>
+    @if (accountName() && !localPictureFailed()) {
+      <img class="account-picture" src="/api/research/account/picture" alt="" (error)="localPictureFailed.set(true)">
+    } @else { <mat-icon class="account-compact-icon">account_circle</mat-icon> }
     <span class="account-label"><strong>{{ accountName() || 'Account' }}</strong>
       @if (accountName()) { <small>{{ dummy() ? 'Synthetic test account' : 'Meld Research' }}</small> }
     </span>
@@ -59,12 +61,14 @@
   @if (remoteAccount(); as account) {
     <button mat-button class="nav-link-btn remote-account-btn role-remote" [matMenuTriggerFor]="accountMenu"
       [attr.aria-label]="'Account: ' + account.name" [title]="account.name + ' (' + account.email + ')'">
-      <span class="avatar" aria-hidden="true">{{ remoteInitial() }}</span>
+      <span class="avatar" aria-hidden="true">{{ remoteInitial() }}
+        @if (!pictureFailed()) { <img src="/api/account/picture" alt="" (error)="pictureFailed.set(true)"> }</span>
       <span class="nav-label remote-account-name">{{ account.name }}</span>
     </button>
     <mat-menu #accountMenu="matMenu" xPosition="before" class="remote-account-menu">
       <div class="account-menu-header">
-        <span class="avatar large" aria-hidden="true">{{ remoteInitial() }}</span>
+        <span class="avatar large" aria-hidden="true">{{ remoteInitial() }}
+          @if (!pictureFailed()) { <img src="/api/account/picture" alt="" (error)="pictureFailed.set(true)"> }</span>
         <strong>{{ account.name }}</strong>
         <small>{{ account.email }}</small>
       </div>

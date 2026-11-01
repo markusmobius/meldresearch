@@ -790,6 +790,7 @@ public sealed class ResearchCoordinatorTests
             return Task.FromResult(new ThemeMergeResponse(new("Combined research line", string.Join(" + ", request.Members.Select(member => member.ProjectName)),
                 ["Combined."], ["combined"]), "chat"));
         }
+        public Task<AccountPicture?> AccountPictureAsync(string token, CancellationToken ct) => Task.FromResult<AccountPicture?>(null);
         public List<CardBlurbRequest> Blurbs { get; } = [];
         public Task<CardBlurbResponse> DescribeCardAsync(string token, CardBlurbRequest request, CancellationToken ct)
         {

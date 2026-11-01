@@ -63,7 +63,8 @@ instruction file. Start with the [README](README.md) for setup and release detai
 - Models select source line ranges; the server copies and validates actual
   citation text. Preserve grounding, evidence limits and visible validation errors.
 - The remote backend persists accounts, devices, one-time app sign-in codes, the
-  Data Protection key ring and content-free, account-free LLM usage rows (shown
+  Data Protection key ring, the encrypted Google profile picture and content-free,
+  account-free LLM usage rows (shown
   only to superusers at `/usage`) in SQLite via EF Core
   ([RemoteDbContext](apps/RemoteBackend/Data/RemoteDbContext.cs)). Change the
   schema only through checked-in migrations (`dotnet tool restore`, then
@@ -181,7 +182,7 @@ Use .NET 10, Node 24/npm and PowerShell 7. Run from this repository's root, e.g.
   restore the removed application Playwright approach. Use the normal browser
   and connector; never execute downloaded TeX.
 - Current Chrome identity: `pejcljoimoeklelcfbfddnkimlkjgfhe`; extension version
-  `0.5.5`, native protocol `2`. Identity derives from the public manifest key,
+  `0.5.6`, native protocol `2`. Identity derives from the public manifest key,
   not a secret signing key. Update related identity/handshake checks together;
   compatible extension releases need not have identical version numbers.
 - Bump the connector manifest version whenever extension files change: installed

@@ -59,6 +59,7 @@ builder.Services.AddSingleton<ILocalVault, LocalVault>();
 builder.Services.AddSingleton<IResearchStore, ResearchStore>();
 builder.Services.AddSingleton<IResearchRemote, ResearchRemote>();
 builder.Services.AddSingleton<RemoteConnectivity>();
+builder.Services.AddSingleton<AccountPictureCache>();
 builder.Services.AddSingleton<IOverleafEvidenceSource, OverleafEvidenceSource>();
 // Idle connections are dropped before Cloudflare or nginx closes them, so a request never starts on a dead connection.
 builder.Services.AddHttpClient("research-remote", client => client.Timeout = Timeout.InfiniteTimeSpan)

@@ -47,6 +47,33 @@ namespace MeldResearch.RemoteBackend.Data.Migrations
                     b.ToTable("accounts", (string)null);
                 });
 
+            modelBuilder.Entity("MeldResearch.RemoteBackend.Data.AccountPictureEntity", b =>
+                {
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<byte[]>("ProtectedImage")
+                        .IsRequired()
+                        .HasColumnType("BLOB");
+
+                    b.Property<string>("SourceHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("UpdatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("AccountId");
+
+                    b.ToTable("account_pictures", (string)null);
+                });
+
             modelBuilder.Entity("MeldResearch.RemoteBackend.Data.DeviceEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -171,6 +198,17 @@ namespace MeldResearch.RemoteBackend.Data.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("data_protection_keys", (string)null);
+                });
+
+            modelBuilder.Entity("MeldResearch.RemoteBackend.Data.AccountPictureEntity", b =>
+                {
+                    b.HasOne("MeldResearch.RemoteBackend.Data.AccountEntity", "Account")
+                        .WithMany()
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Account");
                 });
 
             modelBuilder.Entity("MeldResearch.RemoteBackend.Data.DeviceEntity", b =>

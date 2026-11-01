@@ -65,6 +65,9 @@ export class MeldToolbar {
   readonly updateTarget = signal<string | null>(null);
   readonly shortVersion = shortVersion;
   private loadedVersion: string | null = null;
+  /** The account's Google profile picture failed to load (none stored): the initial or account icon is shown instead. */
+  readonly pictureFailed = signal(false);
+  readonly localPictureFailed = signal(false);
   /** Local app only: warnings and errors logged in the last ten minutes (More → Log badge). */
   readonly logIssues = signal(0);
   /** Local app only: More offers the activity log. */

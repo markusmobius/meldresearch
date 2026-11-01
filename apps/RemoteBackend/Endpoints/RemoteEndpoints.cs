@@ -144,7 +144,7 @@ internal static class RemoteEndpoints
         }).ExcludeFromDescription();
         // The Google button's callback submits this same-origin form, so antiforgery and Origin checks still apply.
         app.MapPost("/auth/google", async Task<RedirectHttpResult> (HttpContext context, IAntiforgery antiforgery,
-            IAccountService accounts, IGoogleIdTokenVerifier google, RemoteOptions options, CancellationToken ct) =>
+            IAccountService accounts, IGoogleIdTokenVerifier google, IProfilePictures pictures, RemoteOptions options, CancellationToken ct) =>
         {
             await ValidateFormAsync(context, antiforgery);
             var form = await context.Request.ReadFormAsync(ct);
@@ -162,12 +162,16 @@ internal static class RemoteEndpoints
             {
                 return TypedResults.Redirect(link is null ? "/?signInFailed=1" : link.ConnectUrl + "&signInFailed=1");
             }
-            var principal = new ClaimsPrincipal(new ClaimsIdentity([
+            List<Claim> claims = [
                 new(ClaimTypes.NameIdentifier, identity.Subject), new(ClaimTypes.Name, identity.Name),
                 new(ClaimTypes.Email, identity.Email), new("meld_provider", "google"), new("meld_email_verified", "true")
-            ], CookieAuthenticationDefaults.AuthenticationScheme));
+            ];
+            // Kept for an account created later in this session (/connect/signup); the image itself is stored by Meld.
+            if (identity.Picture is { } picture) claims.Add(new("meld_picture", picture));
+            var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme));
             if (signup) await accounts.RegisterAsync(principal, ct);
             await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
+            if (await accounts.FindAsync(principal, ct) is { } signedIn) await pictures.UpdateAsync(signedIn.Id, identity.Picture, ct);
             return TypedResults.Redirect(link?.ConnectUrl ?? "/account");
         }).ExcludeFromDescription();
 
@@ -179,6 +183,16 @@ internal static class RemoteEndpoints
         }).ExcludeFromDescription();
         // The toolbar's account menu on static pages (Docs, Privacy, Team). Same-origin only: the global Origin check and
         // the browser's same-origin policy keep the sign-out token from other sites.
+        // The signed-in account's profile picture, for the website (session cookie) and the local app (installation token).
+        app.MapGet("/api/account/picture", async Task<Results<FileContentHttpResult, NotFound>> (
+            HttpContext context, IAccountService accounts, IProfilePictures pictures, CancellationToken ct) =>
+        {
+            var account = context.Request.Headers.Authorization.Count != 0
+                ? await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct)
+                : await accounts.FindAsync(context.User, ct);
+            if (account is null || await pictures.FindAsync(account.Id, ct) is not { } picture) return TypedResults.NotFound();
+            return TypedResults.File(picture.Image, picture.ContentType);
+        }).WithName("GetAccountPicture").WithSummary("Read the signed-in account's Google profile picture, stored by Meld.");
         app.MapGet("/api/session", Results<Ok<BrowserSession>, NoContent> (HttpContext context, IAntiforgery antiforgery, RemoteOptions options) =>
             context.User.Identity?.IsAuthenticated == true
                 ? TypedResults.Ok(new BrowserSession(context.User.FindFirstValue(ClaimTypes.Name) ?? "",
@@ -249,13 +263,14 @@ internal static class RemoteEndpoints
             return TypedResults.Redirect(link.Callback(await accounts.IssueSignInCodeAsync(context.User, link, ct)));
         }).ExcludeFromDescription();
         app.MapPost("/connect/signup", async Task<RedirectHttpResult> (
-            HttpContext context, IAccountService accounts, IAntiforgery antiforgery, CancellationToken ct) =>
+            HttpContext context, IAccountService accounts, IAntiforgery antiforgery, IProfilePictures pictures, CancellationToken ct) =>
         {
             await ValidateFormAsync(context, antiforgery);
             var form = await context.Request.ReadFormAsync(ct);
             var link = LocalSignIn.From(key => form[key]) ??
                 throw new ResearchFailure(400, "invalid_sign_in_request", "Start signing in from Account in the Meld Research app.");
-            await accounts.RegisterAsync(context.User, ct);
+            var created = await accounts.RegisterAsync(context.User, ct);
+            await pictures.UpdateAsync(created.Id, context.User.FindFirstValue("meld_picture"), ct);
             return TypedResults.Redirect(link.ConnectUrl);
         }).ExcludeFromDescription();
 

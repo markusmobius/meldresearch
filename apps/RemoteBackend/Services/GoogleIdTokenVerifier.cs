@@ -9,7 +9,8 @@ using MeldResearch.Research;
 namespace MeldResearch.RemoteBackend.Services;
 
 /// <summary>The Google identity proven by a verified ID token.</summary>
-internal sealed record GoogleIdentity(string Subject, string Email, string Name);
+/// <summary>The Google identity proven by a verified ID token; Picture is Google's profile image URL, when it gives one.</summary>
+internal sealed record GoogleIdentity(string Subject, string Email, string Name, string? Picture = null);
 
 internal interface IGoogleIdTokenVerifier
 {
@@ -54,7 +55,7 @@ internal sealed class GoogleIdTokenVerifier(RemoteOptions options, IConfiguratio
         if (subject.Length is 0 or > 255 || email.Length is 0 or > 320 || !verified)
             throw Failure("A Google account with a verified email address is required.");
         string name = Claim("name") is { Length: > 0 } display ? display[..Math.Min(display.Length, 200)] : email;
-        return new(subject, email, name);
+        return new(subject, email, name, ProfilePictures.IsGooglePicture(Claim("picture")) ? Claim("picture") : null);
     }
 
     private async Task<TokenValidationResult> ValidateAsync(string idToken, CancellationToken ct)

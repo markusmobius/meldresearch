@@ -75,6 +75,14 @@ internal static class ResearchEndpoints
         group.MapGet("/publications", async Task<Ok<PublicationsResponse>> (IResearcherService service, CancellationToken ct) =>
             TypedResults.Ok(await service.PublicationsAsync(ct)))
             .WithName("GetPublications").WithSummary("Read the confirmed OpenAlex author's public works stored on this computer.");
+        group.MapGet("/account/picture", async Task<Results<FileContentHttpResult, NotFound>> (
+            IResearchStore store, IResearchRemote remote, AccountPictureCache cache, CancellationToken ct) =>
+        {
+            var credential = (await store.ReadAsync(ct)).Credential;
+            if (credential is null || credential.ExpiresAt <= DateTimeOffset.UtcNow) return TypedResults.NotFound();
+            var picture = await cache.GetAsync(credential.Account.Id, () => remote.AccountPictureAsync(credential.Token, ct));
+            return picture is null ? TypedResults.NotFound() : TypedResults.File(picture.Image, picture.ContentType);
+        }).WithName("GetLocalAccountPicture").WithSummary("Read the signed-in account's profile picture from Meld's server (cached for an hour).");
         group.MapPost("/sync", async Task<Accepted> (IResearchCoordinator service, CancellationToken ct) =>
         {
             if ((await service.StatusAsync(ct)).Account is null)
