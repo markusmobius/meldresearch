@@ -60,6 +60,13 @@ builder.Services.AddSingleton<IResearchStore, ResearchStore>();
 builder.Services.AddSingleton<IResearchRemote, ResearchRemote>();
 builder.Services.AddSingleton<RemoteConnectivity>();
 builder.Services.AddSingleton<AccountPictureCache>();
+// Encrypted sync blobs go straight to storage through short-lived signed links (ciphertext only).
+builder.Services.AddHttpClient("sync-blobs", client => client.Timeout = Timeout.InfiniteTimeSpan)
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        AllowAutoRedirect = false, UseCookies = false, PooledConnectionIdleTimeout = TimeSpan.FromSeconds(50)
+    });
+builder.Services.AddSingleton<ResearchSync>();
 builder.Services.AddSingleton<IOverleafEvidenceSource, OverleafEvidenceSource>();
 // Idle connections are dropped before Cloudflare or nginx closes them, so a request never starts on a dead connection.
 builder.Services.AddHttpClient("research-remote", client => client.Timeout = Timeout.InfiniteTimeSpan)

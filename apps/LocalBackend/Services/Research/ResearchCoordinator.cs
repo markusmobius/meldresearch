@@ -29,9 +29,11 @@ internal interface IResearchCoordinator
 }
 
 internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote remote, IOverleafEvidenceSource source,
-    ResearchOptions options, ILogger<ResearchCoordinator> logger, TimeProvider clock)
+    ResearchOptions options, ILogger<ResearchCoordinator> logger, TimeProvider clock, ResearchSync? sync = null)
     : BackgroundService, IResearchCoordinator
 {
+    private readonly ResearchSync _sync = sync ?? new(store, remote, clock, Microsoft.Extensions.Logging.Abstractions.NullLogger<ResearchSync>.Instance);
+    internal ResearchSync Sync => _sync;
     private sealed record PendingSignIn(string State, string Verifier, string SignInUrl, DateTimeOffset ExpiresAt);
     private readonly SemaphoreSlim _wake = new(0, 1);
     private readonly SemaphoreSlim _accountGate = new(1, 1);
@@ -126,7 +128,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             account is not { } owner ? [] : ThemePlan.Themes(state, owner).Select(theme => new ResearchThemeResponse(theme.Id, theme.Profile,
                 theme.Members, theme.Profile is null || !ThemePlan.Matches(theme, theme.Members.Select(id => projects.FirstOrDefault(project =>
                     project.ProjectId == id)).Where(project => project?.Profile is not null).ToArray()!),
-                theme.Profile is not null && theme.BlurbFor == ThemePlan.Fingerprint(theme.Profile) ? theme.Blurb : null)).ToArray());
+                theme.Profile is not null && theme.BlurbFor == ThemePlan.Fingerprint(theme.Profile) ? theme.Blurb : null)).ToArray(),
+            _sync.Status(state));
     }
 
     public async Task<AccountLinkResponse> BeginLinkAsync(string callbackUri, CancellationToken ct)
@@ -195,9 +198,29 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             {
                 PendingRevocations = current.Credential is { } credential
                     ? [.. current.PendingRevocations, credential] : current.PendingRevocations,
-                Credential = null, PendingLink = null, AccountError = null
+                Credential = null, PendingLink = null, AccountError = null, Sync = null
             }, ct);
             await FlushRevocationsAsync(ct);
+        }
+        finally { _accountGate.Release(); }
+    }
+
+    /// <summary>
+    /// Runs a passphrase operation with the worker stopped, so no upload made with an older key can race it, then wakes the
+    /// worker to pull and push with the new key.
+    /// </summary>
+    internal async Task<T> WithSyncAsync<T>(Func<ResearchSync, LinkedCredential, Task<T>> action, CancellationToken ct)
+    {
+        await _accountGate.WaitAsync(ct);
+        try
+        {
+            var state = await store.ReadAsync(ct);
+            if (state.Credential is null || state.Credential.ExpiresAt <= clock.GetUtcNow())
+                throw new ResearchFailure(401, "meld_account_required", "Sign in with Google before setting up encrypted sync.");
+            CancelCycle();
+            var result = await action(_sync, state.Credential);
+            RequestSync();
+            return result;
         }
         finally { _accountGate.Release(); }
     }
@@ -529,6 +552,27 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         var state = await store.ReadAsync(ct);
         if (state.Credential is null) return false;
         var credential = RequireCredential(state);
+        // With encrypted sync, nothing is processed until this computer has the key: work done elsewhere is pulled first,
+        // so only the changes since then are processed here.
+        var mode = await _sync.ModeAsync(credential, state, ct);
+        if (mode == SyncMode.Locked) return false;
+        if (mode == SyncMode.Off) return await WorkAsync(credential, force, ct, maxSteps);
+        try { if (await _sync.PullDueAsync(credential, force, ct)) PruneTexts(await store.ReadAsync(ct)); }
+        catch (ResearchFailure failure) when (failure.Code == "sync_locked") { return false; }
+        try { return await WorkAsync(credential, force, ct, maxSteps); }
+        finally
+        {
+            if (!ct.IsCancellationRequested)
+                try { await _sync.PushAsync(credential, ct); }
+                catch (Exception error) when (error is IOException or CryptographicException or System.Text.Json.JsonException or HttpRequestException)
+                { logger.LogWarning("Encrypted sync upload failed ({Type}); it is retried on the next check.", error.GetType().Name); }
+        }
+    }
+
+    private async Task<bool> WorkAsync(LinkedCredential credential, bool force, CancellationToken ct, int maxSteps)
+    {
+        var state = await store.ReadAsync(ct);
+        if (state.Credential?.Account.Id != credential.Account.Id) return false;
         var now = clock.GetUtcNow();
         var selected = Selected(state, credential.Account.Id);
         var due = QueueOrder(selected.Where(project => force || SweepDue(project, now))).ToArray();

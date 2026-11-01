@@ -90,6 +90,29 @@ internal static class ResearchEndpoints
             service.RequestSync();
             return TypedResults.Accepted("/api/research/status");
         }).WithName("SyncResearchNow").WithSummary("Queue a content check; unchanged snapshots do not consume model calls.");
+        group.MapGet("/encrypted-sync", async Task<Ok<SyncStatusResponse>> (ResearchCoordinator research, CancellationToken ct) =>
+            TypedResults.Ok(await research.Sync.RefreshAsync(ct)))
+            .WithName("GetEncryptedSync").WithSummary("Ask Meld's server whether encrypted sync is offered and whether this account already has a key.");
+        group.MapPost("/encrypted-sync/create", async Task<Ok<SyncKeyResponse>> (
+            SyncPassphraseRequest request, ResearchCoordinator research, CancellationToken ct) =>
+            TypedResults.Ok(await research.WithSyncAsync((sync, credential) => sync.CreateAsync(credential, request.Passphrase, ct), ct)))
+            .WithName("CreateEncryptedSync").WithSummary("Choose the passphrase; returns the recovery key once. Nothing readable leaves this computer.");
+        group.MapPost("/encrypted-sync/unlock", async Task<NoContent> (
+            SyncPassphraseRequest request, ResearchCoordinator research, CancellationToken ct) =>
+        {
+            await research.WithSyncAsync(async (sync, credential) => { await sync.UnlockAsync(credential, request, ct); return true; }, ct);
+            return TypedResults.NoContent();
+        }).WithName("UnlockEncryptedSync").WithSummary("Unlock the account's synced research on this computer with the passphrase or recovery key.");
+        group.MapPost("/encrypted-sync/start-over", async Task<Ok<SyncKeyResponse>> (
+            SyncPassphraseRequest request, ResearchCoordinator research, CancellationToken ct) =>
+            TypedResults.Ok(await research.WithSyncAsync((sync, credential) => sync.StartOverAsync(credential, request.Passphrase, ct), ct)))
+            .WithName("StartEncryptedSyncOver").WithSummary("Forgotten passphrase: delete the synced copy, choose a new passphrase and upload this computer's research again.");
+        group.MapPost("/encrypted-sync/passphrase", async Task<NoContent> (
+            SyncPassphraseRequest request, ResearchCoordinator research, CancellationToken ct) =>
+        {
+            await research.WithSyncAsync(async (sync, credential) => { await sync.ChangePassphraseAsync(credential, request.Passphrase, ct); return true; }, ct);
+            return TypedResults.NoContent();
+        }).WithName("ChangeEncryptedSyncPassphrase").WithSummary("Choose a new passphrase for the same synced data; the recovery key keeps working.");
         if (app.Services.GetRequiredService<ResearchOptions>().Dummy)
             app.MapPost("/api/development/overleaf/change", async (IBrowserRelay browser, IResearchCoordinator research, CancellationToken ct) =>
             {

@@ -29,11 +29,11 @@ internal static class RemoteEndpoints
             installers[platform] = (fileName, System.Text.Encoding.UTF8.GetBytes(
                 File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Install", fileName)).Replace("\r\n", "\n").Replace("{{REMOTEURL}}", origin)));
 
-        app.MapGet("/api/status", (RemoteOptions options, IFoundryService foundry, CancellationToken ct) =>
+        app.MapGet("/api/status", (RemoteOptions options, IFoundryService foundry, ISyncStorage sync, CancellationToken ct) =>
         {
             ct.ThrowIfCancellationRequested();
             return TypedResults.Ok(new RemoteStatusResponse(options.Dummy, options.GoogleConfigured, foundry.Configured,
-                new Uri(options.PublicOrigin, "privacy.html").AbsoluteUri, ExtensionIdentity.Id, StoreUrl));
+                new Uri(options.PublicOrigin, "privacy.html").AbsoluteUri, ExtensionIdentity.Id, StoreUrl, sync.Configured));
         }).WithName("GetRemoteStatus").WithSummary("Read non-secret account and Foundry configuration status.");
 
         app.MapPost("/api/sign-in/redeem", async Task<Ok<RedeemSignInResponse>> (
@@ -99,6 +99,27 @@ internal static class RemoteEndpoints
             using var slot = await gate.EnterAsync(account.Id, ct);
             return TypedResults.Ok(await foundry.EmbedAsync(request, ct));
         }).WithName("EmbedResearch").WithSummary("Embed bounded research text using the configured Foundry deployment.");
+        // Encrypted sync: each installation reaches only its own account's folder; the content is encrypted on the computer.
+        app.MapGet("/api/sync/blobs", async Task<Ok<SyncListResponse>> (HttpContext context, IAccountService accounts, ISyncStorage sync, CancellationToken ct) =>
+        {
+            var account = await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            return TypedResults.Ok(await sync.ListAsync(account.Id, ct));
+        }).WithName("ListSyncBlobs").WithSummary("List the caller's encrypted sync blobs (names, ETags, sizes).");
+        app.MapPost("/api/sync/links", async Task<Ok<SyncLinksResponse>> (SyncLinksRequest request, HttpContext context, IAccountService accounts,
+            ISyncStorage sync, CancellationToken ct) =>
+        {
+            var account = await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            return TypedResults.Ok(await sync.LinksAsync(account.Id, request, ct));
+        }).WithName("GetSyncLinks").WithSummary("Ten-minute links to read (or write) named blobs in the caller's encrypted sync folder.");
+        app.MapDelete("/api/sync/blobs", async Task<NoContent> (HttpContext context, IAccountService accounts, ISyncStorage sync, CancellationToken ct) =>
+        {
+            var account = await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            await sync.DeleteAllAsync(account.Id, ct);
+            return TypedResults.NoContent();
+        }).WithName("DeleteSyncBlobs").WithSummary("Start over: delete all of the caller's encrypted sync blobs.");
+        if (app.Services.GetRequiredService<RemoteOptions>().Dummy)
+            app.MapMethods("/dev-sync/{account}/{**name}", ["GET", "HEAD", "PUT", "DELETE"], (HttpContext context, string account, string name,
+                DevelopmentSyncStorage store) => store.HandleAsync(context, account, name)).ExcludeFromDescription();
         app.MapPost("/api/researcher/candidates", async Task<Ok<ResearcherSearchResponse>> (
             ResearcherSearchRequest request, HttpContext context, IAccountService accounts, IResearcherResolver resolver, InferenceGate gate, CancellationToken ct) =>
         {

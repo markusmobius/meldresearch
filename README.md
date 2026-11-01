@@ -165,7 +165,7 @@ that backend requires real Google OAuth configuration. No synthetic identity is
 available in Live mode.
 
 The source manifest now uses the supplied Chrome draft public key:
-**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.5.6**, wire protocol **2**.
+**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.5.7**, wire protocol **2**.
 It is a public identity key, not a signing secret.
 
 Until the private listing is approved, remove the old development-ID unpacked
@@ -456,7 +456,8 @@ from Project Meld; also in the account menu) and `/api/usage`. Everyone else
 gets 404. The Foundry smoke test does not record usage.
 
 SQLite supports one remote process per data directory (`server.lock` enforces this),
-not multiple load-balanced instances. Research text is never stored remotely.
+not multiple load-balanced instances. Research text is never stored remotely in
+readable form (see [Encrypted sync](#encrypted-sync)).
 After changing the model, add a migration with the repository's pinned tool:
 
 ```powershell
@@ -470,6 +471,50 @@ No DNS, certificate, cloud resource, production deployment, or store submission
 is performed by the source launcher. The chosen public policy URL is
 <https://www.meldresearch.org/privacy.html>; it must actually be hosted publicly
 before store review.
+
+### Encrypted sync
+
+Encrypted sync lets a user's computers share one profile: a second computer pulls
+the first one's work and processes only what changed since. Everything is
+encrypted on the client ([SyncCrypto](libraries/Research/SyncCrypto.cs)):
+
+- A random 256-bit data key per account encrypts each blob with AES-256-GCM
+  (gzip JSON, bound to the account and blob name). The account's plaintext
+  `key.json` holds the data key wrapped by a PBKDF2-SHA256 (600,000 iterations)
+  passphrase key and by a 20-byte recovery key shown once as
+  `XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX`. On computers, the data key lives
+  only inside the DPAPI/Keychain-protected research state.
+- Blobs: `{account:N}/key.json`, `profile.bin` (decisions, research cards,
+  summaries, OpenAlex match) and `p/<hmac>.bin` per included project (summary,
+  processing state, Updates and the texts they need). Project names are a keyed
+  HMAC, so storage does not reveal project ids.
+- [ResearchSync](apps/LocalBackend/Services/Research/ResearchSync.cs) pulls
+  before work (every 5 minutes or on a forced check), pushes changed projects at
+  the end of a cycle (long imports every 10 minutes as checkpoints) and deletes
+  blobs of excluded projects. Uploads are conditional on the ETag; a computer
+  that lost a race pulls and reconciles (more folded-in files wins). Check-time
+  bookkeeping does not cause uploads. A changed `key.json` creation time (start
+  over elsewhere) locks the computer until the new passphrase is entered.
+- Forgotten passphrase and recovery key: **Start over** deletes the account's
+  blobs, creates a new key and uploads this computer's research again.
+
+The remote backend ([SyncStorage](apps/RemoteBackend/Services/SyncStorage.cs))
+never sees plaintext. With a bearer installation token it lists the account's
+blobs (`GET /api/sync/blobs`), issues 10-minute per-blob SAS links
+(`POST /api/sync/links`, user delegation key, names validated, quota
+`Storage:QuotaMegabytes`, default 500) and deletes everything for start over
+(`DELETE /api/sync/blobs`). Clients talk to Blob Storage directly with the links.
+Dummy mode uses an on-disk stand-in with signed links under `/dev-sync`. Without
+`Storage:AccountUrl` sync is off and the app behaves as before.
+
+Production uses the VM's managed identity on the `meldresearch` container of
+storage account `ratiodatanew` (settings in
+[remote.env.example](deploy/remote.env.example)). That identity needs
+**Storage Blob Data Contributor** on the container (or account) and
+**Storage Blob Delegator** on the storage account (to create user delegation
+keys); the account must accept public network access (the companion connects
+from users' computers). No CORS is needed: the local backend, not the browser,
+calls Blob Storage.
 
 ## Deploy the remote backend to Ubuntu
 
@@ -681,7 +726,8 @@ on Windows or `~/Library/Application Support/MeldResearch/OverleafPrototype`
 on macOS, preserving existing downloads. `MELDRESEARCH_DATA_DIR` is an absolute
 test override; a real browser-launched native host must see the same override.
 Research text, credentials, vectors, and updates are AES-GCM encrypted with a
-Windows DPAPI- or macOS Keychain-protected key. Separate linked accounts do not
+Windows DPAPI- or macOS Keychain-protected key. The optional synced copy is
+end-to-end encrypted under the user's passphrase (see [Encrypted sync](#encrypted-sync)). Separate linked accounts do not
 see each other's indexed projects. Manual ZIP/JSON downloads and temporary
 incoming archives are not encrypted by Meld; exported copies/backups are the
 user's responsibility.

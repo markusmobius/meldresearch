@@ -15,6 +15,7 @@ import { ResearcherSetup } from './researcher-setup';
 import { PublicationsList } from './publications';
 import { PrivateProfile } from './private-profile';
 import { MeldLog } from './meld-log';
+import { EncryptedSync } from './encrypted-sync';
 import { includedCount, researcherDone, undecidedRecent } from './project-decisions';
 
 export type SetupTab = 'meld' | 'overleaf' | 'openalex';
@@ -35,7 +36,7 @@ interface InstallPromptEvent extends Event {
 
 @Component({
   selector: 'app-root',
-  imports: [ResearchPanel, MeldToolbar, ProjectSelection, ResearcherSetup, PublicationsList, PrivateProfile, MeldLog, MatButtonModule, MatCardModule, MatTabsModule,
+  imports: [ResearchPanel, MeldToolbar, ProjectSelection, ResearcherSetup, PublicationsList, PrivateProfile, MeldLog, EncryptedSync, MatButtonModule, MatCardModule, MatTabsModule,
     MatExpansionModule, MatIconModule, MatSidenavModule],
   templateUrl: './app.html',
   styleUrl: './app.css',
@@ -117,6 +118,10 @@ export class App implements OnInit {
   private readonly overleafConfirmedFor = signal(readOverleafConfirmed());
   readonly setupKnown = computed(() => this.research() !== null);
   readonly accountLinked = computed(() => !!this.research()?.account);
+  /** With encrypted sync offered, this computer needs the passphrase (new or existing) before anything is processed. */
+  readonly recoveryKeyShown = signal(false);
+  readonly syncPending = computed(() => this.recoveryKeyShown() || ['setup', 'locked'].includes(this.research()?.sync?.state ?? ''));
+  readonly accountDone = computed(() => this.accountLinked() && !this.syncPending());
   readonly overleafReady = computed(() => this.verified() ||
     (!!this.research()?.account && this.overleafConfirmedFor() === this.research()?.account?.id));
   /** The freshest Overleaf project list: the backend's last read (also by monitoring), else this page's own refresh. */
@@ -125,10 +130,10 @@ export class App implements OnInit {
   readonly includedProjects = computed(() => includedCount(this.research()));
   readonly openAlexDone = computed(() => researcherDone(this.research()));
   readonly overleafDone = computed(() => this.overleafReady() && !this.connectorStale() && this.includedProjects() > 0 && !this.undecided().length);
-  readonly setupComplete = computed(() => this.accountLinked() && this.overleafReady() && !this.connectorStale() && this.includedProjects() > 0);
+  readonly setupComplete = computed(() => this.accountDone() && this.overleafReady() && !this.connectorStale() && this.includedProjects() > 0);
   /** About me tabs, as in Project Meld: Private profile, Public profile (once there is one) and Publications. */
   readonly aboutTab = signal<'private' | 'publications'>('private');
-  readonly setupTab = computed<SetupTab>(() => this.chosenTab() ?? (this.accountLinked() ? 'overleaf' : 'meld'));
+  readonly setupTab = computed<SetupTab>(() => this.chosenTab() ?? (this.accountDone() ? 'overleaf' : 'meld'));
   readonly overleafTab = computed<OverleafTab>(() => this.chosenOverleafTab() ??
     (this.overleafReady() && !this.connectorStale() && !this.setupNeeded() && this.connector()?.kind === 'available' ? 'projects' : 'connection'));
   // The Log stays reachable during setup: it is where setup problems are explained.
@@ -166,10 +171,11 @@ export class App implements OnInit {
       }
     });
     // Every recent project needs an active choice: each page load, and each newly appearing project, opens
-    // Account → Overleaf → Projects until the choice is made.
+    // Account → Overleaf → Projects until the choice is made. With encrypted sync, choices made on another computer arrive
+    // once this one is unlocked, so the nudge waits for that.
     const nudged = new Set<string>();
     effect(() => {
-      if (!this.setupKnown() || !this.accountLinked() || !this.overleafReady() || this.connectorStale()) return;
+      if (!this.setupKnown() || !this.accountDone() || !this.overleafReady() || this.connectorStale()) return;
       const fresh = this.undecided().filter(project => !nudged.has(project.id));
       if (!fresh.length) return;
       for (const project of fresh) nudged.add(project.id);

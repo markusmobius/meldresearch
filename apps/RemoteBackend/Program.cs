@@ -66,6 +66,10 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IAccountService, AccountService>();
 builder.Services.AddSingleton<InferenceUsageStore>();
 builder.Services.AddSingleton<InferenceGate>();
+// Encrypted sync: Azure Blob Storage through the managed identity; a loopback file store in Dummy mode; off when unset.
+if (options.Dummy) builder.Services.AddSingleton<DevelopmentSyncStorage>().AddSingleton<ISyncStorage>(services => services.GetRequiredService<DevelopmentSyncStorage>());
+else if (builder.Configuration["Storage:AccountUrl"] is { Length: > 0 }) builder.Services.AddSingleton<ISyncStorage, AzureSyncStorage>();
+else builder.Services.AddSingleton<ISyncStorage, DisabledSyncStorage>();
 // Google profile pictures are copied at sign-in so pages show them from Meld itself (no request to Google from a page).
 builder.Services.AddSingleton<IProfilePictures, ProfilePictures>();
 builder.Services.AddHttpClient(ProfilePictures.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(15))

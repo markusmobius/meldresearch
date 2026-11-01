@@ -54,7 +54,9 @@ describe('Overleaf connection screen', () => {
     projects: signedIn ? [included] : [], updates: [], totalUpdates: 0, pendingRevocations: 0,
     decisions: [], overleafProjects: null, researcher: researcher('rejected'), processing: null, ...extra,
   });
-  const researchApi = { status: vi.fn(), link: vi.fn(), unlink: vi.fn(), decide: vi.fn(), researcher: vi.fn(), publications: vi.fn(), monitor: vi.fn() };
+  const researchApi = { status: vi.fn(), link: vi.fn(), unlink: vi.fn(), decide: vi.fn(), researcher: vi.fn(), publications: vi.fn(), monitor: vi.fn(),
+    encryptedSync: vi.fn() };
+  const sync = (state: string) => ({ state, syncedProjects: 0, lastPushAt: null, lastPullAt: null, error: null });
 
   beforeEach(() => {
     vi.resetAllMocks();
@@ -71,6 +73,7 @@ describe('Overleaf connection screen', () => {
     api.refresh.mockResolvedValue([]);
     browser.send.mockResolvedValue(connector());
     researchApi.status.mockResolvedValue(researchStatus());
+    researchApi.encryptedSync.mockResolvedValue(sync('off'));
     TestBed.configureTestingModule({ imports: [App], providers: [
       provideNoopAnimations(),
       { provide: OverleafApi, useValue: api }, { provide: BrowserConnector, useValue: browser },
@@ -99,6 +102,30 @@ describe('Overleaf connection screen', () => {
     expect(button.textContent).toContain('Sign in with Google');
     button.click();
     await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(signInUrl));
+    fixture.destroy();
+  });
+
+  it('keeps setup on the Meld account until encrypted sync is unlocked and its recovery key saved', async () => {
+    // An undecided recent project does not pull a locked computer away: its choice may already be synced.
+    researchApi.status.mockResolvedValue(researchStatus(true, { sync: sync('locked'),
+      overleafProjects: { projects: [recent('c123456789abcdef01234567', 'Recent project')], fetchedAt: new Date().toISOString() } }));
+    researchApi.encryptedSync.mockResolvedValue(sync('locked'));
+    const fixture = await screen('home');
+    const element: HTMLElement = fixture.nativeElement;
+    expect(fixture.componentInstance.view()).toBe('account');
+    expect(element.querySelector('.setup-tab[aria-selected="true"]')?.textContent).toContain('Meld account');
+    expect(element.querySelector('app-encrypted-sync')?.textContent).toContain('Unlock your synced research');
+    expect(element.querySelector('a[aria-label="Feed"]')).toBeNull();
+
+    // Unlocked, but the one-time recovery key is still on screen: setup must not move on yet.
+    fixture.componentInstance.recoveryKeyShown.set(true);
+    researchApi.status.mockResolvedValue(researchStatus(true, { sync: sync('ready') }));
+    await (fixture.componentInstance as unknown as { panel: () => { refresh(): Promise<void> } }).panel().refresh();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.view()).toBe('account');
+    fixture.componentInstance.recoveryKeyShown.set(false);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.setupComplete()).toBe(true);
     fixture.destroy();
   });
 
@@ -142,7 +169,7 @@ describe('Overleaf connection screen', () => {
     vi.stubGlobal('sessionStorage', {
       getItem: (key: string) => session.get(key) ?? null, setItem: (key: string, value: string) => session.set(key, value),
     });
-    api.extension.mockResolvedValue({ ...setup, extensionVersion: '0.5.6' });
+    api.extension.mockResolvedValue({ ...setup, extensionVersion: '0.5.7' });
     browser.send.mockResolvedValue(connector(true));
     api.status.mockResolvedValue(status(true));
     const fixture = await screen('home');
@@ -152,7 +179,7 @@ describe('Overleaf connection screen', () => {
     expect(fixture.componentInstance.view()).toBe('account');
     fixture.detectChanges();
     expect(element.querySelector('.setup-tab[aria-selected="true"]')?.textContent).toContain('Connector update needed');
-    expect(element.querySelector('.update-notice')?.textContent).toContain('0.3.0; this Meld needs 0.5.6');
+    expect(element.querySelector('.update-notice')?.textContent).toContain('0.3.0; this Meld needs 0.5.7');
     expect(element.querySelector('.installation mat-panel-title')?.textContent).toContain('Update the browser connector');
     expect(element.querySelector('.setup-steps')?.textContent).toContain('Remove');
     expect(element.querySelector('a[aria-label="Feed"]')).toBeNull();
@@ -162,7 +189,7 @@ describe('Overleaf connection screen', () => {
     expect(browser.send.mock.calls.filter(call => call[1] === 'reload')).toHaveLength(1);
 
     const current = connector(true);
-    current.state.extensionVersion = '0.5.6';
+    current.state.extensionVersion = '0.5.7';
     browser.send.mockResolvedValue(current);
     vi.advanceTimersByTime(3000);
     await vi.waitFor(() => expect(fixture.componentInstance.connectorStale()).toBe(false));

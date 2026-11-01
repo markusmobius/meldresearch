@@ -30,6 +30,7 @@ internal sealed record ResearchOptions(Uri RemoteOrigin, bool Dummy, int PollSec
 }
 
 internal sealed record AccountPicture(string ContentType, byte[] Image);
+internal sealed record SyncBlob(byte[] Content, string ETag);
 
 internal interface IResearchRemote
 {
@@ -43,6 +44,14 @@ internal interface IResearchRemote
     Task<ThemeMergeResponse> MergeThemeAsync(string token, ThemeMergeRequest request, CancellationToken ct);
     Task<ThemeRegroupResponse> RegroupThemesAsync(string token, ThemeRegroupRequest request, CancellationToken ct);
     Task<CardBlurbResponse> DescribeCardAsync(string token, CardBlurbRequest request, CancellationToken ct);
+    Task<SyncListResponse> SyncListAsync(string token, CancellationToken ct);
+    Task<SyncLinksResponse> SyncLinksAsync(string token, SyncLinksRequest request, CancellationToken ct);
+    Task SyncDeleteAllAsync(string token, CancellationToken ct);
+    /// <summary>Downloads a blob through its link; null when it does not exist.</summary>
+    Task<SyncBlob?> BlobGetAsync(string url, CancellationToken ct);
+    /// <summary>Uploads a blob through its link, only if it still has ETag ifMatch (or does not exist when ifMatch is null).</summary>
+    Task<string> BlobPutAsync(string url, byte[] content, string? ifMatch, CancellationToken ct);
+    Task BlobDeleteAsync(string url, CancellationToken ct);
     /// <summary>The account's profile picture stored by Meld's server; null when there is none.</summary>
     Task<AccountPicture?> AccountPictureAsync(string token, CancellationToken ct);
     Task<ResearcherSearchResponse> SearchResearcherAsync(string token, ResearcherSearchRequest request, CancellationToken ct);
@@ -68,6 +77,61 @@ internal sealed class ResearchRemote(ResearchOptions options, IHttpClientFactory
         CallAsync<ThemeMergeResponse>("api/research/theme-merge", HttpMethod.Post, request, token, ct);
     public Task<ThemeRegroupResponse> RegroupThemesAsync(string token, ThemeRegroupRequest request, CancellationToken ct) =>
         CallAsync<ThemeRegroupResponse>("api/research/theme-regroup", HttpMethod.Post, request, token, ct);
+    public Task<SyncListResponse> SyncListAsync(string token, CancellationToken ct) =>
+        CallAsync<SyncListResponse>("api/sync/blobs", HttpMethod.Get, null, token, ct);
+    public Task<SyncLinksResponse> SyncLinksAsync(string token, SyncLinksRequest request, CancellationToken ct) =>
+        CallAsync<SyncLinksResponse>("api/sync/links", HttpMethod.Post, request, token, ct);
+    public async Task SyncDeleteAllAsync(string token, CancellationToken ct) =>
+        _ = await CallAsync<JsonElement>("api/sync/blobs", HttpMethod.Delete, null, token, ct);
+
+    private const long MaxBlobBytes = 256L * 1024 * 1024;
+
+    public async Task<SyncBlob?> BlobGetAsync(string url, CancellationToken ct)
+    {
+        using var response = await BlobSendAsync(new HttpRequestMessage(HttpMethod.Get, url), ct);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+        if (!response.IsSuccessStatusCode || response.Content.Headers.ContentLength > MaxBlobBytes) throw BlobFailure(response);
+        byte[] content = await response.Content.ReadAsByteArrayAsync(ct);
+        return new(content, response.Headers.ETag?.ToString() ?? "");
+    }
+
+    public async Task<string> BlobPutAsync(string url, byte[] content, string? ifMatch, CancellationToken ct)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Put, url) { Content = new ByteArrayContent(content) };
+        request.Content.Headers.ContentType = new("application/octet-stream");
+        request.Headers.Add("x-ms-blob-type", "BlockBlob");
+        if (ifMatch is null) request.Headers.TryAddWithoutValidation("If-None-Match", "*");
+        else request.Headers.TryAddWithoutValidation("If-Match", ifMatch);
+        using var response = await BlobSendAsync(request, ct);
+        if (response.StatusCode is System.Net.HttpStatusCode.PreconditionFailed or System.Net.HttpStatusCode.Conflict)
+            throw new ResearchFailure(412, "sync_conflict", "Another computer changed this synced data first; Meld merges it on the next check.");
+        if (!response.IsSuccessStatusCode) throw BlobFailure(response);
+        return response.Headers.ETag?.ToString() ?? throw BlobFailure(response);
+    }
+
+    public async Task BlobDeleteAsync(string url, CancellationToken ct)
+    {
+        using var response = await BlobSendAsync(new HttpRequestMessage(HttpMethod.Delete, url), ct);
+        if (!response.IsSuccessStatusCode && response.StatusCode != System.Net.HttpStatusCode.NotFound) throw BlobFailure(response);
+    }
+
+    /// <summary>Blob links carry their own short-lived signature; no Meld credential is sent to the storage service.</summary>
+    private async Task<HttpResponseMessage> BlobSendAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        using (request)
+        {
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            deadline.CancelAfter(TimeSpan.FromMinutes(5));
+            try { return await clients.CreateClient("sync-blobs").SendAsync(request, HttpCompletionOption.ResponseContentRead, deadline.Token); }
+            catch (HttpRequestException) { throw new ResearchFailure(503, "remote_unavailable", "Encrypted sync storage is unreachable. Meld retries shortly."); }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            { throw new ResearchFailure(504, "remote_timeout", "Encrypted sync storage did not answer in time. Meld retries shortly."); }
+        }
+    }
+
+    private static ResearchFailure BlobFailure(HttpResponseMessage response) =>
+        new(502, "sync_storage_failed", $"Encrypted sync storage rejected the request (HTTP {(int)response.StatusCode}).");
+
     public async Task<AccountPicture?> AccountPictureAsync(string token, CancellationToken ct)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);

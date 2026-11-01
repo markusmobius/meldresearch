@@ -20,7 +20,15 @@ internal sealed record MonitoredProject(Guid AccountId, string ProjectId, string
     ProjectProfile? Profile = null, IReadOnlyDictionary<string, string>? Processed = null, ProjectManifest? Baseline = null,
     ProjectManifest? Pending = null, IReadOnlyList<string>? PendingOrder = null, DateTimeOffset? PendingSince = null,
     bool ImportComplete = false, DateTimeOffset? LastSweepAt = null, DateTimeOffset? NextAttemptAt = null,
-    DateTimeOffset? PrioritizedAt = null);
+    DateTimeOffset? PrioritizedAt = null, string? SyncETag = null, string? SyncedFor = null, DateTimeOffset? LastSyncedAt = null);
+
+/// <summary>
+/// This computer's key to the account's encrypted sync (kept only inside the encrypted research state). ProfileETag and
+/// ProfileSyncedFor track the synced profile blob like SyncETag and SyncedFor track each project's bundle.
+/// </summary>
+internal sealed record SyncState(Guid AccountId, string DataKey, DateTimeOffset UnlockedAt, string? ProfileETag = null,
+    string? ProfileSyncedFor = null, DateTimeOffset? LastPushAt = null, DateTimeOffset? LastPullAt = null,
+    string? KeyETag = null, DateTimeOffset? KeyCreatedAt = null);
 
 /// <summary>An observed project's files by hash; the text of analyzed files is in the encrypted text store.</summary>
 internal sealed record ProjectManifest(string Revision, DateTimeOffset ObservedAt, DateTimeOffset? SourceUpdatedAt,
@@ -50,7 +58,7 @@ internal sealed record LocalResearchState(int Version, LinkedCredential? Credent
     string? AccountError, IReadOnlyList<MonitoredProject> Projects, IReadOnlyList<LinkedCredential> PendingRevocations,
     IReadOnlyList<ProjectDecision>? Decisions = null, IReadOnlyList<ResearcherState>? Researchers = null, int ResetEpoch = 0,
     IReadOnlyList<ProjectSummaryState>? Summaries = null, IReadOnlyList<ResearchTheme>? Themes = null,
-    string? ThemesRegroupedFor = null);
+    string? ThemesRegroupedFor = null, SyncState? Sync = null);
 
 /// <summary>The user's active choice whether an Overleaf project is part of their private profile.</summary>
 internal sealed record ProjectDecision(Guid AccountId, string ProjectId, bool Included, DateTimeOffset DecidedAt);

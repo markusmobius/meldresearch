@@ -25,7 +25,19 @@ public sealed record ResearchStatusResponse(MeldAccountResponse? Account, DateTi
     string ConsentVersion, int PollSeconds, int PendingRevocations, IReadOnlyList<MonitoredProjectResponse> Projects,
     IReadOnlyList<ResearchUpdate> Updates, int TotalUpdates, IReadOnlyList<ProjectDecisionResponse> Decisions,
     OverleafProjectsSnapshot? OverleafProjects, ResearcherStatusResponse? Researcher, ProcessingStatusResponse? Processing,
-    IReadOnlyList<ProjectSummaryResponseItem>? Summaries = null, IReadOnlyList<ResearchThemeResponse>? Themes = null);
+    IReadOnlyList<ProjectSummaryResponseItem>? Summaries = null, IReadOnlyList<ResearchThemeResponse>? Themes = null,
+    SyncStatusResponse? Sync = null);
+
+/// <summary>
+/// Encrypted sync on this computer: off (not offered by the server), signed-out, checking, setup (choose a passphrase),
+/// locked (enter the passphrase or recovery key) or ready.
+/// </summary>
+public sealed record SyncStatusResponse(string State, int SyncedProjects, DateTimeOffset? LastPushAt, DateTimeOffset? LastPullAt,
+    string? Error);
+/// <summary>A passphrase (create, unlock, start over, change) or, for unlocking only, the recovery key.</summary>
+public sealed record SyncPassphraseRequest(string? Passphrase = null, string? RecoveryKey = null);
+/// <summary>Shown once: the recovery key that unlocks the synced data if the passphrase is forgotten.</summary>
+public sealed record SyncKeyResponse(string RecoveryKey);
 
 /// <summary>A research card: its combined summary (null until made) and its Overleaf projects. Updating while being summarized again.</summary>
 public sealed record ResearchThemeResponse(string Id, ProjectProfile? Profile, IReadOnlyList<string> ProjectIds, bool Updating,

@@ -1,0 +1,99 @@
+@if (sync(); as sync) {
+  @if (recoveryKey(); as key) {
+    <section class="encrypted-sync recovery" aria-label="Recovery key">
+      <h3><mat-icon>key</mat-icon>Save your recovery key</h3>
+      <p>Encrypted sync is on. If you forget your passphrase, this key is the only other way to unlock your research.
+        It is shown <strong>only now</strong>; Meld cannot show it again or recover it.</p>
+      <code class="recovery-key" aria-label="Recovery key">{{ key }}</code>
+      <div class="controls">
+        <button mat-stroked-button type="button" class="copy-key" (click)="copy()"><mat-icon>content_copy</mat-icon>{{ copied() ? 'Copied' : 'Copy' }}</button>
+        <button mat-stroked-button type="button" class="download-key" (click)="download()"><mat-icon>download</mat-icon>Download</button>
+      </div>
+      <mat-checkbox [checked]="saved()" (change)="saved.set($event.checked)">I saved the recovery key somewhere safe</mat-checkbox>
+      <div class="controls"><button mat-flat-button type="button" class="key-saved" [disabled]="!saved()" (click)="done()">Done</button></div>
+    </section>
+  } @else if (sync.state === 'setup') {
+    <section class="encrypted-sync" aria-label="Encrypted sync">
+      <h3><mat-icon>enhanced_encryption</mat-icon>Choose a sync passphrase</h3>
+      <p>Meld keeps an end-to-end encrypted copy of your research, so your other computers continue where this one left
+        off instead of processing your projects again. It is encrypted on this computer with your passphrase; Meld's
+        server and its storage see only ciphertext.</p>
+      <p class="muted">The passphrase never leaves this computer and cannot be reset. You also get a recovery key.
+        If you lose both, you can start over (synced research is deleted and processed again).</p>
+      <form class="passphrase-form" (submit)="$event.preventDefault(); create()">
+        <mat-form-field appearance="outline"><mat-label>Passphrase</mat-label>
+          <input matInput type="password" class="passphrase" autocomplete="new-password" [value]="passphrase()" (input)="passphrase.set(value($event))"></mat-form-field>
+        <mat-form-field appearance="outline"><mat-label>Repeat passphrase</mat-label>
+          <input matInput type="password" class="confirmation" autocomplete="new-password" [value]="confirmation()" (input)="confirmation.set(value($event))"></mat-form-field>
+        @if (passphrase() && newPassphraseProblem(); as problem) { <p class="muted hint">{{ problem }}</p> }
+        <div class="controls"><button mat-flat-button type="submit" class="create-sync" [disabled]="saving() || !!newPassphraseProblem()">
+          <mat-icon>lock</mat-icon>Turn on encrypted sync</button></div>
+      </form>
+    </section>
+  } @else if (sync.state === 'locked') {
+    <section class="encrypted-sync" aria-label="Encrypted sync">
+      <h3><mat-icon>lock</mat-icon>Unlock your synced research</h3>
+      @if (!startingOver()) {
+        <p>This account has encrypted research from another computer. Unlock it to continue from there; only changes made
+          since then are processed here.</p>
+        <form class="passphrase-form" (submit)="$event.preventDefault(); unlock()">
+          @if (useRecovery()) {
+            <mat-form-field appearance="outline"><mat-label>Recovery key</mat-label>
+              <input matInput class="recovery-input" autocomplete="off" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
+                [value]="recoveryInput()" (input)="recoveryInput.set(value($event))"></mat-form-field>
+          } @else {
+            <mat-form-field appearance="outline"><mat-label>Passphrase</mat-label>
+              <input matInput type="password" class="passphrase" autocomplete="current-password" [value]="passphrase()" (input)="passphrase.set(value($event))"></mat-form-field>
+          }
+          <div class="controls">
+            <button mat-flat-button type="submit" class="unlock-sync" [disabled]="saving() || !(useRecovery() ? recoveryInput() : passphrase())">
+              <mat-icon>lock_open</mat-icon>{{ saving() ? 'Unlocking…' : 'Unlock' }}</button>
+            <button mat-button type="button" class="use-recovery" (click)="toggle('recovery')">{{ useRecovery() ? 'Use the passphrase' : 'Use the recovery key' }}</button>
+            <button mat-button type="button" class="forgot" (click)="toggle('start-over')">Forgot both?</button>
+          </div>
+        </form>
+      } @else {
+        <p class="warning"><mat-icon>warning</mat-icon><span><strong>Start over deletes the synced copy of your research.</strong>
+          Research on this computer is kept and uploaded again under a new passphrase; projects only on other computers are
+          processed again there. Other computers must be unlocked with the new passphrase.</span></p>
+        <form class="passphrase-form" (submit)="$event.preventDefault(); startOver()">
+          <mat-form-field appearance="outline"><mat-label>New passphrase</mat-label>
+            <input matInput type="password" class="passphrase" autocomplete="new-password" [value]="passphrase()" (input)="passphrase.set(value($event))"></mat-form-field>
+          <mat-form-field appearance="outline"><mat-label>Repeat new passphrase</mat-label>
+            <input matInput type="password" class="confirmation" autocomplete="new-password" [value]="confirmation()" (input)="confirmation.set(value($event))"></mat-form-field>
+          @if (passphrase() && newPassphraseProblem(); as problem) { <p class="muted hint">{{ problem }}</p> }
+          <div class="controls">
+            <button mat-flat-button type="submit" class="start-over danger" [disabled]="saving() || !!newPassphraseProblem()">
+              <mat-icon>restart_alt</mat-icon>Delete synced copy and start over</button>
+            <button mat-button type="button" (click)="toggle('start-over')">Cancel</button>
+          </div>
+        </form>
+      }
+    </section>
+  } @else if (sync.state === 'ready') {
+    <section class="encrypted-sync ready" aria-label="Encrypted sync">
+      <p class="sync-line"><mat-icon>verified_user</mat-icon><span><strong>Encrypted sync is on.</strong>
+        {{ sync.syncedProjects }} {{ sync.syncedProjects === 1 ? 'project' : 'projects' }} synced
+        @if (sync.lastPushAt) { &middot; last upload {{ sync.lastPushAt | date: 'MMM d, h:mm a' }} }</span></p>
+      @if (!changing()) {
+        <button mat-button type="button" class="change-passphrase" (click)="toggle('change')">Change passphrase</button>
+      } @else {
+        <form class="passphrase-form" (submit)="$event.preventDefault(); change()">
+          <p class="muted">Your other computers keep syncing; your recovery key keeps working.</p>
+          <mat-form-field appearance="outline"><mat-label>New passphrase</mat-label>
+            <input matInput type="password" class="passphrase" autocomplete="new-password" [value]="passphrase()" (input)="passphrase.set(value($event))"></mat-form-field>
+          <mat-form-field appearance="outline"><mat-label>Repeat new passphrase</mat-label>
+            <input matInput type="password" class="confirmation" autocomplete="new-password" [value]="confirmation()" (input)="confirmation.set(value($event))"></mat-form-field>
+          @if (passphrase() && newPassphraseProblem(); as problem) { <p class="muted hint">{{ problem }}</p> }
+          <div class="controls">
+            <button mat-flat-button type="submit" class="save-passphrase" [disabled]="saving() || !!newPassphraseProblem()">Save passphrase</button>
+            <button mat-button type="button" (click)="toggle('change')">Cancel</button>
+          </div>
+        </form>
+      }
+    </section>
+  } @else if (sync.state === 'checking') {
+    <p class="muted encrypted-sync" role="status">Checking encrypted sync…</p>
+  }
+  @if (error() || sync.error; as message) { <p class="alert" role="alert">{{ message }}</p> }
+}

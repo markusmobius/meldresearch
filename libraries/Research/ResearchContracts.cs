@@ -65,7 +65,7 @@ public sealed record RedeemSignInResponse(string AccessToken, DateTimeOffset Exp
 
 /// <summary>Non-secret capabilities of the remote service.</summary>
 public sealed record RemoteStatusResponse(bool Dummy, bool GoogleConfigured, bool FoundryConfigured,
-    string PrivacyUrl, string ExtensionId, string ExtensionStoreUrl);
+    string PrivacyUrl, string ExtensionId, string ExtensionStoreUrl, bool SyncConfigured = false);
 
 /// <summary>A public OpenAlex work. IDs are bare OpenAlex IDs such as W2741809807.</summary>
 public sealed record PublicationWork(string Id, string Title, IReadOnlyList<string> Authors, int Year, string? PublicationDate,

@@ -21,7 +21,7 @@
       <header class="page-header">
         <div class="page-heading">
           <h1 class="page-title"><span class="material-icons site-only" aria-hidden="true">shield</span>Privacy &amp; Controls</h1>
-          <p class="page-subtitle">Last updated: October 2026 &middot; Meld Research and its Overleaf connector, version 0.5.6</p>
+          <p class="page-subtitle">Last updated: October 2026 &middot; Meld Research and its Overleaf connector, version 0.5.7</p>
         </div>
       </header>
 
@@ -31,7 +31,8 @@
           <section class="privacy-section" data-privacy-section="scope">
             <h2><span class="material-icons site-only" aria-hidden="true">info_outline</span> About Meld Research</h2>
             <p>Meld Research is designed to find meaningful collaborators for your research. The app builds a personal profile
-              based on your private Overleaf and other data. This personal profile is only stored on your own machine and is then
+              based on your private Overleaf and other data. This personal profile is stored on your own machine (and, with encrypted
+              sync, as an end-to-end encrypted copy that only your passphrase or recovery key can unlock) and is then
               used to find collaborators with similar interests, share news updates and answer questions.</p>
             <p><strong>Private does not mean entirely on-device.</strong> Your indexed research and Updates are stored on your
               computer, but selected source text is analyzed by Azure AI Foundry through Meld's remote service. Nothing is
@@ -46,7 +47,13 @@
                 projects only by their Overleaf identifier and contains no research text or credentials; it is not uploaded.</li>
               <li><strong>Your computer:</strong> the desktop companion stores source text, project summaries (your private profile),
                 Update history, and installation credentials in an encrypted research store, plus project snapshots you download.
-                The research store is not uploaded to the Meld website.</li>
+                The research store is never uploaded in readable form.</li>
+              <li><strong>Encrypted sync:</strong> when Meld's service offers it, you choose a passphrase in the desktop companion so
+                your computers share one profile and a second computer continues from the first one's work instead of sending your
+                projects to Azure AI Foundry again. Your included projects' research (summaries, processing state, Updates and the
+                source text they were made from), your include/exclude choices, research cards, project summaries and OpenAlex match
+                are encrypted <em>on your computer</em> and uploaded through short-lived links to Azure Blob Storage operated for Meld
+                Research. Neither the Meld website nor Azure can read them: the passphrase never leaves your computer.</li>
               <li><strong>Overleaf:</strong> the connector reads projects through your normal signed-in browser session. Meld does not
                 ask for your Overleaf password or export your login cookies.</li>
               <li><strong>Azure AI Foundry:</strong> after you include a project, the companion sends it one file at a time (and, for
@@ -167,6 +174,16 @@
               AES-GCM with a key protected by Windows DPAPI or the macOS Keychain. The macOS implementation still needs live
               distribution testing. The local UI and native-host loopback WebSocket use HTTP/WS, not TLS; temporary incoming
               archives are not encrypted by Meld. Device encryption and backups are controlled by your device configuration.</p>
+            <p><strong>Encrypted sync</strong> encrypts each project, and separately your choices, with AES-256-GCM under a random
+              key that is created on your computer. That key is stored in Azure only wrapped by a key derived from your passphrase
+              (PBKDF2-SHA256, 600,000 iterations) and by a random recovery key that is shown to you once; on your computers it is
+              kept inside the encrypted research store. Each encrypted file is bound to your account and its name, and project file
+              names are keyed hashes, so the storage does not reveal project names. Meld's service and Azure can see only your
+              account identifier, the number, sizes and times of the encrypted files, and a storage quota (500 MB per account by
+              default). Meld cannot reset your passphrase or read your synced research; if you lose both the passphrase and the
+              recovery key, the synced copy cannot be decrypted and can only be deleted. Encryption keeps the content private but
+              cannot hide that you use the service. The encrypted copy remains until you exclude projects, start over, or ask for
+              account deletion.</p>
           </section>
 
           <section class="privacy-section" data-privacy-section="removal">
@@ -174,7 +191,10 @@
             <p><strong>Pause monitoring</strong> stops a selected project's research processing. <strong>Disconnect account</strong>
               stops local processing and requests remote credential revocation, retrying if the service is unavailable.
               <strong>Forget local research</strong> removes that project's summary, processing state, and update history for the
-              linked account.</p>
+              linked account. <strong>Excluding</strong> a project also deletes its encrypted synced copy. <strong>Start over</strong>
+              (offered when the passphrase and recovery key are lost) deletes every encrypted synced copy of the account; research on
+              the computer where you choose it is uploaded again under the new passphrase. Disconnecting an account does not delete
+              its encrypted copy; ask Markus Mobius to delete it with the account.</p>
             <p><strong>Disconnect</strong> in the connector popup, or <strong>Pause auto-connect</strong> in Meld, stops the browser
               connection and remains in effect after browser restarts. You can also disable or remove the extension in Chrome. These
               actions do not delete ZIPs already

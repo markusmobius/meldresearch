@@ -71,7 +71,16 @@ instruction file. Start with the [README](README.md) for setup and release detai
   `dotnet ef migrations add`). Keep names, emails and device names as Data
   Protection ciphertext and credentials/codes as hashes. Make
   state transitions conditional updates or transactions, not read-then-write.
-  Research text is never stored remotely.
+  Research text is never stored remotely in readable form: encrypted sync
+  ([ResearchSync](apps/LocalBackend/Services/Research/ResearchSync.cs),
+  [SyncCrypto](libraries/Research/SyncCrypto.cs)) encrypts on the client with a
+  passphrase-wrapped data key and uploads through short-lived per-blob SAS links
+  ([SyncStorage](apps/RemoteBackend/Services/SyncStorage.cs)); the server only
+  lists, links and deletes ciphertext under the account GUID. Never send the
+  passphrase, recovery key or data key to the server, never upload under a key the
+  account's `key.json` no longer matches, and keep uploads ETag-conditional.
+  With sync offered, nothing is processed until this computer has the key; pulled
+  work must not be processed again.
 - The local app signs in through the website with a loopback redirect + PKCE
   ([LocalSignIn](apps/RemoteBackend/Services/LocalSignIn.cs)): `/connect` returns
   a one-time code only to `http://127.0.0.1|localhost:<port>/account/callback`,
@@ -182,7 +191,7 @@ Use .NET 10, Node 24/npm and PowerShell 7. Run from this repository's root, e.g.
   restore the removed application Playwright approach. Use the normal browser
   and connector; never execute downloaded TeX.
 - Current Chrome identity: `pejcljoimoeklelcfbfddnkimlkjgfhe`; extension version
-  `0.5.6`, native protocol `2`. Identity derives from the public manifest key,
+  `0.5.7`, native protocol `2`. Identity derives from the public manifest key,
   not a secret signing key. Update related identity/handshake checks together;
   compatible extension releases need not have identical version numbers.
 - Bump the connector manifest version whenever extension files change: installed

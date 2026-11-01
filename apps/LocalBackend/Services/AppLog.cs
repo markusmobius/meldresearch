@@ -141,6 +141,7 @@ internal sealed class AppLogProvider(AppLogStore store) : ILoggerProvider, ISupp
         return name switch
         {
             "ResearchCoordinator" => "research",
+            "ResearchSync" => "sync",
             "ResearcherService" => "openalex",
             "DesktopUpdater" => "update",
             "BrowserRelay" or "OverleafService" or "OverleafEvidenceSource" or "ExtensionSetupService" or "DummyBrowserRelay" => "overleaf",

@@ -50,7 +50,7 @@
               <mat-icon>account_circle</mat-icon>
               <span class="setup-tab-text"><strong>Meld account</strong>
                 <small>{{ research()?.account?.email ?? 'Sign in with Google' }}</small></span>
-              <mat-icon class="setup-state" [class.done]="accountLinked()">{{ accountLinked() ? 'check_circle' : 'radio_button_unchecked' }}</mat-icon>
+              <mat-icon class="setup-state" [class.done]="accountDone()">{{ accountDone() ? 'check_circle' : 'radio_button_unchecked' }}</mat-icon>
             </button>
             <button type="button" role="tab" class="setup-tab" [class.active]="setupTab() === 'overleaf'"
               [attr.aria-selected]="setupTab() === 'overleaf'" (click)="chooseTab('overleaf')">
@@ -77,8 +77,9 @@
                   @if (research()?.dummy) { <p class="notice">Dummy mode: the account and Overleaf project are synthetic. Foundry processing is real and consumes model quota.</p> }
                   @if (research()?.account; as account) {
                     <p class="account-name">{{ account.name }}</p><p class="muted">{{ account.email }}</p>
-                    <div class="controls">
-                      @if (!verified()) {
+                    <app-encrypted-sync [status]="research()?.sync ?? null" (changed)="researchChanged()" (keyShown)="recoveryKeyShown.set($event)"></app-encrypted-sync>
+                    <div class="controls account-controls">
+                      @if (!verified() && !syncPending()) {
                         <button mat-flat-button class="next-step" (click)="chooseTab('overleaf')"><mat-icon>arrow_forward</mat-icon>Next: connect Overleaf</button>
                       }
                       <button mat-button (click)="disconnect()" [disabled]="!!accountAction()">Disconnect account</button>

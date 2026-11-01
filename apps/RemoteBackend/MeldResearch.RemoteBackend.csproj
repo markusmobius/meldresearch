@@ -6,6 +6,7 @@
     <UserSecretsId>meldresearch-remote</UserSecretsId>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.30.1" />
     <PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" Version="10.0.8" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.8" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.8">
@@ -23,9 +24,6 @@
     <InternalsVisibleTo Include="MeldResearch.Tests" />
     <Content Update="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Update="Install\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="..\frontend\dist\frontend\browser\**\*"
-             Exclude="..\frontend\dist\frontend\browser\index.html;..\frontend\dist\frontend\browser\theme.css;..\frontend\dist\frontend\browser\favicon.png;..\frontend\dist\frontend\browser\manifest.webmanifest;..\frontend\dist\frontend\browser\sw.js;..\frontend\dist\frontend\browser\pwa\**"
-             Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)"
-             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\frontend\dist\frontend\browser\**\*" Exclude="..\frontend\dist\frontend\browser\index.html;..\frontend\dist\frontend\browser\theme.css;..\frontend\dist\frontend\browser\favicon.png;..\frontend\dist\frontend\browser\manifest.webmanifest;..\frontend\dist\frontend\browser\sw.js;..\frontend\dist\frontend\browser\pwa\**" Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

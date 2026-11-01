@@ -9,22 +9,22 @@ namespace MeldResearch.Tests;
 
 public sealed class ResearchCoordinatorTests
 {
-    private static readonly MeldAccountResponse Account = new(Guid.NewGuid(), "Synthetic", "synthetic@example.invalid");
-    private static readonly LinkedCredential Credential = new(Account, new string('a', 64), DateTimeOffset.UtcNow.AddDays(1));
-    private const string ProjectId = "0123456789abcdef01234567";
+    internal static readonly MeldAccountResponse Account = new(Guid.NewGuid(), "Synthetic", "synthetic@example.invalid");
+    internal static readonly LinkedCredential Credential = new(Account, new string('a', 64), DateTimeOffset.UtcNow.AddDays(1));
+    internal const string ProjectId = "0123456789abcdef01234567";
 
-    private static ResearchSnapshot Files(params (string Path, string Text)[] files)
+    internal static ResearchSnapshot Files(params (string Path, string Text)[] files)
     {
         var items = files.Select(file => new ResearchFile(file.Path, ResearchEvidence.Hash(file.Text), Encoding.UTF8.GetByteCount(file.Text),
             ResearchEvidence.TextExtensions.Contains(Path.GetExtension(file.Path)) ? file.Text : null)).ToArray();
         return new(ProjectId, "Synthetic research", ResearchEvidence.Revision(items), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(-1), items);
     }
-    private static MonitoredProject Included(string id = ProjectId) =>
+    internal static MonitoredProject Included(string id = ProjectId) =>
         new(Account.Id, id, "Synthetic", true, ResearchEvidence.ConsentVersion, null, null, [], [], null, null, null, null, null, 0, 0);
     private static ResearchCoordinator Coordinator(IResearchStore store, IResearchRemote remote, IOverleafEvidenceSource source) =>
         new(store, remote, source, new(new Uri("https://meld.example.invalid"), false, 300),
             NullLogger<ResearchCoordinator>.Instance, TimeProvider.System);
-    private static async Task Drain(ResearchCoordinator coordinator, bool force = false)
+    internal static async Task Drain(ResearchCoordinator coordinator, bool force = false)
     {
         for (int cycle = 0; cycle < 50 && await coordinator.RunCycleAsync(force && cycle == 0, CancellationToken.None); cycle++) { }
     }
@@ -740,7 +740,7 @@ public sealed class ResearchCoordinatorTests
         public void PruneTexts(IReadOnlySet<string> keep) { foreach (var hash in Texts.Keys.Where(hash => !keep.Contains(hash)).ToArray()) Texts.Remove(hash); }
     }
 
-    private sealed class Source(ResearchSnapshot snapshot) : IOverleafEvidenceSource
+    internal sealed class Source(ResearchSnapshot snapshot) : IOverleafEvidenceSource
     {
         public ResearchSnapshot Snapshot { get; set; } = snapshot;
         public bool Available { get; set; } = true;
@@ -811,7 +811,18 @@ public sealed class ResearchCoordinatorTests
             return Task.FromResult(new ProjectSummaryResponse("A synthetic project about " + request.Path + ".", "chat"));
         }
         public Task<RemoteStatusResponse> StatusAsync(CancellationToken ct) =>
-            Task.FromResult(new RemoteStatusResponse(false, true, true, "https://meld.example.invalid/privacy.html", "synthetic", "https://chromewebstore.google.com"));
+            Task.FromResult(new RemoteStatusResponse(false, true, true, "https://meld.example.invalid/privacy.html", "synthetic", "https://chromewebstore.google.com",
+                SyncConfigured: Box is not null));
+        /// <summary>Encrypted sync storage shared by the "computers" of a test; null means the server offers no sync.</summary>
+        public BlobBox? Box { get; init; }
+        private BlobBox RequireBox => Box ?? throw new ResearchFailure(503, "sync_not_configured", "No sync.");
+        public Task<SyncListResponse> SyncListAsync(string token, CancellationToken ct) => Task.FromResult(RequireBox.List());
+        public Task<SyncLinksResponse> SyncLinksAsync(string token, SyncLinksRequest request, CancellationToken ct) =>
+            Task.FromResult(new SyncLinksResponse([.. request.Names.Select(name => new SyncLink(name, "mem:" + name))], DateTimeOffset.UtcNow.AddMinutes(10)));
+        public Task SyncDeleteAllAsync(string token, CancellationToken ct) { RequireBox.Clear(); return Task.CompletedTask; }
+        public Task<SyncBlob?> BlobGetAsync(string url, CancellationToken ct) => Task.FromResult(RequireBox.Get(url[4..]));
+        public Task<string> BlobPutAsync(string url, byte[] content, string? ifMatch, CancellationToken ct) => Task.FromResult(RequireBox.Put(url[4..], content, ifMatch));
+        public Task BlobDeleteAsync(string url, CancellationToken ct) { RequireBox.Delete(url[4..]); return Task.CompletedTask; }
         public Task<MeldAccountResponse> AccountAsync(string token, CancellationToken ct) => Task.FromResult(Account);
         public Task RevokeAsync(string token, CancellationToken ct) => Task.CompletedTask;
         public Func<ResearcherSearchRequest, ResearcherSearchResponse>? Search { get; set; }
@@ -827,4 +838,35 @@ public sealed class ResearchCoordinatorTests
             return Task.FromResult(new RedeemSignInResponse(new string('b', 64), DateTimeOffset.UtcNow.AddDays(30), Account));
         }
     }
+}
+
+/// <summary>An in-memory stand-in for the account's blob folder, with the same conditional-write rules as Azure.</summary>
+internal sealed class BlobBox
+{
+    private readonly Dictionary<string, (byte[] Content, string ETag)> _blobs = new(StringComparer.Ordinal);
+    private int _version;
+    public int Puts { get; private set; }
+    public IReadOnlyDictionary<string, byte[]> Contents { get { lock (_blobs) return _blobs.ToDictionary(item => item.Key, item => item.Value.Content); } }
+    public SyncListResponse List()
+    {
+        lock (_blobs)
+            return new([.. _blobs.Select(item => new SyncBlobInfo(item.Key, item.Value.ETag, item.Value.Content.Length, DateTimeOffset.UtcNow))],
+                _blobs.Values.Sum(item => (long)item.Content.Length), 500L << 20);
+    }
+    public SyncBlob? Get(string name) { lock (_blobs) return _blobs.TryGetValue(name, out var blob) ? new(blob.Content, blob.ETag) : null; }
+    public string Put(string name, byte[] content, string? ifMatch)
+    {
+        lock (_blobs)
+        {
+            bool exists = _blobs.TryGetValue(name, out var current);
+            if (ifMatch is null ? exists : !exists || current.ETag != ifMatch)
+                throw new ResearchFailure(412, "sync_conflict", "Changed elsewhere.");
+            Puts++;
+            string etag = $"\"{++_version}\"";
+            _blobs[name] = (content, etag);
+            return etag;
+        }
+    }
+    public void Delete(string name) { lock (_blobs) _blobs.Remove(name); }
+    public void Clear() { lock (_blobs) _blobs.Clear(); }
 }

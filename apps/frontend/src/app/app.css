@@ -103,3 +103,4 @@ small { display: block; color: #64748b; margin-top: 4px; font-size: 12px; }
 :host ::ng-deep .profile-tabs .mat-mdc-tab { min-width: 0; flex: 1 1 0; padding: 0 8px; }
 :host ::ng-deep .profile-tabs .mdc-tab__text-label { white-space: normal; text-align: center; line-height: 18px; }
 .profile-tabs app-private-profile, .profile-tabs app-publications { display: block; margin-top: 20px; }
+.account-controls { margin-top: 12px; }

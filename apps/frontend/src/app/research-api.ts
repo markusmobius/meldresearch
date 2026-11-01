@@ -58,6 +58,16 @@ export interface ResearchStatus {
   summaries?: ReadonlyArray<ProjectSummary> | null;
   /** Research cards: one line of research made of one or more included Overleaf projects, with a combined summary. */
   themes?: ReadonlyArray<ResearchTheme> | null;
+  /** End-to-end encrypted sync of this account's research between the user's computers. */
+  sync?: SyncStatus | null;
+}
+/**
+ * off: the server offers no sync; setup: choose a passphrase; locked: this account has synced research, enter the
+ * passphrase (or recovery key) here; checking: not known yet; ready: syncing.
+ */
+export type SyncState = 'off' | 'signed-out' | 'checking' | 'setup' | 'locked' | 'ready';
+export interface SyncStatus {
+  state: SyncState; syncedProjects: number; lastPushAt: string | null; lastPullAt: string | null; error: string | null;
 }
 /** blurb: a 4-5 sentence description written from the card's whole summary (null until made). */
 export interface ResearchTheme { id: string; profile: ProjectProfile | null; projectIds: ReadonlyArray<string>; updating: boolean; blurb?: string | null; }
@@ -101,5 +111,22 @@ export class ResearchApi {
     return firstValueFrom(this.http.put<void>(`/api/research/themes/${encodeURIComponent(themeId)}/merge`, { intoThemeId }));
   }
   sync(): Promise<void> { return firstValueFrom(this.http.post<void>('/api/research/sync', {})); }
+  /** Asks Meld's server whether encrypted sync is offered and whether this account already has synced research. */
+  encryptedSync(): Promise<SyncStatus> { return firstValueFrom(this.http.get<SyncStatus>('/api/research/encrypted-sync')); }
+  /** Chooses the passphrase (it stays on this computer); returns the recovery key, shown once. */
+  createSync(passphrase: string): Promise<{ recoveryKey: string }> {
+    return firstValueFrom(this.http.post<{ recoveryKey: string }>('/api/research/encrypted-sync/create', { passphrase }));
+  }
+  unlockSync(secret: { passphrase?: string; recoveryKey?: string }): Promise<void> {
+    return firstValueFrom(this.http.post<void>('/api/research/encrypted-sync/unlock',
+      { passphrase: secret.passphrase ?? null, recoveryKey: secret.recoveryKey ?? null }));
+  }
+  /** Deletes the synced copy and starts again with a new passphrase; this computer's research is uploaded again. */
+  startSyncOver(passphrase: string): Promise<{ recoveryKey: string }> {
+    return firstValueFrom(this.http.post<{ recoveryKey: string }>('/api/research/encrypted-sync/start-over', { passphrase }));
+  }
+  changeSyncPassphrase(passphrase: string): Promise<void> {
+    return firstValueFrom(this.http.post<void>('/api/research/encrypted-sync/passphrase', { passphrase }));
+  }
   demoChange(): Promise<unknown> { return firstValueFrom(this.http.post('/api/development/overleaf/change', {})); }
 }
