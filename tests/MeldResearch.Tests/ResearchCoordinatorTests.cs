@@ -729,6 +729,43 @@ public sealed class ResearchCoordinatorTests
     }
 
     [Fact]
+    public async Task ASkippedCardLeavesTheProfileAndFeedPausesItsProjectsAndIsGroupedGenerouslyUntilBroughtBack()
+    {
+        var store = new MemoryStore(new(1, Credential, null, null, [IncludedAs(ProjectId, "daughter-thesis"), IncludedAs(SecondId, "daughter-slides")], []));
+        var source = TwoProjects();
+        var remote = new Remote();
+        using var coordinator = Coordinator(store, remote, source);
+        await Drain(coordinator);
+        Assert.Equal(2, store.State.Themes!.Count);
+        var first = store.State.Themes[0];
+        var second = store.State.Themes[1];
+
+        await coordinator.SkipThemeAsync(first.Id, true, CancellationToken.None);
+        var status = await coordinator.StatusAsync(CancellationToken.None);
+        Assert.True(status.Themes!.Single(theme => theme.Id == first.Id).Skipped);
+        // Skipping the second card too: it is grouped with the first generously, without asking.
+        remote.Match = request => request.Loose ? request.Candidates[0].Id : null;
+        await coordinator.SkipThemeAsync(second.Id, true, CancellationToken.None);
+        await Drain(coordinator);
+        var skipped = Assert.Single(store.State.Themes!);
+        Assert.Equal(true, skipped.Skipped);
+        Assert.Equal([ProjectId, SecondId], skipped.Members.Order());
+        Assert.True(remote.Matches[^1].Loose);
+
+        // Its projects pause: a forced check reads neither of them.
+        int reads = source.Reads;
+        await Drain(coordinator, force: true);
+        Assert.Equal(reads, source.Reads);
+        Assert.Empty((await coordinator.StatusAsync(CancellationToken.None)).Updates);
+
+        // Brought back, it is part of the profile again and its projects are read again.
+        await coordinator.SkipThemeAsync(skipped.Id, false, CancellationToken.None);
+        await Drain(coordinator, force: true);
+        Assert.Null(store.State.Themes!.Single().Skipped);
+        Assert.True(source.Reads > reads);
+    }
+
+    [Fact]
     public void ThePapersTitleAndAbstractAreReadFromTheMainDocument()
     {
         var paper = Papers.Read([
@@ -795,8 +832,12 @@ public sealed class ResearchCoordinatorTests
         public OverleafProjectsSnapshot? Latest => null;
         public Task<IReadOnlyList<OverleafProjectResponse>> ProjectsAsync(CancellationToken ct) =>
             Task.FromResult<IReadOnlyList<OverleafProjectResponse>>(snapshots.Select(item => new OverleafProjectResponse(item.ProjectId, item.ProjectName, item.SourceUpdatedAt)).ToArray());
-        public Task<ResearchSnapshot> SnapshotAsync(OverleafProjectResponse project, CancellationToken ct) =>
-            Task.FromResult(snapshots.Single(item => item.ProjectId == project.Id) with { ObservedAt = DateTimeOffset.UtcNow });
+        public int Reads { get; private set; }
+        public Task<ResearchSnapshot> SnapshotAsync(OverleafProjectResponse project, CancellationToken ct)
+        {
+            Reads++;
+            return Task.FromResult(snapshots.Single(item => item.ProjectId == project.Id) with { ObservedAt = DateTimeOffset.UtcNow });
+        }
         public Task<IReadOnlyDictionary<string, DateTimeOffset>?> EditTimesAsync(string projectId, CancellationToken ct) =>
             Task.FromResult<IReadOnlyDictionary<string, DateTimeOffset>?>(null);
     }

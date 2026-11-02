@@ -19,7 +19,7 @@ describe('Private profile', () => {
     observedAt: new Date(Date.now() - daysAgo * day).toISOString(), sourceUpdatedAt: new Date(Date.now() - daysAgo * day).toISOString(),
     revision: 'r', previousRevision: null, previousSummary: null, evidence: [],
   });
-  const api = { moveToTheme: vi.fn(), mergeTheme: vi.fn(), setThemeAnchor: vi.fn() };
+  const api = { moveToTheme: vi.fn(), mergeTheme: vi.fn(), setThemeAnchor: vi.fn(), skipTheme: vi.fn(), decideGmailThread: vi.fn() };
   const status = (projects: ResearchProject[], themes: ResearchStatus['themes'], updates: ResearchUpdate[] = []): ResearchStatus => ({
     account: { id: 'a', name: 'R', email: 'r@example.invalid' }, credentialExpiresAt: null, pendingLink: null, accountError: null,
     busy: false, dummy: false, privacyUrl: '', consentVersion: 'v', pollSeconds: 300, pendingRevocations: 0,
@@ -135,6 +135,39 @@ describe('Private profile', () => {
     expect(members[1].querySelector('.make-main')).toBeNull();
     members[0].querySelector<HTMLButtonElement>('.make-main')!.click();
     await vi.waitFor(() => expect(api.setThemeAnchor).toHaveBeenCalledWith(cardId, paperId));
+    fixture.destroy();
+  });
+
+  it('keeps skipped work in its own section, skips a card from its dialog and brings work back', async () => {
+    api.skipTheme.mockResolvedValue(undefined);
+    api.decideGmailThread.mockResolvedValue(undefined);
+    const value = grouped();
+    const thread = (id: string, cardId: string | null) => ({ address: 'me@example.invalid', id, subject: 'Thesis draft', title: 'Daughter thesis draft ' + id,
+      status: 'assigned' as const, cardId, cardTitle: null, suggested: null, bullets: [], lastSentAt: '2026-10-01T00:00:00Z', newsAt: null, skipped: true });
+    const fixture = TestBed.createComponent(PrivateProfile);
+    fixture.componentRef.setInput('status', { ...value,
+      themes: value.themes!.map(theme => theme.id === otherCard ? { ...theme, skipped: true } : theme),
+      gmail: { configured: true, windowDays: 30, consentVersion: 'v', accounts: [], lastError: null,
+        threads: [thread('t1', otherCard), thread('t2', null)] } });
+    fixture.detectChanges();
+    const element: HTMLElement = fixture.nativeElement;
+    // The skipped card is not among My projects but in Skipped, with its email threads; a thread still being grouped too.
+    expect([...element.querySelectorAll('.profile-card .card-title')].map(title => title.textContent)).toEqual(['Why outlets differ']);
+    const skipped = element.querySelector('.skipped-work')!;
+    expect([...skipped.querySelectorAll('.skipped-title')].map(title => title.textContent?.trim())).toEqual(['Pricing', 'Being grouped…']);
+    expect(skipped.textContent).toContain('Daughter thesis draft t1');
+    skipped.querySelector<HTMLButtonElement>('.unskip-card')!.click();
+    await vi.waitFor(() => expect(api.skipTheme).toHaveBeenCalledWith(otherCard, false));
+    await vi.waitFor(() => expect(fixture.componentInstance.working()).toBe(''));
+    skipped.querySelectorAll<HTMLButtonElement>('.unskip-thread')[1].click();
+    await vi.waitFor(() => expect(api.decideGmailThread).toHaveBeenCalledWith(expect.objectContaining({ id: 't2' }), 'unskip'));
+    await vi.waitFor(() => expect(fixture.componentInstance.working()).toBe(''));
+
+    element.querySelector<HTMLButtonElement>('.profile-card')!.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    document.querySelector<HTMLButtonElement>('mat-dialog-container .skip-card')!.click();
+    await vi.waitFor(() => expect(api.skipTheme).toHaveBeenCalledWith(cardId, true));
     fixture.destroy();
   });
 

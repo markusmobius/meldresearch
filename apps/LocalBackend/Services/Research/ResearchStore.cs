@@ -59,13 +59,18 @@ internal sealed record ProjectSummaryState(Guid AccountId, string ProjectId, str
 /// about it). Profile describes the card's anchor, its main paper (ThemePlan.AnchorOf; Anchor when the user chose it);
 /// MergedFrom maps the anchor to the fingerprint it was described from, so a card is described again only when its anchor
 /// or the anchor's paper or summary changed. Other members are the card's materials. Pinned members were placed by the user
-/// and are never moved by automatic regrouping. Reason says why the last member was grouped here.
+/// and are never moved by automatic regrouping. Reason says why the last member was grouped here. Skipped: the user marked
+/// the card as not their own research (for example helping a family member): it leaves the profile and the feed, its
+/// Overleaf projects pause, and new email of the same kind is skipped too; SkipGrouped once it was compared (loosely) with
+/// the other skipped cards.
 /// </summary>
 internal sealed record ResearchTheme(Guid AccountId, string Id, IReadOnlyList<string> Members, ProjectProfile? Profile,
     IReadOnlyDictionary<string, string>? MergedFrom, DateTimeOffset CreatedAt, IReadOnlyList<string>? Pinned = null,
     string? Blurb = null, string? BlurbFor = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Anchor = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Reason = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Reason = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? Skipped = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? SkipGrouped = null);
 
 /// <summary>ResetEpoch records the last one-time research reset this installation applied (see ResearchCoordinator.ResetEpoch).</summary>
 internal sealed record LocalResearchState(int Version, LinkedCredential? Credential, PendingDeviceLink? PendingLink,

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace MeldResearch.Research;
 
 /// <summary>
@@ -5,8 +7,12 @@ namespace MeldResearch.Research;
 /// </summary>
 public sealed record ThemeCandidate(string Id, string Title, string Description, IReadOnlyList<string> Topics);
 
-/// <summary>Asks whether a newly imported project continues one of the user's existing research cards.</summary>
-public sealed record ThemeMatchRequest(string ProjectName, ProjectProfile Profile, IReadOnlyList<ThemeCandidate> Candidates);
+/// <summary>
+/// Asks whether a newly imported project continues one of the user's existing research cards. Loose: the cards are work the
+/// user skipped as not their own (for example helping a family member); sharing a person or a topic is enough there.
+/// </summary>
+public sealed record ThemeMatchRequest(string ProjectName, ProjectProfile Profile, IReadOnlyList<ThemeCandidate> Candidates,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Loose = false);
 
 /// <summary>The matching card's id, or null to start a new card.</summary>
 public sealed record ThemeMatchResponse(string? ThemeId, string Explanation, string ChatModel);

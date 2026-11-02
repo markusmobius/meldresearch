@@ -42,11 +42,12 @@ public sealed record GmailStatusResponse(bool Configured, int WindowDays, string
 /// pending ones (Private updates column, where the user decides). Title is the headline, else the subject.
 /// </summary>
 public sealed record GmailThreadResponse(string Address, string Id, string Subject, string Title, string Status, string? CardId,
-    string? CardTitle, string? Suggested, IReadOnlyList<GmailBulletResponse> Bullets, DateTimeOffset LastSentAt, DateTimeOffset? NewsAt);
+    string? CardTitle, string? Suggested, IReadOnlyList<GmailBulletResponse> Bullets, DateTimeOffset LastSentAt, DateTimeOffset? NewsAt,
+    bool Skipped = false);
 public sealed record GmailBulletResponse(Guid Id, string Text, DateTimeOffset SentAt, bool Newsworthy, IReadOnlyList<ResearchCitation> Evidence);
 /// <summary>
-/// The user's choice for a thread: "dismiss" (ignore it from now on), "project" (put it on research card CardId) or "new"
-/// (a new research project named Name).
+/// The user's choice for a thread: "dismiss" (skip it: it joins the skipped work in About me), "unskip" (back to Private
+/// updates), "project" (put it on research card CardId) or "new" (a new research project named Name).
 /// </summary>
 public sealed record GmailThreadDecisionRequest(string Address, string ThreadId, string Action, string? CardId = null, string? Name = null);
 /// <summary>
@@ -100,11 +101,12 @@ public sealed record LeaveResponse(bool Uninstalling, bool AccountDeleted, strin
 /// <summary>A research card: its combined summary (null until made) and its Overleaf projects. Updating while being summarized again.</summary>
 /// <summary>
 /// A research card. AnchorId is the project it is described from (its main paper); AnchorChosen when the user chose it.
-/// Reason says why the last project was grouped onto it.
+/// Reason says why the last project was grouped onto it. Skipped: not the user's own research (About me → Skipped).
 /// </summary>
 public sealed record ResearchThemeResponse(string Id, ProjectProfile? Profile, IReadOnlyList<string> ProjectIds, bool Updating,
-    string? Blurb = null, string? AnchorId = null, bool AnchorChosen = false, string? Reason = null);
+    string? Blurb = null, string? AnchorId = null, bool AnchorChosen = false, string? Reason = null, bool Skipped = false);
 public sealed record ThemeAnchorRequest(string ProjectId);
+public sealed record ThemeSkipRequest(bool Skipped);
 
 /// <summary>Moves a project to another research card, or to a new card of its own when ThemeId is null.</summary>
 public sealed record MoveToThemeRequest(string? ThemeId);

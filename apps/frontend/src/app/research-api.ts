@@ -96,9 +96,14 @@ export interface GmailBullet { id: string; text: string; sentAt: string; newswor
 export interface GmailThread {
   address: string; id: string; subject: string; title: string; status: 'assigned' | 'pending'; cardId: string | null;
   cardTitle: string | null; suggested: string | null; bullets: ReadonlyArray<GmailBullet>; lastSentAt: string; newsAt: string | null;
+  /** Skipped by the user (or on a skipped project): shown in About me → Skipped, not in the feed. */
+  skipped?: boolean;
 }
-/** dismiss: ignore the thread from now on; project: put it on research card cardId; new: a new research project named name. */
-export type GmailThreadAction = 'dismiss' | 'project' | 'new';
+/**
+ * dismiss: skip the thread (it joins skipped work); unskip: back to Private updates; project: put it on research card
+ * cardId; new: a new research project named name.
+ */
+export type GmailThreadAction = 'dismiss' | 'unskip' | 'project' | 'new';
 /** A data download being prepared, ready (url works until expiresAt, five minutes) or failed. */
 export interface ExportStatus {
   id: string; state: 'preparing' | 'ready' | 'failed'; startedAt: string; readyAt: string | null; expiresAt: string | null;
@@ -126,6 +131,8 @@ export interface SyncStatus {
 export interface ResearchTheme {
   id: string; profile: ProjectProfile | null; projectIds: ReadonlyArray<string>; updating: boolean; blurb?: string | null;
   anchorId?: string | null; anchorChosen?: boolean; reason?: string | null;
+  /** Skipped as not the user's own research (About me → Skipped). */
+  skipped?: boolean;
 }
 export interface ProjectSummary {
   projectId: string; status: 'queued' | 'running' | 'ready' | 'error'; summary: string | null; mainPath: string | null;
@@ -163,6 +170,10 @@ export class ResearchApi {
     return firstValueFrom(this.http.put<void>(`/api/research/projects/${encodeURIComponent(id)}/theme`, { themeId }));
   }
   /** Combines a research card into another card; its projects stay there. */
+  /** Skips a research card as not the user's own research, or brings it back. */
+  skipTheme(themeId: string, skipped: boolean): Promise<void> {
+    return firstValueFrom(this.http.put<void>(`/api/research/themes/${encodeURIComponent(themeId)}/skip`, { skipped }));
+  }
   /** Chooses the project a research card is described from (its main paper). */
   setThemeAnchor(themeId: string, projectId: string): Promise<void> {
     return firstValueFrom(this.http.put<void>(`/api/research/themes/${encodeURIComponent(themeId)}/anchor`, { projectId }));

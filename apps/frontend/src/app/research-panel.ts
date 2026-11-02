@@ -61,13 +61,13 @@ export class ResearchPanel implements OnInit {
     if (!state) return [];
     const items: FeedItem[] = state.updates.map(update => ({ key: 'u:' + update.id, at: update.observedAt, update }));
     for (const thread of state.gmail?.threads ?? [])
-      if (thread.status === 'assigned' && thread.newsAt) items.push({ key: `t:${thread.address}|${thread.id}`, at: thread.newsAt, thread });
+      if (thread.status === 'assigned' && thread.newsAt && !thread.skipped) items.push({ key: `t:${thread.address}|${thread.id}`, at: thread.newsAt, thread });
     return items.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
   });
-  readonly pending = computed(() => (this.state()?.gmail?.threads ?? []).filter(thread => thread.status === 'pending')
+  readonly pending = computed(() => (this.state()?.gmail?.threads ?? []).filter(thread => thread.status === 'pending' && !thread.skipped)
     .slice().sort((a, b) => Date.parse(b.lastSentAt) - Date.parse(a.lastSentAt)));
   /** Research cards a thread can be put on, by title. */
-  readonly cards = computed(() => (this.state()?.themes ?? []).filter(theme => !!theme.profile)
+  readonly cards = computed(() => (this.state()?.themes ?? []).filter(theme => !!theme.profile && !theme.skipped)
     .map(theme => ({ id: theme.id, title: theme.profile!.title })).sort((a, b) => a.title.localeCompare(b.title)));
   /** Included projects with an error or a changed notice, named in the feed so it is clear which ones need attention. */
   readonly attentionProjects = computed(() => (this.state()?.projects ?? [])

@@ -273,6 +273,17 @@ Chrome Web Store instead.
   another; projects placed by hand are pinned and never moved by regrouping. Cards
   grouped under the earlier, looser rule are rebuilt once (`ThemesVersion`): each
   keeps its anchor and hand-placed members, and the others are placed again.
+- **Skipped work.** Work that is not the user's own research (for example helping a
+  family member) can be skipped: a card ("Skip — not my research" in its dialog) or
+  an email thread (Skip in the feed). Skipped cards (`ResearchTheme.Skipped`) move to
+  About me → Skipped, leave the feed, and their Overleaf projects pause. They are
+  grouped like projects but generously and without confirmation (a loose
+  `ThemeMatchRequest`: the same people or topic is enough); a skipped thread joins
+  the related skipped card's email stream or starts a skipped project of its own.
+  New threads that belong to a skipped project (`EmailStepRequest.NotMine`) are
+  skipped too, and skipped threads are not read again. **Bring back** returns a card
+  to the profile (its projects resume); **Unskip** returns a thread to Private
+  updates.
 - **Log.** More → Log shows the local app's own activity (checks, progress per file,
   grouping, updates, warnings and errors), newest first, with level and source
   filters, as in Project Meld. Entries name projects by Overleaf id (the page shows

@@ -25,6 +25,8 @@ internal interface IResearchCoordinator
     Task MergeThemeIntoAsync(string themeId, string intoThemeId, CancellationToken ct);
     /// <summary>Chooses the project a research card is described from (its main paper).</summary>
     Task SetAnchorAsync(string themeId, string projectId, CancellationToken ct);
+    /// <summary>Skips a research card as not the user's own research, or brings it back into the profile.</summary>
+    Task SkipThemeAsync(string themeId, bool skipped, CancellationToken ct);
     void RequestSync();
     /// <summary>True while a research cycle is reading sources or calling the remote models.</summary>
     bool Busy { get; }
@@ -81,7 +83,10 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         var state = await store.ReadAsync(ct);
         Guid? account = state.Credential?.Account.Id;
         var projects = state.Projects.Where(project => project.AccountId == account).ToArray();
-        var updates = projects.SelectMany(project => project.Updates).OrderByDescending(update => update.ObservedAt).ToArray();
+        // Work skipped as not the user's own research stays out of the feed.
+        var skippedMembers = account is { } owner0 ? ThemePlan.SkippedMembers(state, owner0) : new HashSet<string>();
+        var updates = projects.Where(project => !skippedMembers.Contains(project.ProjectId)).SelectMany(project => project.Updates)
+            .OrderByDescending(update => update.ObservedAt).ToArray();
         var signIn = _signIn is { } pending && pending.ExpiresAt > clock.GetUtcNow() && state.Credential is null ? pending : null;
         var researcher = state.Researchers?.FirstOrDefault(item => item.AccountId == account);
         HashSet<string> active;
@@ -136,7 +141,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 var anchor = ThemePlan.AnchorOf(state, theme);
                 return new ResearchThemeResponse(theme.Id, theme.Profile, theme.Members, theme.Profile is null || !ThemePlan.Matches(theme, anchor),
                     theme.Profile is not null && theme.BlurbFor == ThemePlan.Fingerprint(theme.Profile) ? theme.Blurb : null,
-                    anchor?.ProjectId, theme.Anchor is not null && theme.Anchor == anchor?.ProjectId, theme.Reason);
+                    anchor?.ProjectId, theme.Anchor is not null && theme.Anchor == anchor?.ProjectId, theme.Reason, theme.Skipped == true);
             }).ToArray(),
             _sync.Status(state), gmail?.Status(state, importer));
     }
@@ -472,6 +477,28 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             "A research card was described from its main paper's title and abstract.");
     }
 
+    public async Task SkipThemeAsync(string themeId, bool skipped, CancellationToken ct)
+    {
+        if (!ResearchThemes.IsThemeId(themeId)) throw new ResearchFailure(400, "invalid_theme_skip", "Choose a research card.");
+        var account = RequireCredential(await store.ReadAsync(ct)).Account.Id;
+        await store.ChangeAsync(current =>
+        {
+            if (current.Credential?.Account.Id != account) throw AccountChanged();
+            var theme = ThemePlan.Themes(current, account).FirstOrDefault(item => item.Id == themeId)
+                ?? throw new ResearchFailure(404, "theme_not_found", "That research card no longer exists. Reload and try again.");
+            var changed = skipped ? theme with { Skipped = true, SkipGrouped = null } : theme with { Skipped = null, SkipGrouped = null };
+            // Back in the profile, the card is compared with the others again.
+            return current with
+            {
+                Themes = [.. current.Themes!.Select(item => item == theme ? changed : item)],
+                ThemesRegroupedFor = skipped ? current.ThemesRegroupedFor : null
+            };
+        }, ct);
+        logger.LogInformation(skipped ? "A research card was skipped as not the user's own research." : "A skipped research card was brought back.");
+        _themeRetryAt = DateTimeOffset.MinValue;
+        if (skipped) Wake(); else RequestSync();
+    }
+
     /// <summary>
     /// Reads the title and abstract of a project's main LaTeX document from the stored texts (no model call), once per
     /// processed revision. Returns false when no project needs it.
@@ -531,7 +558,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             }
             if (ThemePlan.Unplaced(state, account) is { } project)
             {
-                var candidates = ThemePlan.Themes(state, account).Where(theme => theme.Profile is not null).Take(ResearchThemes.MaxCandidates)
+                var candidates = ThemePlan.Active(state, account).Where(theme => theme.Profile is not null).Take(ResearchThemes.MaxCandidates)
                     .Select(theme => new ThemeCandidate(theme.Id, theme.Profile!.Title, theme.Profile.Description, theme.Profile.Topics)).ToArray();
                 var match = candidates.Length == 0 ? null : await remote.MatchThemeAsync(credential.Token, new(project.Name, project.Profile!, candidates), ct);
                 string? target = match?.ThemeId;
@@ -546,7 +573,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             {
                 // Cards were placed one project at a time; compare them all once so cards of one programme are combined.
                 string signature = ThemePlan.Signature(state, account);
-                var cards = ThemePlan.Themes(state, account).Take(ResearchThemes.MaxCandidates)
+                var cards = ThemePlan.Active(state, account).Take(ResearchThemes.MaxCandidates)
                     .Select(theme => new ThemeCandidate(theme.Id, theme.Profile!.Title, theme.Profile.Description, theme.Profile.Topics)).ToArray();
                 var groups = (await remote.RegroupThemesAsync(credential.Token, new(cards), ct)).Groups;
                 await store.ChangeAsync(current =>
@@ -561,6 +588,27 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             if (ThemePlan.Stale(state, account) is { } stale)
             {
                 await DescribeAsync(credential, stale.Theme, stale.Anchor, ct);
+                return true;
+            }
+            if (ThemePlan.SkipUngrouped(state, account) is { } skippedCard)
+            {
+                // Skipped work is grouped generously and without asking: mistakes matter less there, and unskipping undoes it.
+                var others = ThemePlan.Themes(state, account).Where(theme => theme.Skipped == true && theme.Id != skippedCard.Id && theme.Profile is not null)
+                    .Take(ResearchThemes.MaxCandidates)
+                    .Select(theme => new ThemeCandidate(theme.Id, theme.Profile!.Title, theme.Profile.Description, theme.Profile.Topics)).ToArray();
+                var match = others.Length == 0 ? null : await remote.MatchThemeAsync(credential.Token,
+                    new(skippedCard.Profile!.Title, skippedCard.Profile, others, Loose: true), ct);
+                await store.ChangeAsync(current =>
+                {
+                    var theme = current.Themes?.FirstOrDefault(item => item.AccountId == account && item.Id == skippedCard.Id && item.Skipped == true);
+                    if (current.Credential?.Account.Id != account || theme is null) return current;
+                    var target = match?.ThemeId is { } id ? current.Themes!.FirstOrDefault(item => item.AccountId == account && item.Id == id && item.Skipped == true) : null;
+                    if (target is null)
+                        return current with { Themes = [.. current.Themes!.Select(item => item == theme ? theme with { SkipGrouped = true } : item)] };
+                    var merged = ThemePlan.MergeCards(current, account, theme.Id, target.Id, clock.GetUtcNow());
+                    return merged with { Themes = [.. merged.Themes!.Select(item => item.Id == target.Id ? item with { Reason = match!.Explanation } : item)] };
+                }, ct);
+                logger.LogInformation(match?.ThemeId is null ? "A skipped card stays on its own." : "A skipped card was grouped with related skipped work.");
                 return true;
             }
             if (ThemePlan.BlurbDue(state, account) is { } described)
@@ -749,9 +797,13 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         (project.LastSweepAt is not { } swept || now - swept >= options.SweepInterval || !project.ImportComplete);
     private static bool Due(MonitoredProject project, DateTimeOffset now) => project.NextAttemptAt is not { } next || next <= now;
     /// <summary>Included Overleaf projects with current consent: the projects read from Overleaf and processed file by file.</summary>
-    private static MonitoredProject[] Selected(LocalResearchState state, Guid account) =>
-        state.Projects.Where(project => project.AccountId == account && project.Enabled && project.IsOverleaf &&
-            project.ConsentVersion == ResearchEvidence.ConsentVersion).ToArray();
+    /// <summary>Included Overleaf projects to read and process; those on a skipped card pause until it is brought back.</summary>
+    private static MonitoredProject[] Selected(LocalResearchState state, Guid account)
+    {
+        var skipped = ThemePlan.SkippedMembers(state, account);
+        return state.Projects.Where(project => project.AccountId == account && project.Enabled && project.IsOverleaf &&
+            project.ConsentVersion == ResearchEvidence.ConsentVersion && !skipped.Contains(project.ProjectId)).ToArray();
+    }
 
     /// <summary>
     /// Reads each requested project and summarizes only its main .tex file. An unchanged main file reuses the stored summary

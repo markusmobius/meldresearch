@@ -231,6 +231,59 @@ public sealed class GmailImportTests
     }
 
     [Fact]
+    public async Task SkippedThreadsBecomeSkippedProjectsGroupedGenerouslyAndNewMailOfThemIsSkippedToo()
+    {
+        var mail = Setup();
+        await Run(mail.Importer);
+        // Skipping the waiting grant thread makes it a skipped project of its own (nothing to compare with yet).
+        await mail.Importer.DecideAsync(new(Address, "g1", "dismiss"), None);
+        await Run(mail.Importer);
+        var grant = mail.Store.State.GmailThreads!.Single(thread => thread.Id == "g1");
+        var skipped = mail.Store.State.Themes!.Single(theme => theme.Members.Contains(grant.StreamId!));
+        Assert.Equal((GmailThreadRecord.Assigned, true, true), (grant.Status, skipped.Skipped, skipped.SkipGrouped));
+        Assert.Equal("Grant renewal", mail.Store.State.Projects.Single(project => project.ProjectId == grant.StreamId).Name);
+        var feed = GmailImporter.Threads(mail.Store.State, Account.Id);
+        Assert.True(feed.Single(thread => thread.Id == "g1").Skipped);
+        Assert.DoesNotContain(feed, thread => thread.Status == GmailThreadRecord.Pending);
+        // The skipped card is described from its email once summarized.
+        mail.Store.State = mail.Store.State with { Themes = [.. mail.Store.State.Themes!.Select(theme => theme.Id == skipped.Id
+            ? theme with { Profile = new("Grant renewal", "Tanya's grant renewal.", [], ["grant"]) } : theme)] };
+
+        // Skipping another thread groups it generously with the skipped card (no confirmation).
+        mail.Remote.Match = request => request.Loose ? request.Candidates[0].Id : null;
+        await mail.Importer.DecideAsync(new(Address, "t3", "dismiss"), None);
+        await Run(mail.Importer);
+        var match = mail.Remote.Matches[^1];
+        Assert.True(match.Loose);
+        Assert.Equal([skipped.Id], match.Candidates.Select(candidate => candidate.Id));
+        Assert.Equal(grant.StreamId, mail.Store.State.GmailThreads!.Single(thread => thread.Id == "t3").StreamId);
+
+        // New mail: skipped projects are offered as not the user's own; a thread placed there is skipped as well.
+        mail.Remote.EmailStep = request => request.Subject.StartsWith("Grant budget, part 2", StringComparison.Ordinal)
+            ? Answer(request) with { Decision = EmailSteps.Project, ProjectId = request.NotMine![0].Id, SuggestedProject = null }
+            : Answer(request);
+        mail.Google.Mailbox.Insert(0, new("g2", "1", "Grant budget, part 2", [Mine(mail.Clock.UtcNow, "g21", 0, "Tanya sent the revised budget.")]));
+        // A reply to a skipped thread is not read.
+        mail.Google.Mailbox[1] = mail.Google.Mailbox[1] with { HistoryId = "2", Messages = [.. mail.Google.Mailbox[1].Messages, Mine(mail.Clock.UtcNow, "m32", 0, "More.")] };
+        int reads = mail.Google.ThreadReads;
+        mail.Importer.Request(Address);
+        await Run(mail.Importer);
+        var request = mail.Remote.EmailRequests[^1];
+        Assert.Equal(("Grant budget, part 2", skipped.Id), (request.Subject, request.NotMine!.Single().Id));
+        Assert.DoesNotContain(request.Projects, project => project.Id == skipped.Id);
+        Assert.Equal(reads + 1, mail.Google.ThreadReads);
+        Assert.Equal(grant.StreamId, mail.Store.State.GmailThreads!.Single(thread => thread.Id == "g2").StreamId);
+        Assert.True(GmailImporter.Threads(mail.Store.State, Account.Id).Single(thread => thread.Id == "g2").Skipped);
+
+        // Unskipping a thread brings it back to Private updates.
+        await mail.Importer.DecideAsync(new(Address, "t3", "unskip"), None);
+        var back = mail.Store.State.GmailThreads!.Single(thread => thread.Id == "t3");
+        Assert.Equal((GmailThreadRecord.Pending, (string?)null), (back.Status, back.StreamId));
+        Assert.Equal("gmail_thread_not_skipped", (await Assert.ThrowsAsync<ResearchFailure>(() =>
+            mail.Importer.DecideAsync(new(Address, "t1", "unskip"), None))).Code);
+    }
+
+    [Fact]
     public async Task AnEarlierWorkstreamAnalysisIsReplacedOnceAndTheMailImportedAgain()
     {
         string old = "gmail-" + new string('d', 32);

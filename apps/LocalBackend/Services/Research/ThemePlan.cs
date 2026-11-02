@@ -40,6 +40,18 @@ internal static class ThemePlan
     public static IReadOnlyList<ResearchTheme> Themes(LocalResearchState state, Guid account) =>
         (state.Themes ?? []).Where(theme => theme.AccountId == account).ToArray();
 
+    /// <summary>The account's research cards in the profile, without those skipped as not the user's own research.</summary>
+    public static IReadOnlyList<ResearchTheme> Active(LocalResearchState state, Guid account) =>
+        [.. Themes(state, account).Where(theme => theme.Skipped != true)];
+
+    /// <summary>Members of skipped cards: their Overleaf projects pause and their Updates leave the feed.</summary>
+    public static IReadOnlySet<string> SkippedMembers(LocalResearchState state, Guid account) =>
+        Themes(state, account).Where(theme => theme.Skipped == true).SelectMany(theme => theme.Members).ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>A skipped card not yet compared (loosely) with the other skipped cards.</summary>
+    public static ResearchTheme? SkipUngrouped(LocalResearchState state, Guid account) =>
+        Themes(state, account).FirstOrDefault(theme => theme.Skipped == true && theme.SkipGrouped != true && theme.Profile is not null);
+
     /// <summary>A project with a summary that the user has not excluded.</summary>
     public static bool Member(LocalResearchState state, Guid account, MonitoredProject project) =>
         project.AccountId == account && project.Profile is not null &&
@@ -113,7 +125,7 @@ internal static class ThemePlan
 
     public static bool HasWork(LocalResearchState state, Guid account) =>
         Cleaned(state, account) is not null || state.ThemesVersion < Version || PaperDue(state, account) || Unplaced(state, account) is not null || RegroupDue(state, account) ||
-        Stale(state, account) is not null || BlurbDue(state, account) is not null;
+        Stale(state, account) is not null || BlurbDue(state, account) is not null || SkipUngrouped(state, account) is not null;
 
     /// <summary>A card whose 4-5 sentence description was made from an earlier version of its summary (or not yet at all).</summary>
     public static ResearchTheme? BlurbDue(LocalResearchState state, Guid account) =>
@@ -122,7 +134,7 @@ internal static class ThemePlan
 
     /// <summary>The account's cards and their members, independent of order; regrouping runs again only when it changes.</summary>
     public static string Signature(LocalResearchState state, Guid account) => ResearchEvidence.Hash(string.Join("|",
-        Themes(state, account).Select(theme => theme.Id + ":" + string.Join(",", theme.Members.Order(StringComparer.Ordinal)))
+        Active(state, account).Select(theme => theme.Id + ":" + string.Join(",", theme.Members.Order(StringComparer.Ordinal)))
             .Order(StringComparer.Ordinal)));
 
     /// <summary>
@@ -131,7 +143,7 @@ internal static class ThemePlan
     /// </summary>
     public static bool RegroupDue(LocalResearchState state, Guid account)
     {
-        var themes = Themes(state, account);
+        var themes = Active(state, account);
         if (themes.Count < 2 || themes.Any(theme => theme.Profile is null) || Unplaced(state, account) is not null) return false;
         if (state.Projects.Any(project => project.AccountId == account && project.Enabled && !project.ImportComplete && project.FailureCount < 3))
             return false;

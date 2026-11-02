@@ -6,13 +6,15 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTabsModule } from '@angular/material/tabs';
 import { describeFailure } from './overleaf-api';
-import { ProjectProfile, ResearchApi, ResearchProject, ResearchStatus, ResearchUpdate, isOverleafProject } from './research-api';
+import { GmailThread, ProjectProfile, ResearchApi, ResearchProject, ResearchStatus, ResearchUpdate, isOverleafProject } from './research-api';
 
 /** One card: a research line with one or more Overleaf projects, or a project still being imported or grouped. */
 interface ProfileCard {
   id: string; themeId: string | null; profile: ProfileOrNull; members: ReadonlyArray<ResearchProject>;
   /** The member the card is described from (its main paper), and why its projects were grouped. */
   anchorId?: string | null; reason?: string | null;
+  /** Skipped as not the user's own research; threads: the skipped email threads on it. */
+  skipped?: boolean; threads?: ReadonlyArray<GmailThread>;
   recent: ReadonlyArray<ResearchUpdate>; updating: boolean; progress: ResearchProject | null;
   /** The card's 4-5 sentence description; until it is written, the full description is shown. */
   blurb: string | null;
@@ -47,7 +49,14 @@ export class PrivateProfile {
   readonly selectedId = signal<string | null>(null);
   readonly moving = signal(false);
   readonly moveError = signal('');
-  readonly cards = computed<ReadonlyArray<ProfileCard>>(() => {
+  /** The cards of the profile: the user's own research. */
+  readonly cards = computed(() => this.allCards().filter(card => !card.skipped));
+  /** Work skipped as not the user's own (About me → Skipped), grouped like projects. */
+  readonly skippedCards = computed(() => this.allCards().filter(card => card.skipped));
+  /** Skipped threads still being grouped with related skipped work. */
+  readonly ungrouped = computed(() => (this.status()?.gmail?.threads ?? []).filter(thread => thread.skipped && !thread.cardId));
+  readonly working = signal('');
+  private readonly allCards = computed<ReadonlyArray<ProfileCard>>(() => {
     const status = this.status();
     if (!status) return [];
     const since = Date.now() - RECENT_UPDATE_DAYS * 86400000;
@@ -77,7 +86,8 @@ export class PrivateProfile {
       members.forEach(member => placed.add(member.projectId));
       cards.push({ id: theme.id, themeId: theme.id, profile: theme.profile ?? members[0].profile, members, recent: recent(theme.projectIds, theme.id),
         updating: theme.updating, progress: members.find(member => BUSY.has(member.phase)) ?? null, lastEdited: lastEdited(theme.projectIds),
-        blurb: theme.blurb ?? null, anchorId: theme.anchorId ?? null, reason: theme.reason ?? null });
+        blurb: theme.blurb ?? null, anchorId: theme.anchorId ?? null, reason: theme.reason ?? null, skipped: !!theme.skipped,
+        threads: (status.gmail?.threads ?? []).filter(thread => thread.skipped && thread.cardId === theme.id) });
     }
     // Projects still importing, or imported and about to be placed on a card.
     for (const project of shown.filter(item => !placed.has(item.projectId))) {
@@ -103,6 +113,31 @@ export class PrivateProfile {
   memberNames(card: ProfileCard): string {
     return [...card.members].sort((a, b) => Number(b.projectId === card.anchorId) - Number(a.projectId === card.anchorId))
       .map(member => member.name).join(' \u00b7 ');
+  }
+
+  /** Skips a card as not the user's own research, or brings a skipped card back into the profile. */
+  async skip(card: ProfileCard, skipped: boolean): Promise<void> {
+    if (!card.themeId || this.working()) return;
+    this.working.set(card.id);
+    this.moveError.set('');
+    try {
+      await this.api.skipTheme(card.themeId, skipped);
+      if (skipped) this.dialog.closeAll();
+      this.changed.emit();
+    } catch (error: unknown) { this.moveError.set(describeFailure(error)); }
+    finally { this.working.set(''); }
+  }
+
+  /** Brings one skipped email thread back to Private updates. */
+  async unskip(thread: GmailThread): Promise<void> {
+    if (this.working()) return;
+    this.working.set(`${thread.address}|${thread.id}`);
+    this.moveError.set('');
+    try {
+      await this.api.decideGmailThread(thread, 'unskip');
+      this.changed.emit();
+    } catch (error: unknown) { this.moveError.set(describeFailure(error)); }
+    finally { this.working.set(''); }
   }
 
   /** Makes a project the one the card is described from. */

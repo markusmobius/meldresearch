@@ -17,7 +17,9 @@ namespace MeldResearch.LocalBackend.Services.Research;
 /// A known thread only gains bullets. Quotes are checked against the email text. Each thread is committed on its own, so a
 /// restart continues where it stopped, and an unchanged mailbox makes no model call. With encrypted sync the threads are
 /// synced, and a lease in the synced profile makes other computers wait while one imports, so mail is not analyzed twice.
-/// After an import, each changed email stream is summarized once, so its card's combined summary includes it.
+/// After an import, each changed email stream is summarized once, so its card's combined summary includes it. Threads the
+/// user skips join skipped work (About me → Skipped), grouped generously with related skipped cards; new mail of skipped
+/// work is skipped too, and skipped threads are not read again until unskipped (back to Private updates).
 /// </summary>
 internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote, GmailConnector connector, IGmailGoogle google,
     TimeProvider clock, ILogger<GmailImporter> logger)
@@ -77,7 +79,7 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
     public bool HasWork(LocalResearchState state, Guid account, DateTimeOffset now) =>
         state.GmailVersion < Version || Renamed(state, account) is not null ||
         Eligible(state, account).Any(mail => !Blocked(mail.Address, now) && (_runs.ContainsKey(mail.Address) || Due(mail, now))) ||
-        StreamDue(state, account, now) is not null;
+        SkipDue(state, account, now) is not null || StreamDue(state, account, now) is not null;
 
     /// <summary>
     /// Continues the running import (or starts one that is due) for one account by up to <see cref="ThreadsPerStep"/> threads,
@@ -122,6 +124,16 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
                 _errors[mail.Address] = error is ResearchFailure known ? known.Message : "Gmail or Meld's server did not answer. Meld tries again shortly.";
                 _retryAt[mail.Address] = clock.GetUtcNow() + RetryAfter;
                 logger.LogWarning("Gmail import paused ({Code}); it continues in {Minutes} minutes.", code, RetryAfter.TotalMinutes);
+            }
+            return HasWork(await store.ReadAsync(ct), account, clock.GetUtcNow());
+        }
+        if (SkipDue(state, account, now) is { } skipped)
+        {
+            try { await GroupSkippedAsync(credential, skipped, ct); }
+            catch (ResearchFailure failure) when (failure.Code != "research_state_changed")
+            {
+                _retryAt[SkipKey(skipped)] = clock.GetUtcNow() + RetryAfter;
+                logger.LogWarning("Grouping a skipped Gmail thread failed ({Code}); it is retried shortly.", failure.Code);
             }
             return HasWork(await store.ReadAsync(ct), account, clock.GetUtcNow());
         }
@@ -246,9 +258,9 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
         var state = await store.ReadAsync(ct);
         var mail = Find(state, account, run.Address) ?? throw StateChanged();
         var item = Item(state, account, run.Address, reference.Id);
-        if (item?.Status == GmailThreadRecord.Dismissed)
+        if (item?.Status == GmailThreadRecord.Dismissed || item?.Status == GmailThreadRecord.Assigned && OnSkippedCard(state, account, item.StreamId))
         {
-            // The user chose to ignore this thread: its new mail is not read.
+            // The user skipped this thread (or its project): its new mail is not read.
             await CommitAsync(credential, run, reference.Id, item.Subject, reference.HistoryId, item.LastMessageId, item.LastSentAt, null, null, ct);
             return;
         }
@@ -296,7 +308,7 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
             var request = new EmailStepRequest(thread.Id, subject, self, [.. part.Select(Email)], [.. context.Select(Email)], known,
                 known ? [.. item!.Bullets.TakeLast(EmailSteps.MaxKnownBullets).Select(bullet => bullet.Text)] : [],
                 known && item!.Status == GmailThreadRecord.Assigned ? Card(state, account, item.StreamId) : null,
-                known ? [] : Cards(state, account));
+                known ? [] : Cards(state, account), known ? null : NotMine(state, account, ResearchThemes.MaxCandidates - Cards(state, account).Count));
             EmailSteps.ValidateRequest(request);
             var response = await remote.EmailStepAsync(credential.Token, request, ct);
             EmailSteps.ValidateResponse(request, response);
@@ -387,14 +399,20 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
                 : throw new ResearchFailure(401, "meld_account_required", "Sign in with Google first.");
             var account = credential.Account.Id;
             var item = Item(current, account, request.Address, request.ThreadId);
-            if (item?.Status is not (GmailThreadRecord.Assigned or GmailThreadRecord.Pending))
+            if (item?.Status is not (GmailThreadRecord.Assigned or GmailThreadRecord.Pending or GmailThreadRecord.Dismissed))
                 throw new ResearchFailure(404, "gmail_thread_not_found", "This thread is no longer waiting for a decision.");
             var now = clock.GetUtcNow();
             string? before = item.Status == GmailThreadRecord.Assigned ? item.StreamId : null;
             switch (request.Action)
             {
                 case "dismiss":
+                    // Grouped with related skipped work next (GroupSkippedAsync).
                     item = item with { Status = GmailThreadRecord.Dismissed, StreamId = null };
+                    break;
+                case "unskip":
+                    if (item.Status != GmailThreadRecord.Dismissed && !OnSkippedCard(current, account, item.StreamId))
+                        throw new ResearchFailure(409, "gmail_thread_not_skipped", "This thread is not skipped.");
+                    item = item with { Status = GmailThreadRecord.Pending, StreamId = null };
                     break;
                 case "project":
                     var card = ThemePlan.Themes(current, account).FirstOrDefault(theme => theme.Id == request.CardId)
@@ -419,26 +437,79 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
         }, ct);
         logger.LogInformation("A Gmail thread was {Action} by the user.", request.Action switch
         {
-            "dismiss" => "dismissed", "project" => "added to a research project", _ => "made into a new research project"
+            "dismiss" => "skipped", "unskip" => "brought back to Private updates", "project" => "added to a research project",
+            _ => "made into a new research project"
         });
     }
 
-    /// <summary>The account's threads for the feed: assigned ones with newsworthy progress, and those waiting for a decision.</summary>
+    /// <summary>
+    /// The account's threads: for the feed, assigned ones with newsworthy progress and those waiting for a decision; for
+    /// About me → Skipped, the threads the user skipped (on skipped cards, or still being grouped).
+    /// </summary>
     public static IReadOnlyList<GmailThreadResponse> Threads(LocalResearchState state, Guid? account)
     {
         if (account is not { } id) return [];
         var themes = ThemePlan.Themes(state, id);
-        return [.. (state.GmailThreads ?? []).Where(item => item.AccountId == id &&
+        GmailThreadResponse Response(GmailThreadRecord item, bool skipped)
+        {
+            var card = item.StreamId is { } stream ? themes.FirstOrDefault(theme => theme.Members.Contains(stream)) : null;
+            return new GmailThreadResponse(item.Address, item.Id, item.Subject, item.Headline ?? item.Subject, item.Status, card?.Id,
+                card is null ? null : CardTitle(state, card), item.Suggested,
+                [.. item.Bullets.Select(bullet => new GmailBulletResponse(bullet.Id, bullet.Text, bullet.SentAt, bullet.Newsworthy, bullet.Evidence))],
+                item.LastSentAt, item.NewsAt, skipped);
+        }
+        var mine = (state.GmailThreads ?? []).Where(item => item.AccountId == id).ToArray();
+        bool Skipped(GmailThreadRecord item) => item.Status == GmailThreadRecord.Dismissed ||
+            item.Status == GmailThreadRecord.Assigned && OnSkippedCard(state, id, item.StreamId);
+        var feed = mine.Where(item => !Skipped(item) &&
                 (item.Status == GmailThreadRecord.Assigned && item.NewsAt is not null || item.Status == GmailThreadRecord.Pending))
-            .OrderByDescending(item => item.NewsAt ?? item.LastSentAt).Take(MaxFeedThreads)
-            .Select(item =>
-            {
-                var card = item.StreamId is { } stream ? themes.FirstOrDefault(theme => theme.Members.Contains(stream)) : null;
-                return new GmailThreadResponse(item.Address, item.Id, item.Subject, item.Headline ?? item.Subject, item.Status, card?.Id,
-                    card is null ? null : CardTitle(state, card), item.Suggested,
-                    [.. item.Bullets.Select(bullet => new GmailBulletResponse(bullet.Id, bullet.Text, bullet.SentAt, bullet.Newsworthy, bullet.Evidence))],
-                    item.LastSentAt, item.NewsAt);
-            })];
+            .OrderByDescending(item => item.NewsAt ?? item.LastSentAt).Take(MaxFeedThreads).Select(item => Response(item, false));
+        var skippedThreads = mine.Where(Skipped).OrderByDescending(item => item.LastSentAt).Take(MaxFeedThreads).Select(item => Response(item, true));
+        return [.. feed, .. skippedThreads];
+    }
+
+    private static bool OnSkippedCard(LocalResearchState state, Guid account, string? streamId) =>
+        streamId is not null && ThemePlan.Themes(state, account).Any(theme => theme.Skipped == true && theme.Members.Contains(streamId));
+
+    private static string SkipKey(GmailThreadRecord item) => $"skip|{item.Address}|{item.Id}";
+
+    /// <summary>A thread the user skipped that is not yet grouped with skipped work.</summary>
+    private GmailThreadRecord? SkipDue(LocalResearchState state, Guid account, DateTimeOffset now) =>
+        (state.GmailThreads ?? []).Where(item => item.AccountId == account && item.Status == GmailThreadRecord.Dismissed && item.StreamId is null &&
+            !Blocked(SkipKey(item), now)).OrderBy(item => item.UpdatedAt).FirstOrDefault();
+
+    /// <summary>
+    /// Puts a skipped thread with related skipped work: on the skipped card Foundry finds related (generously: the same people
+    /// or topic is enough), or on a new skipped card of its own. No confirmation is needed; unskipping undoes it.
+    /// </summary>
+    private async Task GroupSkippedAsync(LinkedCredential credential, GmailThreadRecord thread, CancellationToken ct)
+    {
+        var account = credential.Account.Id;
+        var state = await store.ReadAsync(ct);
+        var others = NotMine(state, account) ?? [];
+        string name = Trim(thread.Suggested ?? thread.Headline ?? thread.Subject, 120);
+        string description = thread.Bullets.Count == 0 ? thread.Subject : string.Join(' ', thread.Bullets.TakeLast(8).Select(bullet => bullet.Text));
+        var profile = new ProjectProfile(name, Trim(description, 1200), [], []);
+        var match = others.Count == 0 ? null : await remote.MatchThemeAsync(credential.Token, new(name, profile, others, Loose: true), ct);
+        await store.ChangeAsync(current =>
+        {
+            var now = clock.GetUtcNow();
+            var item = Item(current, account, thread.Address, thread.Id);
+            if (current.Credential?.Account.Id != account || item is not { Status: GmailThreadRecord.Dismissed, StreamId: null }) return current;
+            var target = match?.ThemeId is { } id ? ThemePlan.Themes(current, account).FirstOrDefault(theme => theme.Id == id && theme.Skipped == true) : null;
+            (current, string stream) = Stream(current, account, item.Address, target, target is null ? name : null, now);
+            if (target is null)
+                current = current with
+                {
+                    Themes = [.. current.Themes!.Select(theme => theme.AccountId == account && theme.Members.Contains(stream)
+                        ? theme with { Skipped = true, SkipGrouped = true } : theme)]
+                };
+            item = item with { Status = GmailThreadRecord.Assigned, StreamId = stream, UpdatedAt = now };
+            current = Changed(current, account, stream) with { GmailThreads = [.. Others(current, account, item.Address, item.Id), item] };
+            return Tidy(current, account);
+        }, ct);
+        logger.LogInformation(match?.ThemeId is null ? "A skipped Gmail thread starts a skipped project of its own." :
+            "A skipped Gmail thread was grouped with related skipped work.");
     }
 
     /// <summary>A changed email stream to summarize once no import of its Gmail account is running.</summary>
@@ -586,7 +657,15 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
     /// sentences and topics.
     /// </summary>
     private static IReadOnlyList<ThemeCandidate> Cards(LocalResearchState state, Guid account) =>
-        [.. ThemePlan.Themes(state, account).Where(theme => theme.Profile is not null).Take(ResearchThemes.MaxCandidates).Select(Candidate)];
+        [.. ThemePlan.Active(state, account).Where(theme => theme.Profile is not null).Take(ResearchThemes.MaxCandidates).Select(Candidate)];
+
+    /// <summary>Cards skipped as not the user's own research; new mail that belongs to one is skipped too.</summary>
+    private static IReadOnlyList<ThemeCandidate>? NotMine(LocalResearchState state, Guid account, int max = ResearchThemes.MaxCandidates)
+    {
+        var cards = ThemePlan.Themes(state, account).Where(theme => theme.Skipped == true && theme.Profile is not null)
+            .Take(Math.Max(0, max)).Select(Candidate).ToArray();
+        return cards.Length == 0 ? null : cards;
+    }
 
     private static ThemeCandidate? Card(LocalResearchState state, Guid account, string? streamId) =>
         streamId is null ? null : ThemePlan.Themes(state, account).FirstOrDefault(theme => theme.Members.Contains(streamId) && theme.Profile is not null) is { } card

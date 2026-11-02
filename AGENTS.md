@@ -96,6 +96,10 @@ instruction file. Start with the [README](README.md) for setup and release detai
   `\title` + abstract read locally by [Papers](libraries/Research/PaperContracts.cs),
   or the user's choice), never by blending members; other members, including email
   streams, are materials. Re-describe only when the anchor's paper or summary changes.
+  Skipped cards (not the user's own research) live in About me → Skipped: out of the
+  feed, Overleaf members paused, grouped loosely without confirmation, new email of
+  them skipped too; Bring back / Unskip undo it. Keep them out of normal matching
+  and regrouping (`ThemePlan.Active`).
   Keep every remote request under Cloudflare's 100 s origin limit (45 s wait budget).
 - More → Log ([AppLog](apps/LocalBackend/Services/AppLog.cs)) records only Meld's own
   log categories. Keep log messages free of research text, project names and

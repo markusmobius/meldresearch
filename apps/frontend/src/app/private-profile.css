@@ -58,3 +58,17 @@
 .make-main mat-icon { font-size: 15px; width: 15px; height: 15px; }
 .grouping-reason { display: flex; align-items: flex-start; gap: 6px; margin: 0 0 8px; font-size: 12.5px; }
 .grouping-reason mat-icon { flex: none; font-size: 16px; width: 16px; height: 16px; }
+.skipped-work { margin-top: 20px; padding: 18px 20px; border: 1px dashed #cbd5e1; border-radius: 12px; background: #f8fafc; }
+.skipped-work .profile-head h2 mat-icon { color: #64748b; }
+.skipped-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; margin-top: 12px; }
+.skipped-card { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid #e2e8f0; border-radius: 10px; background: #ffffff; }
+.skipped-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.skipped-title { font-size: 0.95rem; color: #334155; }
+.skipped-description { margin: 4px 0 0; font-size: 0.82rem; line-height: 1.45; color: #64748b; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.skipped-threads { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.skipped-threads li { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: #475569; }
+.skipped-thread-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-mail { flex: none; font-size: 15px; width: 15px; height: 15px; color: #b42336; }
+.unskip-thread, .unskip-card { flex: none; height: 28px !important; font-size: 12px !important; }
+.unskip-card mat-icon { font-size: 16px; width: 16px; height: 16px; }
+.skip-card { margin-top: 14px; color: #64748b !important; }

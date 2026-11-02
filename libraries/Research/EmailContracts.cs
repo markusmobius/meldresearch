@@ -12,11 +12,14 @@ public sealed record EmailMessage(string Id, string From, DateTimeOffset SentAt,
 /// One thread step. A thread seen for the first time (Known false) is placed: skipped, assigned to one of the user's
 /// research Projects (cards) or left unassigned for the user to decide. A known thread (Known true) only continues: its new
 /// Messages add bullets to the ones already recorded (Bullets). Context holds earlier messages, as background only. Project is
-/// the card a known thread belongs to (null while the user has not decided).
+/// the card a known thread belongs to (null while the user has not decided). NotMine are projects the user skipped as not
+/// their own research (for example helping a family member); a new thread that belongs to one is placed there (skipped too).
 /// </summary>
 public sealed record EmailStepRequest(string ThreadId, string Subject, string UserAddress, IReadOnlyList<EmailMessage> Messages,
     IReadOnlyList<EmailMessage> Context, bool Known, IReadOnlyList<string> Bullets, ThemeCandidate? Project,
-    IReadOnlyList<ThemeCandidate> Projects);
+    IReadOnlyList<ThemeCandidate> Projects,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<ThemeCandidate>? NotMine = null);
 
 /// <summary>One fact a thread established, citing lines of its new messages (copied verbatim by the server).</summary>
 public sealed record EmailBullet(string Text, IReadOnlyList<ResearchCitation> Evidence);
@@ -62,12 +65,13 @@ public static partial class EmailSteps
             request.Messages.Concat(request.Context).Select(message => message.Id).Distinct(StringComparer.Ordinal).Count() !=
                 request.Messages.Count + request.Context.Count ||
             request.Bullets is not { Count: <= MaxKnownBullets } || !request.Bullets.All(bullet => Short(bullet, MaxBulletCharacters)) ||
-            request.Projects is not { Count: <= ResearchThemes.MaxCandidates } ||
-            (request.Known ? request.Projects.Count != 0 : request.Project is not null || request.Bullets.Count != 0))
+            request.Projects is not { Count: <= ResearchThemes.MaxCandidates } || request.NotMine is { Count: > ResearchThemes.MaxCandidates } ||
+            (request.Known ? request.Projects.Count != 0 || request.NotMine is { Count: > 0 } : request.Project is not null || request.Bullets.Count != 0))
             throw Invalid();
         try
         {
-            if (request.Projects.Count != 0) ResearchThemes.ValidateMatch(new("thread", new("t", "d", [], []), request.Projects));
+            var offered = request.Projects.Concat(request.NotMine ?? []).ToArray();
+            if (offered.Length != 0) ResearchThemes.ValidateMatch(new("thread", new("t", "d", [], []), offered));
             if (request.Project is { } project) ResearchThemes.ValidateMatch(new("thread", new("t", "d", [], []), [project]));
         }
         catch (ResearchFailure) { throw Invalid(); }
@@ -79,7 +83,7 @@ public static partial class EmailSteps
         bool valid = response.Decision switch
         {
             Skip => !request.Known && response.ProjectId is null && response.Bullets.Count == 0 && !response.Newsworthy,
-            Project => !request.Known && request.Projects.Any(project => project.Id == response.ProjectId),
+            Project => !request.Known && request.Projects.Concat(request.NotMine ?? []).Any(project => project.Id == response.ProjectId),
             Unassigned => !request.Known && response.ProjectId is null && Short(response.SuggestedProject, ProfileEvidence.HardMaxTitle),
             Continue => request.Known && response.ProjectId is null,
             _ => false
