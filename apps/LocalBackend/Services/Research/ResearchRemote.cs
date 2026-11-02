@@ -43,8 +43,10 @@ internal interface IResearchRemote
     /// <summary>Deletes the account, its devices and its encrypted synced data on Meld's server.</summary>
     Task DeleteAccountAsync(string token, CancellationToken ct);
     Task<ProfileStepResponse> ProfileStepAsync(string token, ProfileStepRequest request, CancellationToken ct);
-    /// <summary>Folds one Gmail thread's new messages into a workstream (or skips the thread).</summary>
+    /// <summary>Places one Gmail thread and records its new messages as bullets.</summary>
     Task<EmailStepResponse> EmailStepAsync(string token, EmailStepRequest request, CancellationToken ct);
+    /// <summary>Summarizes an email stream for its research card.</summary>
+    Task<EmailStreamResponse> EmailStreamAsync(string token, EmailStreamRequest request, CancellationToken ct);
     Task<ProjectSummaryResponse> SummarizeProjectAsync(string token, ProjectSummaryRequest request, CancellationToken ct);
     Task<ThemeMatchResponse> MatchThemeAsync(string token, ThemeMatchRequest request, CancellationToken ct);
     Task<ThemeMergeResponse> MergeThemeAsync(string token, ThemeMergeRequest request, CancellationToken ct);
@@ -81,6 +83,8 @@ internal sealed class ResearchRemote(ResearchOptions options, IHttpClientFactory
         CallAsync<ProfileStepResponse>("api/research/profile-step", HttpMethod.Post, request, token, ct);
     public Task<EmailStepResponse> EmailStepAsync(string token, EmailStepRequest request, CancellationToken ct) =>
         CallAsync<EmailStepResponse>("api/research/email-step", HttpMethod.Post, request, token, ct);
+    public Task<EmailStreamResponse> EmailStreamAsync(string token, EmailStreamRequest request, CancellationToken ct) =>
+        CallAsync<EmailStreamResponse>("api/research/email-stream", HttpMethod.Post, request, token, ct);
     public Task<ProjectSummaryResponse> SummarizeProjectAsync(string token, ProjectSummaryRequest request, CancellationToken ct) =>
         CallAsync<ProjectSummaryResponse>("api/research/project-summary", HttpMethod.Post, request, token, ct);
     public Task<ThemeMatchResponse> MatchThemeAsync(string token, ThemeMatchRequest request, CancellationToken ct) =>

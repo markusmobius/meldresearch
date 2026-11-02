@@ -35,9 +35,37 @@
 .update-detail { font-family: 'Outfit', sans-serif; line-height: 1.6; }
 .update-detail blockquote { margin: 12px 0 24px; padding: 12px 16px; border-left: 3px solid #699581; background: #edf5f0; color: #334155; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
 .update-detail code { overflow-wrap: anywhere; }
+/* Two columns side by side (Project Meld's TweetDeck layout); one at a time on narrow screens. */
+.feed-column-nav { display: none; }
+.feed-layout.two-columns { grid-template-columns: repeat(2, minmax(300px, 560px)); }
+.feed-layout.two-columns .feed-column + .feed-column { border-left: 0; }
+.feed-column-private { --column-accent: #a16207; }
+.thread-bullets { margin: 0; padding-left: 18px; font-size: 0.8rem; line-height: 1.45; color: #475569; }
+.thread-bullets li { margin: 2px 0; }
+.thread-bullets li.news { color: #1e293b; }
+.thread-bullets .thread-earlier { list-style: none; margin-left: -18px; font-size: 0.72rem; color: #64748b; }
+.thread-card { border-left-color: #b42336; background: #fbf4f5; }
+.pending-card { border-left-color: var(--column-accent); background: #fdf8ec; }
+.feed-address { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #64748b; }
+.thread-suggestion { margin: 6px 0 0; font-size: 0.75rem; color: #64748b; }
+.thread-name { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.thread-name mat-form-field { flex: 1 1 200px; font-size: 0.85rem; }
+.thread-detail { padding-left: 20px; }
+.thread-detail li > p:first-child { margin-bottom: 4px; font-weight: 500; }
+.thread-detail blockquote { margin: 4px 0 14px; }
+.thread-quote-source { margin: 0; font-size: 12.5px; }
+.muted { color: #64748b; }
 @media (max-width: 700px) {
-  .feed-layout { grid-template-columns: minmax(0, 1fr); }
+  .feed-layout, .feed-layout.two-columns { grid-template-columns: minmax(0, 1fr); }
   .feed-column { border-inline: 0; }
+  .feed-layout.two-columns { display: flex; flex-direction: column; overflow: hidden; }
+  .feed-layout.two-columns .feed-column { display: none; flex: 1; }
+  .feed-layout.two-columns .feed-column.feed-column-active { display: flex; }
+  .feed-column-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); flex: 0 0 46px; background: #fff; border-bottom: 1px solid #dce3e8; }
+  .feed-column-nav button { position: relative; display: flex; align-items: center; justify-content: center; gap: 4px; padding: 0 4px; border: 0; border-bottom: 3px solid transparent; background: none; font-family: inherit; font-size: 0.81rem; font-weight: 600; color: #64748b; cursor: pointer; }
+  .feed-column-nav button.has-updates::after { content: ''; position: absolute; top: 7px; right: 7px; width: 5px; height: 5px; border-radius: 50%; background: currentColor; pointer-events: none; }
+  .feed-column-nav button.selected { color: #1f3a47; border-bottom-color: currentColor; }
+  .feed-column-nav span { font-size: 0.65rem; font-variant-numeric: tabular-nums; }
 }
 /* What the queue is doing right now: project, file and progress, directly under the Updates header. */
 .processing-strip { display: flex; align-items: center; gap: 10px; margin: 0; padding: 8px 14px; background: #f0f7f5; border-bottom: 1px solid #d5e7e2; color: #26333b; text-decoration: none; font-size: 0.82rem; }

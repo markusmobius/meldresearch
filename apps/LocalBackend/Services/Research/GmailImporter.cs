@@ -1,37 +1,43 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.RegularExpressions;
+using System.Text.Json;
 using MeldResearch.LocalBackend.Contracts;
 using MeldResearch.Research;
 
 namespace MeldResearch.LocalBackend.Services.Research;
 
 /// <summary>
-/// Imports connected Gmail accounts into Gmail workstreams, run by the research worker a few threads at a time. About once
-/// an hour (with a per-account offset of up to ten minutes) it lists the threads the user wrote in during the import window
-/// and analyzes only the threads with new mail, oldest first, and of those only the new messages (earlier ones of the thread
-/// are background). Foundry decides per thread: skip it, continue one of the user's workstreams, or start one; quotes are
-/// checked against the email text. Each thread is committed on its own, so a restart continues where it stopped, and an
-/// unchanged mailbox makes no model call. With encrypted sync the analyzed threads are synced, and a lease in the synced
-/// profile makes other computers wait while one imports, so mail is not analyzed twice.
+/// Imports connected Gmail accounts, run by the research worker a few threads at a time. About once an hour (with a
+/// per-account offset of up to ten minutes) it lists the threads the user wrote in during the import window and analyzes
+/// only the threads with new mail, oldest first, and of those only the new messages (earlier ones are background). Each
+/// thread is one record whose list of bullets grows as mail arrives. A thread seen for the first time is placed by Foundry:
+/// skipped (not work), assigned to one of the user's research cards (its bullets join that card's email stream for this
+/// Gmail account), or left unassigned in Private updates, where the user decides; no project is created without the user.
+/// A known thread only gains bullets. Quotes are checked against the email text. Each thread is committed on its own, so a
+/// restart continues where it stopped, and an unchanged mailbox makes no model call. With encrypted sync the threads are
+/// synced, and a lease in the synced profile makes other computers wait while one imports, so mail is not analyzed twice.
+/// After an import, each changed email stream is summarized once, so its card's combined summary includes it.
 /// </summary>
-internal sealed partial class GmailImporter(IResearchStore store, IResearchRemote remote, GmailConnector connector, IGmailGoogle google,
+internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote, GmailConnector connector, IGmailGoogle google,
     TimeProvider clock, ILogger<GmailImporter> logger)
 {
     public static readonly TimeSpan Interval = TimeSpan.FromHours(1), Jitter = TimeSpan.FromMinutes(10), LeaseFor = TimeSpan.FromMinutes(15),
         RetryAfter = TimeSpan.FromMinutes(2);
-    public const int ThreadsPerStep = 3, MaxCandidates = 8, FailuresBeforeSkip = 3, MaxProcessed = 1500;
+    public const int ThreadsPerStep = 3, FailuresBeforeSkip = 3, MaxSkipped = 2000, MaxFeedThreads = 150;
+    /// <summary>The thread analysis in use: state from an earlier one is replaced once and mail is imported again.</summary>
+    public const int Version = 2;
     /// <summary>Characters of new messages per request; the rest of the thread limit is left for earlier messages.</summary>
     public const int MessageBudget = 32000;
+    /// <summary>The description of a new email stream until its first summary.</summary>
+    public const string Placeholder = "Email threads about this line of work, summarized once the import finishes.";
 
-    private sealed class Run(string address, IReadOnlyList<GmailThreadRef> threads, bool initial, bool leased)
+    private sealed class Run(string address, IReadOnlyList<GmailThreadRef> threads, bool leased)
     {
         public string Address { get; } = address;
         public Queue<GmailThreadRef> Queue { get; } = new(threads);
         public int Total { get; } = threads.Count;
         public int Done { get; set; }
-        public bool Initial { get; } = initial;
         public bool Leased { get; } = leased;
     }
 
@@ -65,21 +71,24 @@ internal sealed partial class GmailImporter(IResearchStore store, IResearchRemot
         return last + Interval + Jitter * offset;
     }
 
-    /// <summary>Keeps the analyzed threads with the latest mail; older ones are outside the import window anyway.</summary>
-    public static IReadOnlyList<GmailThreadState> Prune(IEnumerable<GmailThreadState> threads) =>
-        [.. threads.OrderByDescending(thread => thread.LastSentAt).ThenBy(thread => thread.Id, StringComparer.Ordinal).Take(MaxProcessed)];
-
     public bool HasWork(LocalResearchState state, Guid account, DateTimeOffset now) =>
-        Eligible(state, account).Any(mail => !Blocked(mail.Address, now) && (_runs.ContainsKey(mail.Address) || Due(mail, now)));
+        state.GmailVersion < Version ||
+        Eligible(state, account).Any(mail => !Blocked(mail.Address, now) && (_runs.ContainsKey(mail.Address) || Due(mail, now))) ||
+        StreamDue(state, account, now) is not null;
 
     /// <summary>
-    /// Continues the running import (or starts one that is due) for one account by up to <see cref="ThreadsPerStep"/> threads.
-    /// Returns whether import work remains that can continue straight away.
+    /// Continues the running import (or starts one that is due) for one account by up to <see cref="ThreadsPerStep"/> threads,
+    /// or else summarizes one changed email stream. Returns whether Gmail work remains that can continue straight away.
     /// </summary>
     public async Task<bool> StepAsync(LinkedCredential credential, ResearchSync? sync, CancellationToken ct)
     {
         var state = await store.ReadAsync(ct);
         var account = credential.Account.Id;
+        if (state.GmailVersion < Version)
+        {
+            await UpgradeAsync(ct);
+            return true;
+        }
         var eligible = Eligible(state, account).OrderBy(mail => mail.Address, StringComparer.OrdinalIgnoreCase).ToArray();
         foreach (var stale in _runs.Keys.Where(address => !eligible.Any(mail => string.Equals(mail.Address, address, StringComparison.OrdinalIgnoreCase))))
             _runs.TryRemove(stale, out _);
@@ -107,7 +116,42 @@ internal sealed partial class GmailImporter(IResearchStore store, IResearchRemot
             }
             return HasWork(await store.ReadAsync(ct), account, clock.GetUtcNow());
         }
+        if (StreamDue(state, account, now) is { } stream)
+        {
+            await SummarizeAsync(credential, stream, ct);
+            return HasWork(await store.ReadAsync(ct), account, clock.GetUtcNow());
+        }
         return false;
+    }
+
+    /// <summary>
+    /// Replaces what an earlier analysis made from Gmail (one workstream per line of work, with separate Updates): those
+    /// workstreams are excluded everywhere, so synced copies are removed too, and the mail is imported again as threads.
+    /// </summary>
+    private async Task UpgradeAsync(CancellationToken ct)
+    {
+        int removed = 0;
+        await store.ChangeAsync(current =>
+        {
+            if (current.GmailVersion >= Version) return current;
+            var now = clock.GetUtcNow();
+            var earlier = current.Projects.Where(project => project.Source == ResearchSources.Gmail).ToArray();
+            removed = earlier.Length;
+            var decided = (current.Decisions ?? []).Select(decision => (decision.AccountId, decision.ProjectId)).ToHashSet();
+            return current with
+            {
+                Projects = [.. current.Projects.Where(project => project.Source != ResearchSources.Gmail)],
+                Decisions = [.. (current.Decisions ?? []).Select(decision => earlier.Any(project => project.AccountId == decision.AccountId &&
+                        project.ProjectId == decision.ProjectId) ? decision with { Included = false, DecidedAt = now } : decision),
+                    .. earlier.Where(project => !decided.Contains((project.AccountId, project.ProjectId)))
+                        .Select(project => new ProjectDecision(project.AccountId, project.ProjectId, false, now))],
+                GmailThreads = null,
+                GmailAccounts = current.GmailAccounts?.Select(item => item with { Processed = null }).ToArray(),
+                GmailVersion = Version
+            };
+        }, ct);
+        _runs.Clear();
+        if (removed != 0) logger.LogInformation("Gmail analysis upgraded: {Count} earlier workstream(s) replaced; mail is imported again as threads.", removed);
     }
 
     private async Task<Run?> StartAsync(LinkedCredential credential, LocalResearchState state, GmailAccountState mail, ResearchSync? sync, CancellationToken ct)
@@ -139,11 +183,12 @@ internal sealed partial class GmailImporter(IResearchStore store, IResearchRemot
         }
         _waiting.TryRemove(mail.Address, out _);
         var threads = await connector.WithAccessAsync(credential, mail, token => google.ParticipatedThreadsAsync(token, GmailConnector.WindowDays, ct), ct);
-        var processed = (mail.Processed ?? []).ToDictionary(thread => thread.Id, StringComparer.Ordinal);
+        var known = (state.GmailThreads ?? []).Where(item => item.AccountId == credential.Account.Id && Same(item.Address, mail.Address))
+            .ToDictionary(item => item.Id, StringComparer.Ordinal);
         // The listing is newest first; mail is analyzed in the order it was written.
-        var changed = threads.Where(thread => !processed.TryGetValue(thread.Id, out var known) || known.HistoryId != thread.HistoryId).Reverse().ToArray();
+        var changed = threads.Where(thread => !known.TryGetValue(thread.Id, out var item) || item.HistoryId != thread.HistoryId).Reverse().ToArray();
         await ChangeAccountAsync(credential, mail.Address, item => item with { Threads = threads.Count, CheckedAt = now, Status = "connected", Error = null }, ct);
-        var run = new Run(mail.Address, changed, mail.LastImportAt is null, sync is not null);
+        var run = new Run(mail.Address, changed, sync is not null);
         _runs[mail.Address] = run;
         _errors.TryRemove(mail.Address, out _);
         logger.LogInformation("Gmail import started: {Changed} of {Threads} thread(s) have new mail.", changed.Length, threads.Count);
@@ -177,7 +222,7 @@ internal sealed partial class GmailImporter(IResearchStore store, IResearchRemot
         string device = await DeviceAsync(ct);
         await ChangeAccountAsync(credential, run.Address, item => item with
         {
-            LastImportAt = now,
+            LastImportAt = now, ImportVersion = Version,
             LeaseBy = item.LeaseBy == device ? null : item.LeaseBy,
             LeaseUntil = item.LeaseBy == device ? null : item.LeaseUntil
         }, ct);
@@ -188,9 +233,17 @@ internal sealed partial class GmailImporter(IResearchStore store, IResearchRemot
     /// <summary>Analyzes one thread's new messages (in parts if there are many) and commits each part.</summary>
     private async Task ThreadAsync(LinkedCredential credential, Run run, GmailThreadRef reference, CancellationToken ct)
     {
-        var mail = Find(await store.ReadAsync(ct), credential.Account.Id, run.Address) ?? throw StateChanged();
+        var account = credential.Account.Id;
+        var state = await store.ReadAsync(ct);
+        var mail = Find(state, account, run.Address) ?? throw StateChanged();
+        var item = Item(state, account, run.Address, reference.Id);
+        if (item?.Status == GmailThreadRecord.Dismissed)
+        {
+            // The user chose to ignore this thread: its new mail is not read.
+            await CommitAsync(credential, run, reference.Id, item.Subject, reference.HistoryId, item.LastMessageId, item.LastSentAt, null, null, ct);
+            return;
+        }
         var thread = await connector.WithAccessAsync(credential, mail, token => google.ThreadAsync(token, reference.Id, ct), ct);
-        var known = mail.Processed?.FirstOrDefault(item => item.Id == thread.Id);
         string self = mail.Address.ToLowerInvariant();
         // Mailing lists and automated mail count only when the user wrote them.
         var usable = thread.Messages.Where(message => message.Text.Length != 0 && EmailSteps.IsGmailId(message.Id))
@@ -200,17 +253,16 @@ internal sealed partial class GmailImporter(IResearchStore store, IResearchRemot
                 FromUser = message.FromUser || EmailText.Address(message.From) == self
             })
             .Where(message => !message.Bulk || message.FromUser).ToList();
+        string subject = Trim(thread.Subject, 300);
         var since = clock.GetUtcNow() - TimeSpan.FromDays(GmailConnector.WindowDays);
-        int first = known is null ? usable.FindIndex(message => message.SentAt >= since) : usable.FindIndex(message => message.SentAt > known.LastSentAt);
-        string? workstream = known?.WorkstreamId;
+        int first = item is null ? usable.FindIndex(message => message.SentAt >= since) : usable.FindIndex(message => message.SentAt > item.LastSentAt);
         if (first < 0 || !usable.Any(message => message.FromUser))
         {
             var last = thread.Messages.LastOrDefault();
-            await CommitAsync(credential, run, thread.Id, thread.HistoryId, known, last?.Id ?? known?.LastMessageId ?? "",
-                last?.SentAt ?? known?.LastSentAt ?? clock.GetUtcNow(), workstream, null, ct);
+            await CommitAsync(credential, run, thread.Id, subject, thread.HistoryId, last?.Id ?? item?.LastMessageId ?? "",
+                last?.SentAt ?? item?.LastSentAt ?? clock.GetUtcNow(), null, null, ct);
             return;
         }
-        string subject = Trim(thread.Subject, 300);
         while (first < usable.Count)
         {
             var part = new List<GmailMessage>();
@@ -229,108 +281,312 @@ internal sealed partial class GmailImporter(IResearchStore store, IResearchRemot
                 characters += usable[index].Text.Length;
             }
             first += part.Count;
-            var candidates = Candidates(await store.ReadAsync(ct), credential.Account.Id, run.Address, workstream,
-                subject + "\n" + string.Join("\n", part.Select(message => message.Text)));
-            if (workstream is not null && candidates.All(candidate => candidate.Id != workstream)) workstream = null;
-            var request = new EmailStepRequest(thread.Id, subject, self, [.. part.Select(Email)], [.. context.Select(Email)], workstream, candidates);
+            state = await store.ReadAsync(ct);
+            item = Item(state, account, run.Address, thread.Id);
+            bool known = item?.Status is GmailThreadRecord.Assigned or GmailThreadRecord.Pending;
+            var request = new EmailStepRequest(thread.Id, subject, self, [.. part.Select(Email)], [.. context.Select(Email)], known,
+                known ? [.. item!.Bullets.TakeLast(EmailSteps.MaxKnownBullets).Select(bullet => bullet.Text)] : [],
+                known && item!.Status == GmailThreadRecord.Assigned ? Card(state, account, item.StreamId) : null,
+                known ? [] : Cards(state, account));
             EmailSteps.ValidateRequest(request);
             var response = await remote.EmailStepAsync(credential.Token, request, ct);
             EmailSteps.ValidateResponse(request, response);
             // A thread analyzed in parts keeps an unfinished marker until its last part, so a restart continues it.
-            workstream = await CommitAsync(credential, run, thread.Id, first >= usable.Count ? thread.HistoryId : "", known,
-                part[^1].Id, part[^1].SentAt, workstream, response, ct);
-            known = new(thread.Id, "", part[^1].Id, part[^1].SentAt, workstream, clock.GetUtcNow());
+            await CommitAsync(credential, run, thread.Id, subject, first >= usable.Count ? thread.HistoryId : "", part[^1].Id, part[^1].SentAt,
+                request, response, ct);
         }
     }
 
     private async Task PassOverAsync(LinkedCredential credential, Run run, GmailThreadRef reference, CancellationToken ct)
     {
-        var known = Find(await store.ReadAsync(ct), credential.Account.Id, run.Address)?.Processed?.FirstOrDefault(item => item.Id == reference.Id);
-        await CommitAsync(credential, run, reference.Id, reference.HistoryId, known, known?.LastMessageId ?? "", clock.GetUtcNow(),
-            known?.WorkstreamId, null, ct);
+        var item = Item(await store.ReadAsync(ct), credential.Account.Id, run.Address, reference.Id);
+        await CommitAsync(credential, run, reference.Id, item?.Subject ?? "(no subject)", reference.HistoryId, item?.LastMessageId ?? "",
+            item?.LastSentAt ?? clock.GetUtcNow(), null, null, ct);
     }
 
     /// <summary>
-    /// Commits one analyzed part of a thread atomically: the workstream (updated or new) with its Updates, and the thread as
-    /// analyzed. Nothing is committed if the account changed, the Gmail account was removed or another computer took over.
+    /// Commits one analyzed part of a thread atomically: its status, placement and new bullets, and a new email stream when it
+    /// joins a card without one. Nothing is committed if the account changed, the Gmail account was removed or another
+    /// computer took over the import.
     /// </summary>
-    private async Task<string?> CommitAsync(LinkedCredential credential, Run run, string threadId, string historyId, GmailThreadState? known,
-        string lastMessageId, DateTimeOffset lastSentAt, string? workstream, EmailStepResponse? response, CancellationToken ct)
+    private async Task CommitAsync(LinkedCredential credential, Run run, string threadId, string subject, string historyId,
+        string lastMessageId, DateTimeOffset lastSentAt, EmailStepRequest? request, EmailStepResponse? response, CancellationToken ct)
     {
         string device = await DeviceAsync(ct);
-        string? result = workstream;
+        var account = credential.Account.Id;
         await store.ChangeAsync(current =>
         {
             var now = clock.GetUtcNow();
-            if (current.Credential?.Account.Id != credential.Account.Id || current.Credential.Token != credential.Token) throw StateChanged();
-            var mail = Find(current, credential.Account.Id, run.Address) ?? throw StateChanged();
+            if (current.Credential?.Account.Id != account || current.Credential.Token != credential.Token) throw StateChanged();
+            var mail = Find(current, account, run.Address) ?? throw StateChanged();
             if (run.Leased && mail.LeaseBy != device) throw new ResearchFailure(409, "gmail_lease_lost", "Another computer is importing this Gmail account.");
-            var projects = current.Projects;
-            result = workstream;
-            if (response is { Decision: EmailSteps.Existing or EmailSteps.New, Profile: { } profile })
+            var item = Item(current, account, mail.Address, threadId)
+                ?? new GmailThreadRecord(account, mail.Address, threadId, subject, GmailThreadRecord.Skipped, historyId, lastMessageId, lastSentAt, now, []);
+            item = item with { Subject = subject, HistoryId = historyId, LastMessageId = lastMessageId, LastSentAt = lastSentAt, UpdatedAt = now };
+            if (response is not null)
             {
-                var existing = response.Decision == EmailSteps.Existing
-                    ? projects.FirstOrDefault(item => item.AccountId == credential.Account.Id && item.ProjectId == response.WorkstreamId &&
-                        item.Source == ResearchSources.Gmail) ?? throw StateChanged()
-                    : null;
-                string id = existing?.ProjectId ?? ResearchSources.NewGmailWorkstreamId();
-                string name = profile.Title;
-                var updates = response.Updates.Select(update =>
+                var bullets = response.Bullets.Select(bullet => new GmailBullet(Guid.NewGuid(), bullet.Text, bullet.Evidence,
+                    bullet.Evidence.Max(citation => citation.Email!.SentAt), now, response.Newsworthy)).ToArray();
+                item = item with { Explanation = response.Explanation, Bullets = [.. item.Bullets, .. bullets] };
+                switch (response.Decision)
                 {
-                    // An email Update happened when its mail was written.
-                    var written = update.Evidence.Max(citation => citation.Email!.SentAt);
-                    return new ResearchUpdate(Guid.NewGuid(), id, name, run.Initial ? ResearchUpdateKind.InitialImport : ResearchUpdateKind.Change,
-                        update.Title, update.Summary, written, written, known is null ? null : Revision(threadId, known.LastMessageId),
-                        Revision(threadId, lastMessageId), Guid.NewGuid(), update.Evidence, null);
-                }).ToArray();
-                var project = existing is null
-                    ? new MonitoredProject(credential.Account.Id, id, name, true, ResearchEvidence.ConsentVersion, null, null, [], updates, now, now,
-                        null, null, response.Explanation, 0, 0, Profile: profile, ImportComplete: true, Source: ResearchSources.Gmail, Parent: mail.Address)
-                    : existing with
-                    {
-                        Name = name, Profile = profile, Updates = [.. existing.Updates, .. updates], LastAttemptAt = now, LastSuccessAt = now,
-                        Explanation = response.Explanation
-                    };
-                projects = [.. projects.Where(item => item.AccountId != credential.Account.Id || item.ProjectId != id), project];
-                result = id;
+                    case EmailSteps.Skip:
+                        item = item with { Status = GmailThreadRecord.Skipped, Bullets = [], StreamId = null, Headline = null, NewsAt = null };
+                        break;
+                    case EmailSteps.Project:
+                        var card = ThemePlan.Themes(current, account).FirstOrDefault(theme => theme.Id == response.ProjectId);
+                        if (card is null)
+                            item = item with { Status = GmailThreadRecord.Pending, Suggested = request!.Projects.First(project => project.Id == response.ProjectId).Title };
+                        else
+                        {
+                            (current, string stream) = Stream(current, account, mail.Address, card, null, now);
+                            item = item with { Status = GmailThreadRecord.Assigned, StreamId = stream };
+                        }
+                        break;
+                    case EmailSteps.Unassigned:
+                        item = item with { Status = GmailThreadRecord.Pending, Suggested = response.SuggestedProject };
+                        break;
+                }
+                if (response.Newsworthy) item = item with { Headline = response.Headline, NewsAt = bullets.Max(bullet => bullet.SentAt) };
+                if (item is { Status: GmailThreadRecord.Assigned, StreamId: { } changed } && bullets.Length != 0) current = Changed(current, account, changed);
             }
-            var entry = new GmailThreadState(threadId, historyId, lastMessageId, lastSentAt, result, now);
-            var updated = mail with
+            current = current with
             {
-                Processed = Prune([.. (mail.Processed ?? []).Where(item => item.Id != threadId), entry]),
-                LeaseUntil = run.Leased ? now + LeaseFor : mail.LeaseUntil
+                GmailThreads = Prune([.. Others(current, account, mail.Address, threadId), item]),
+                GmailAccounts = run.Leased
+                    ? [.. (current.GmailAccounts ?? []).Where(other => other != mail), mail with { LeaseUntil = now + LeaseFor }]
+                    : current.GmailAccounts
             };
-            return current with { Projects = projects, GmailAccounts = [.. Others(current, credential.Account.Id, mail.Address), updated] };
+            return Tidy(current, account);
         }, ct);
         if (response is not null)
-            logger.LogInformation(response.Decision == EmailSteps.Skip ? "A Gmail thread was analyzed: not research work." :
-                "A Gmail thread was analyzed ({Decision} workstream) with {Count} new Update(s).", response.Decision, response.Updates.Count);
-        return result;
+            logger.LogInformation("A Gmail thread was analyzed ({Decision}) with {Count} new bullet(s){News}.", response.Decision,
+                response.Bullets.Count, response.Newsworthy ? ", newsworthy" : "");
     }
 
-    /// <summary>The account's workstreams the thread may continue: where it went before, then those sharing the most words.</summary>
-    private static IReadOnlyList<EmailWorkstreamCandidate> Candidates(LocalResearchState state, Guid account, string address, string? previous, string text)
+    /// <summary>
+    /// The user's choice for a recorded thread: ignore it from now on, put it on a research card, or start a new research
+    /// project for it. Email streams that lose or gain the thread are summarized again.
+    /// </summary>
+    public async Task DecideAsync(GmailThreadDecisionRequest request, CancellationToken ct)
     {
-        var words = Words(text);
-        return [.. state.Projects.Where(item => item.AccountId == account && item.Source == ResearchSources.Gmail &&
-                string.Equals(item.Parent, address, StringComparison.OrdinalIgnoreCase) && item.Profile is not null && ProfileEvidence.ValidProfile(item.Profile))
-            .Select(item => (Project: item, Score: item.ProjectId == previous ? int.MaxValue : Words(Describe(item.Profile!)).Count(words.Contains)))
-            .OrderByDescending(item => item.Score).ThenByDescending(item => item.Project.LastSuccessAt)
-            .Take(MaxCandidates).Select(item => new EmailWorkstreamCandidate(item.Project.ProjectId, item.Project.Profile!))];
+        if (request is null || !EmailSteps.IsGmailId(request.ThreadId) || string.IsNullOrWhiteSpace(request.Address))
+            throw new ResearchFailure(400, "invalid_thread_decision", "Choose a thread and what to do with it.");
+        await store.ChangeAsync(current =>
+        {
+            var credential = current.Credential is { } linked && linked.ExpiresAt > clock.GetUtcNow() ? linked
+                : throw new ResearchFailure(401, "meld_account_required", "Sign in with Google first.");
+            var account = credential.Account.Id;
+            var item = Item(current, account, request.Address, request.ThreadId);
+            if (item?.Status is not (GmailThreadRecord.Assigned or GmailThreadRecord.Pending))
+                throw new ResearchFailure(404, "gmail_thread_not_found", "This thread is no longer waiting for a decision.");
+            var now = clock.GetUtcNow();
+            string? before = item.Status == GmailThreadRecord.Assigned ? item.StreamId : null;
+            switch (request.Action)
+            {
+                case "dismiss":
+                    item = item with { Status = GmailThreadRecord.Dismissed, StreamId = null };
+                    break;
+                case "project":
+                    var card = ThemePlan.Themes(current, account).FirstOrDefault(theme => theme.Id == request.CardId)
+                        ?? throw new ResearchFailure(404, "research_card_not_found", "That research project no longer exists.");
+                    (current, string stream) = Stream(current, account, item.Address, card, null, now);
+                    item = item with { Status = GmailThreadRecord.Assigned, StreamId = stream };
+                    break;
+                case "new":
+                    string name = request.Name?.Trim() ?? "";
+                    if (name.Length is 0 or > 120) throw new ResearchFailure(400, "invalid_project_name", "Give the new project a name of at most 120 characters.");
+                    (current, string created) = Stream(current, account, item.Address, null, name, now);
+                    item = item with { Status = GmailThreadRecord.Assigned, StreamId = created };
+                    break;
+                default:
+                    throw new ResearchFailure(400, "invalid_thread_decision", "Choose a thread and what to do with it.");
+            }
+            item = item with { UpdatedAt = now };
+            if (before is not null && before != item.StreamId) current = Changed(current, account, before);
+            if (item.StreamId is { } after && after != before) current = Changed(current, account, after);
+            current = current with { GmailThreads = [.. Others(current, account, item.Address, item.Id), item] };
+            return Tidy(current, account);
+        }, ct);
+        logger.LogInformation("A Gmail thread was {Action} by the user.", request.Action switch
+        {
+            "dismiss" => "dismissed", "project" => "added to a research project", _ => "made into a new research project"
+        });
     }
 
-    private static string Describe(ProjectProfile profile) =>
-        string.Join('\n', [profile.Title, profile.Description, .. profile.Contributions, .. profile.Topics]);
+    /// <summary>The account's threads for the feed: assigned ones with newsworthy progress, and those waiting for a decision.</summary>
+    public static IReadOnlyList<GmailThreadResponse> Threads(LocalResearchState state, Guid? account)
+    {
+        if (account is not { } id) return [];
+        var themes = ThemePlan.Themes(state, id);
+        return [.. (state.GmailThreads ?? []).Where(item => item.AccountId == id &&
+                (item.Status == GmailThreadRecord.Assigned && item.NewsAt is not null || item.Status == GmailThreadRecord.Pending))
+            .OrderByDescending(item => item.NewsAt ?? item.LastSentAt).Take(MaxFeedThreads)
+            .Select(item =>
+            {
+                var card = item.StreamId is { } stream ? themes.FirstOrDefault(theme => theme.Members.Contains(stream)) : null;
+                return new GmailThreadResponse(item.Address, item.Id, item.Subject, item.Headline ?? item.Subject, item.Status, card?.Id,
+                    card is null ? null : CardTitle(state, card), item.Suggested,
+                    [.. item.Bullets.Select(bullet => new GmailBulletResponse(bullet.Id, bullet.Text, bullet.SentAt, bullet.Newsworthy, bullet.Evidence))],
+                    item.LastSentAt, item.NewsAt);
+            })];
+    }
 
-    [GeneratedRegex(@"\p{L}{4,}")]
-    private static partial Regex Word();
-    private static HashSet<string> Words(string text) =>
-        Word().Matches(text).Select(match => match.Value.ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
+    /// <summary>A changed email stream to summarize once no import of its Gmail account is running.</summary>
+    private MonitoredProject? StreamDue(LocalResearchState state, Guid account, DateTimeOffset now) =>
+        state.Projects.Where(project => project.AccountId == account && project.Source == ResearchSources.Gmail && project.Enabled &&
+                !project.ImportComplete && (project.NextAttemptAt is null || project.NextAttemptAt <= now) &&
+                project.Parent is { } address && !_runs.ContainsKey(address) &&
+                (state.GmailThreads ?? []).Any(item => item.StreamId == project.ProjectId && item.Status == GmailThreadRecord.Assigned && item.Bullets.Count != 0))
+            .OrderBy(project => project.LastAttemptAt ?? DateTimeOffset.MinValue).FirstOrDefault();
+
+    /// <summary>Summarizes one email stream from its threads' bullets, so its card's combined summary includes the email.</summary>
+    private async Task SummarizeAsync(LinkedCredential credential, MonitoredProject stream, CancellationToken ct)
+    {
+        var account = credential.Account.Id;
+        var request = StreamRequest(await store.ReadAsync(ct), stream);
+        if (request is null) return;
+        string print = Print(request);
+        try
+        {
+            var response = await remote.EmailStreamAsync(credential.Token, request, ct);
+            if (!ProfileEvidence.ValidProfile(response.Profile))
+                throw new ResearchFailure(502, "invalid_email_stream", "Foundry returned an unsupported email summary. Nothing was changed.");
+            await store.ChangeAsync(current =>
+            {
+                var project = current.Projects.FirstOrDefault(item => item.AccountId == account && item.ProjectId == stream.ProjectId);
+                if (current.Credential?.Account.Id != account || project is null) return current;
+                // Bullets added meanwhile keep the stream waiting for another summary.
+                bool settled = StreamRequest(current, project) is { } now && Print(now) == print;
+                var updated = project with
+                {
+                    Profile = response.Profile with { Title = project.Name }, ImportComplete = settled, LastAttemptAt = clock.GetUtcNow(),
+                    LastSuccessAt = clock.GetUtcNow(), ErrorCode = null, Error = null, FailureCount = 0, NextAttemptAt = null
+                };
+                return current with { Projects = [.. current.Projects.Where(item => item != project), updated] };
+            }, ct);
+            logger.LogInformation("An email stream was summarized from {Threads} thread(s).", request.Threads.Count);
+        }
+        catch (ResearchFailure failure)
+        {
+            logger.LogWarning("Summarizing an email stream failed ({Code}); it is retried later.", failure.Code);
+            await store.ChangeAsync(current =>
+            {
+                var project = current.Projects.FirstOrDefault(item => item.AccountId == account && item.ProjectId == stream.ProjectId);
+                if (project is null) return current;
+                var now = clock.GetUtcNow();
+                var failed = project with
+                {
+                    LastAttemptAt = now, ErrorCode = failure.Code, Error = failure.Message, FailureCount = Math.Min(project.FailureCount + 1, 10),
+                    NextAttemptAt = now + TimeSpan.FromMinutes(Math.Min(Math.Pow(2, Math.Min(project.FailureCount, 10)), 720))
+                };
+                return current with { Projects = [.. current.Projects.Where(item => item != project), failed] };
+            }, ct);
+        }
+    }
+
+    private static EmailStreamRequest? StreamRequest(LocalResearchState state, MonitoredProject stream)
+    {
+        var threads = new List<EmailStreamThread>();
+        int characters = 0;
+        foreach (var item in (state.GmailThreads ?? []).Where(item => item.StreamId == stream.ProjectId && item.Status == GmailThreadRecord.Assigned &&
+                     item.Bullets.Count != 0).OrderByDescending(item => item.NewsAt ?? item.LastSentAt).ThenBy(item => item.Id, StringComparer.Ordinal))
+        {
+            var bullets = item.Bullets.TakeLast(12).Select(bullet => bullet.Text).ToArray();
+            int size = item.Subject.Length + (item.Headline?.Length ?? 0) + bullets.Sum(bullet => bullet.Length);
+            if (threads.Count == EmailSteps.MaxStreamThreads || characters + size > EmailSteps.MaxStreamCharacters - 2000) break;
+            threads.Add(new(item.Subject, item.Headline, bullets));
+            characters += size;
+        }
+        if (threads.Count == 0) return null;
+        var previous = stream.Profile is { } profile && profile.Description != Placeholder && ProfileEvidence.ValidProfile(profile) ? profile : null;
+        return new(stream.Name, previous, threads);
+    }
+
+    private static string Print(EmailStreamRequest request) =>
+        ResearchEvidence.Hash(JsonSerializer.Serialize(request with { Profile = null }, ResearchJson.Options));
+
+    /// <summary>
+    /// The email stream of a Gmail account on a research card, made if the card has none yet (and placed there for good), or
+    /// a new stream on a card of its own for a new project named <paramref name="name"/>.
+    /// </summary>
+    private static (LocalResearchState State, string Id) Stream(LocalResearchState state, Guid account, string address, ResearchTheme? card,
+        string? name, DateTimeOffset now)
+    {
+        if (card is not null && state.Projects.FirstOrDefault(project => project.AccountId == account && project.Source == ResearchSources.Gmail &&
+                Same(project.Parent, address) && card.Members.Contains(project.ProjectId)) is { } existing)
+            return (state, existing.ProjectId);
+        string id = ResearchSources.NewGmailWorkstreamId();
+        string title = Trim(name ?? "Email · " + (card is null ? "research" : CardTitle(state, card)), 120);
+        var stream = new MonitoredProject(account, id, title, true, ResearchEvidence.ConsentVersion, null, null, [], [], now, null, null, null,
+            null, 0, 0, Profile: new(title, Placeholder, [], []), ImportComplete: false, Source: ResearchSources.Gmail, Parent: address);
+        state = state with { Projects = [.. state.Projects, stream] };
+        return (ThemePlan.Place(state, account, id, card?.Id, now, pin: true), id);
+    }
+
+    /// <summary>An email stream's threads changed: it is summarized again (and its card waits for that summary).</summary>
+    private static LocalResearchState Changed(LocalResearchState state, Guid account, string streamId) =>
+        state with
+        {
+            Projects = [.. state.Projects.Select(project => project.AccountId == account && project.ProjectId == streamId && project.Source == ResearchSources.Gmail
+                ? project with { ImportComplete = false, NextAttemptAt = null } : project)]
+        };
+
+    /// <summary>Email streams without threads are removed (their cards drop them).</summary>
+    private static LocalResearchState Tidy(LocalResearchState state, Guid account)
+    {
+        var used = (state.GmailThreads ?? []).Where(item => item.AccountId == account && item.Status == GmailThreadRecord.Assigned && item.StreamId is not null)
+            .Select(item => item.StreamId!).ToHashSet(StringComparer.Ordinal);
+        var empty = state.Projects.Where(project => project.AccountId == account && project.Source == ResearchSources.Gmail && !used.Contains(project.ProjectId))
+            .Select(project => project.ProjectId).ToHashSet(StringComparer.Ordinal);
+        return empty.Count == 0 ? state : state with
+        {
+            Projects = [.. state.Projects.Where(project => project.AccountId != account || !empty.Contains(project.ProjectId))],
+            Themes = [.. (state.Themes ?? []).Select(theme => theme.AccountId == account && theme.Members.Any(empty.Contains)
+                    ? theme with { Members = [.. theme.Members.Where(member => !empty.Contains(member))], Pinned = theme.Pinned?.Where(member => !empty.Contains(member)).ToArray() }
+                    : theme).Where(theme => theme.Members.Count != 0)]
+        };
+    }
+
+    /// <summary>Skipped threads are kept only so they are not analyzed again; the oldest go first beyond a limit.</summary>
+    private static IReadOnlyList<GmailThreadRecord> Prune(IReadOnlyList<GmailThreadRecord> threads)
+    {
+        var skipped = threads.Where(item => item.Status == GmailThreadRecord.Skipped).ToArray();
+        if (skipped.Length <= MaxSkipped) return threads;
+        var dropped = skipped.OrderByDescending(item => item.LastSentAt).Skip(MaxSkipped).ToHashSet();
+        return [.. threads.Where(item => !dropped.Contains(item))];
+    }
+
+    /// <summary>
+    /// The user's research cards with summaries (also those the user made for email), as compact descriptors: title, the first
+    /// sentences and topics.
+    /// </summary>
+    private static IReadOnlyList<ThemeCandidate> Cards(LocalResearchState state, Guid account) =>
+        [.. ThemePlan.Themes(state, account).Where(theme => theme.Profile is not null).Take(ResearchThemes.MaxCandidates).Select(Candidate)];
+
+    private static ThemeCandidate? Card(LocalResearchState state, Guid account, string? streamId) =>
+        streamId is null ? null : ThemePlan.Themes(state, account).FirstOrDefault(theme => theme.Members.Contains(streamId) && theme.Profile is not null) is { } card
+            ? Candidate(card) : null;
+
+    private static ThemeCandidate Candidate(ResearchTheme theme)
+    {
+        var profile = theme.Profile!;
+        string description = profile.Description;
+        if (description.Length > 400)
+        {
+            int end = description.LastIndexOf(". ", 400, StringComparison.Ordinal);
+            description = end > 100 ? description[..(end + 1)] : description[..400];
+        }
+        return new(theme.Id, Trim(profile.Title, ProfileEvidence.HardMaxTitle), description, [.. profile.Topics.Take(8)]);
+    }
+
+    private static string CardTitle(LocalResearchState state, ResearchTheme card) =>
+        card.Profile?.Title ?? state.Projects.FirstOrDefault(project => card.Members.Contains(project.ProjectId))?.Name ?? "Research project";
 
     private bool Blocked(string address, DateTimeOffset now) => _retryAt.TryGetValue(address, out var until) && until > now;
 
     private bool Due(GmailAccountState mail, DateTimeOffset now) =>
-        _requested.ContainsKey(mail.Address) || mail.LastImportAt is null || now >= NextImportAt(mail);
+        _requested.ContainsKey(mail.Address) || mail.LastImportAt is null || mail.ImportVersion != Version || now >= NextImportAt(mail);
 
     private static IEnumerable<GmailAccountState> Eligible(LocalResearchState state, Guid account) =>
         (state.GmailAccounts ?? []).Where(item => item.AccountId == account && !item.Removed && item.RefreshToken is not null &&
@@ -338,17 +594,22 @@ internal sealed partial class GmailImporter(IResearchStore store, IResearchRemot
 
     private static GmailAccountState? Find(LocalResearchState state, Guid account, string address) =>
         (state.GmailAccounts ?? []).FirstOrDefault(item => item.AccountId == account && !item.Removed && item.RefreshToken is not null &&
-            string.Equals(item.Address, address, StringComparison.OrdinalIgnoreCase));
+            Same(item.Address, address));
 
-    private static IEnumerable<GmailAccountState> Others(LocalResearchState state, Guid account, string address) =>
-        (state.GmailAccounts ?? []).Where(item => item.AccountId != account || !string.Equals(item.Address, address, StringComparison.OrdinalIgnoreCase));
+    private static GmailThreadRecord? Item(LocalResearchState state, Guid account, string address, string threadId) =>
+        (state.GmailThreads ?? []).FirstOrDefault(item => item.AccountId == account && item.Id == threadId && Same(item.Address, address));
+
+    private static IEnumerable<GmailThreadRecord> Others(LocalResearchState state, Guid account, string address, string threadId) =>
+        (state.GmailThreads ?? []).Where(item => item.AccountId != account || item.Id != threadId || !Same(item.Address, address));
+
+    private static bool Same(string? a, string? b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
     private Task ChangeAccountAsync(LinkedCredential credential, string address, Func<GmailAccountState, GmailAccountState> change, CancellationToken ct) =>
         store.ChangeAsync(current =>
         {
             if (current.Credential?.Account.Id != credential.Account.Id) throw StateChanged();
             var mail = Find(current, credential.Account.Id, address) ?? throw StateChanged();
-            return current with { GmailAccounts = [.. Others(current, credential.Account.Id, address), change(mail)] };
+            return current with { GmailAccounts = [.. (current.GmailAccounts ?? []).Where(item => item != mail), change(mail)] };
         }, ct);
 
     /// <summary>This computer's id for import leases (random, kept in the encrypted state).</summary>
@@ -363,7 +624,6 @@ internal sealed partial class GmailImporter(IResearchStore store, IResearchRemot
     }
 
     private static EmailMessage Email(GmailMessage message) => new(message.Id, message.From, message.SentAt, message.FromUser, message.Text);
-    private static string Revision(string threadId, string messageId) => $"gmail:{threadId}:{messageId}";
     private static string Trim(string value, int max) => value.Length <= max ? value : value[..max];
     private static ResearchFailure StateChanged() => new(409, "research_state_changed", "The account or Gmail account changed. Uncommitted results were discarded.");
 }

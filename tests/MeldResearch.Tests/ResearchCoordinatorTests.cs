@@ -805,6 +805,13 @@ public sealed class ResearchCoordinatorTests
         }
         public List<EmailStepRequest> EmailRequests { get; } = [];
         public Func<EmailStepRequest, EmailStepResponse>? EmailStep { get; set; }
+        public List<EmailStreamRequest> StreamRequests { get; } = [];
+        public Task<EmailStreamResponse> EmailStreamAsync(string token, EmailStreamRequest request, CancellationToken ct)
+        {
+            lock (StreamRequests) StreamRequests.Add(request);
+            return Task.FromResult(new EmailStreamResponse(new(request.Name, "Email work: " + string.Join("; ", request.Threads.Select(thread => thread.Subject)),
+                [.. request.Threads.SelectMany(thread => thread.Bullets).Take(15)], ["email"]), "chat"));
+        }
         public Task<EmailStepResponse> EmailStepAsync(string token, EmailStepRequest request, CancellationToken ct)
         {
             lock (EmailRequests) EmailRequests.Add(request);

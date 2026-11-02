@@ -1,8 +1,9 @@
 @if (status(); as gmail) {
   <section class="gmail" aria-label="Gmail">
     <p>Meld can also learn from your email. It reads only <strong>threads you wrote in</strong> during the last
-      {{ gmail.windowDays }} days (and later new ones), skipping chats. Meld finds the lines of work in them and adds them to
-      your research cards as <em>Gmail workstreams</em>, which you can move to any card.</p>
+      {{ gmail.windowDays }} days (and later new ones), skipping chats. Each thread becomes a short list of bullet points that
+      grows as replies arrive, added to the research project it belongs to. Threads that fit none of your projects wait in
+      <em>Private updates</em> on the feed, where you decide.</p>
     <p class="muted">Access is read-only and comes from this computer, not from Meld's server. Meld keeps it encrypted, shares it
       only with your other computers through encrypted sync, and never puts it into a backup. Removing an account withdraws Meld's
       access at Google. While Meld Research is in Google's testing phase, Google asks you to reconnect every 7 days.</p>
@@ -17,8 +18,8 @@
               <span class="account-status" [class]="account.status">{{ statusLabel(account) }}</span>
               @if (account.status === 'connected' && account.threads !== null) {
                 <small class="account-counts">{{ account.threads }} {{ account.threads === 1 ? 'thread' : 'threads' }} you wrote in during the
-                  last {{ gmail.windowDays }} days &middot; {{ account.analyzed ?? 0 }} analyzed &middot; {{ account.workstreams ?? 0 }}
-                  {{ account.workstreams === 1 ? 'workstream' : 'workstreams' }}</small>
+                  last {{ gmail.windowDays }} days &middot; {{ account.analyzed ?? 0 }} analyzed &middot; on {{ account.workstreams ?? 0 }}
+                  {{ account.workstreams === 1 ? 'project' : 'projects' }}</small>
               }
               @if (account.status === 'connected' && account.importing; as importing) {
                 @if (importing.waiting) {

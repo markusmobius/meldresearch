@@ -20,7 +20,8 @@ internal sealed record ProfileBundle(int Version, IReadOnlyList<ProjectDecision>
     IReadOnlyList<ResearchTheme> Themes, string? ThemesRegroupedFor, IReadOnlyList<ProjectSummaryState> Summaries,
     ResearcherState? Researcher, DateTimeOffset SavedAt,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<WorkstreamRef>? Workstreams = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<GmailAccountState>? GmailAccounts = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<GmailAccountState>? GmailAccounts = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<GmailThreadRecord>? GmailThreads = null);
 
 /// <summary>
 /// Builds and applies sync bundles. Fingerprints ignore texts (determined by the hashes) and save times, so they change only
@@ -59,7 +60,25 @@ internal static class SyncBundles
                 .ToDictionary(group => group.Key, group => group.First().Name, StringComparer.Ordinal),
             [.. ThemePlan.Themes(state, account).OrderBy(item => item.Id, StringComparer.Ordinal)], state.ThemesRegroupedFor,
             [.. (state.Summaries ?? []).Where(item => item.AccountId == account).OrderBy(item => item.ProjectId, StringComparer.Ordinal)],
-            state.Researchers?.FirstOrDefault(item => item.AccountId == account), now, Workstreams(state, account), GmailAccounts(state, account));
+            state.Researchers?.FirstOrDefault(item => item.AccountId == account), now, Workstreams(state, account), GmailAccounts(state, account),
+            GmailThreads(state, account));
+
+    private static IReadOnlyList<GmailThreadRecord>? GmailThreads(LocalResearchState state, Guid account)
+    {
+        var items = (state.GmailThreads ?? []).Where(item => item.AccountId == account)
+            .OrderBy(item => item.Address, StringComparer.Ordinal).ThenBy(item => item.Id, StringComparer.Ordinal).ToArray();
+        return items.Length == 0 ? null : items;
+    }
+
+    /// <summary>Recorded Gmail threads from two places merged: per thread the later change wins.</summary>
+    public static IReadOnlyList<GmailThreadRecord>? MergeThreads(IReadOnlyList<GmailThreadRecord>? local, IEnumerable<GmailThreadRecord>? remote, Guid account)
+    {
+        if (remote is null) return local;
+        var merged = (local ?? []).Where(item => item.AccountId != account).ToList();
+        merged.AddRange((local ?? []).Where(item => item.AccountId == account).Concat(remote.Where(item => item.AccountId == account))
+            .GroupBy(item => (Address: item.Address.ToLowerInvariant(), item.Id)).Select(group => group.MaxBy(item => item.UpdatedAt)!));
+        return merged.Count == 0 ? local : merged;
+    }
 
     private static IReadOnlyList<GmailAccountState>? GmailAccounts(LocalResearchState state, Guid account)
     {
@@ -68,9 +87,9 @@ internal static class SyncBundles
     }
 
     /// <summary>
-    /// Connected Gmail accounts from two places merged per address: the newer connection (or removal) wins; analyzed threads
-    /// are combined (the later analysis of a thread wins), the last import is the later one, and the import lease is the
-    /// synced one, so a computer learns that another one is importing.
+    /// Connected Gmail accounts from two places merged per address: the newer connection (or removal) wins; the last import
+    /// and its analysis version are the later ones, and the import lease is the synced one, so a computer learns that another
+    /// one is importing.
     /// </summary>
     public static IReadOnlyList<GmailAccountState>? MergeGmail(IReadOnlyList<GmailAccountState>? local, IEnumerable<GmailAccountState>? remote, Guid account)
     {
@@ -89,14 +108,13 @@ internal static class SyncBundles
     {
         var connection = remote.ChangedAt > local.ChangedAt ? remote : local;
         if (connection.Removed) return connection;
-        var threads = (local.Processed ?? []).Concat(remote.Processed ?? []).GroupBy(thread => thread.Id, StringComparer.Ordinal)
-            .Select(group => group.MaxBy(thread => thread.ProcessedAt)!).ToArray();
         DateTimeOffset? last = local.LastImportAt > remote.LastImportAt || remote.LastImportAt is null ? local.LastImportAt : remote.LastImportAt;
         var (leaseBy, leaseUntil) = remote.LeaseBy is not null && remote.LeaseBy == local.LeaseBy && local.LeaseUntil > remote.LeaseUntil
             ? (local.LeaseBy, local.LeaseUntil) : (remote.LeaseBy, remote.LeaseUntil);
         return connection with
         {
-            Processed = threads.Length == 0 ? null : GmailImporter.Prune(threads), LastImportAt = last, LeaseBy = leaseBy, LeaseUntil = leaseUntil
+            Processed = null, LastImportAt = last, LeaseBy = leaseBy, LeaseUntil = leaseUntil,
+            ImportVersion = local.ImportVersion > remote.ImportVersion || remote.ImportVersion is null ? local.ImportVersion : remote.ImportVersion
         };
     }
 
@@ -163,8 +181,9 @@ internal static class SyncBundles
         {
             if (!ResearchSources.IsGmailWorkstreamId(workstream.Id) || workstream.Source != ResearchSources.Gmail ||
                 projects.Any(item => item.AccountId == account && item.ProjectId == workstream.Id)) continue;
-            bool excluded = decisions.Any(item => item.ProjectId == workstream.Id && !item.Included);
-            projects.Add(new MonitoredProject(account, workstream.Id, workstream.Name, !excluded, consentVersion,
+            // An excluded workstream (for example one replaced by a newer email analysis) is not added again.
+            if (decisions.Any(item => item.ProjectId == workstream.Id && !item.Included)) continue;
+            projects.Add(new MonitoredProject(account, workstream.Id, workstream.Name, true, consentVersion,
                 null, null, [], [], null, null, null, null, null, 0, 0, Source: workstream.Source, Parent: workstream.Parent));
         }
         return state with
@@ -177,6 +196,7 @@ internal static class SyncBundles
             Researchers = researcher is not null
                 ? [.. (state.Researchers ?? []).Where(item => item.AccountId != account), researcher] : state.Researchers,
             GmailAccounts = MergeGmail(state.GmailAccounts, bundle.GmailAccounts, account),
+            GmailThreads = MergeThreads(state.GmailThreads, bundle.GmailThreads, account),
             Sync = etag is null ? state.Sync : state.Sync! with { ProfileETag = etag, ProfileSyncedFor = Fingerprint(bundle) }
         };
     }

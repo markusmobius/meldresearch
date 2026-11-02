@@ -174,7 +174,7 @@ that backend requires real Google OAuth configuration. No synthetic identity is
 available in Live mode.
 
 The source manifest now uses the supplied Chrome draft public key:
-**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.6.1**, wire protocol **2**.
+**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.6.2**, wire protocol **2**.
 It is a public identity key, not a signing secret.
 
 Until the private listing is approved, remove the old development-ID unpacked
@@ -557,18 +557,31 @@ wrote in during the last 30 days (`in:sent newer_than:30d -in:chats`) and reads
 only threads whose Gmail `historyId` changed, oldest first. Messages are cleaned
 locally ([EmailText](apps/LocalBackend/Services/Research/EmailText.cs): plain text
 preferred, quoted replies, forwards and signatures cut, 8,000 characters); bulk
-mail counts only if the user wrote it. Only the new messages go to
-`POST /api/research/email-step` (with up to four earlier ones as context and up
-to eight candidate workstreams); Foundry answers skip / existing / new, and cited
-lines are copied verbatim on the server and checked again locally
-([EmailSteps](libraries/Research/EmailContracts.cs)). Each thread commits
-atomically (workstream, Updates dated by the email's send time, the thread's
-`GmailThreadState`), so an unchanged mailbox makes no model call, also after a
-restart. With encrypted sync the analyzed threads and `LastImportAt` merge
-across computers, and a lease (`LeaseBy`/`LeaseUntil`, 15 minutes, renewed per
-thread) is pushed before any mail is read, so other computers wait instead of
-analyzing mail twice. Account → Gmail shows progress and offers Import now.
-Dummy mode uses a synthetic mailbox (research, grant and lunch threads) and
+mail counts only if the user wrote it. Each thread is one `GmailThreadRecord`: a
+list of cited bullets that grows as replies arrive. Only the new messages go to
+`POST /api/research/email-step` (with up to four earlier ones as context):
+- a thread seen for the first time gets the user's research cards as compact
+  candidates (title, first sentences, topics) and Foundry answers **skip** (not
+  work), **project** (a card id) or **unassigned** (with a suggested name);
+- a known thread gets its recorded bullets and card and only **continues**.
+
+Bullets cite line ranges, copied verbatim on the server and checked again locally
+([EmailSteps](libraries/Research/EmailContracts.cs)); `newsworthy` progress sets
+the thread's headline and puts it in the Updates feed. An assigned thread joins
+its card's **email stream** (one `gmail-` member per Gmail account and card,
+pinned there); after an import, each changed stream is summarized from its
+bullets (`POST /api/research/email-stream`) so the card summary includes email.
+Unassigned threads wait in the feed's **Private updates** column, where the user
+skips them, adds them to a card or starts a new project (a card of its own);
+Meld never starts one itself. Each thread commits atomically, so an unchanged
+mailbox makes no model call, also after a restart. With encrypted sync the
+threads and `LastImportAt` merge across computers, and a lease
+(`LeaseBy`/`LeaseUntil`, 15 minutes, renewed per thread) is pushed before any
+mail is read, so other computers wait instead of analyzing mail twice. Account →
+Gmail shows progress and offers Import now. State from the earlier
+one-workstream-per-line analysis is replaced once (`GmailVersion`) and the mail
+imported again. Dummy mode uses a synthetic mailbox (a thread about the
+synthetic Overleaf project, a paper and a grant that fit no project, a lunch) and
 needs no Google setup, but analysis uses real Foundry.
 
 ### Backup, restore and leaving

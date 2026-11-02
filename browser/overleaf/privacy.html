@@ -21,7 +21,7 @@
       <header class="page-header">
         <div class="page-heading">
           <h1 class="page-title"><span class="material-icons site-only" aria-hidden="true">shield</span>Privacy &amp; Controls</h1>
-          <p class="page-subtitle">Last updated: October 2026 &middot; Meld Research and its Overleaf connector, version 0.6.1</p>
+          <p class="page-subtitle">Last updated: October 2026 &middot; Meld Research and its Overleaf connector, version 0.6.2</p>
         </div>
       </header>
 
@@ -61,10 +61,14 @@
                 change or delete mail. Meld uses only threads you wrote in (chats excluded), starting with the last 30 days, and looks
                 for new mail in them about once an hour. Of each thread with new mail it sends only the new messages (signatures and
                 quoted replies removed; mailing-list and automated mail only if you wrote it), with up to four earlier messages for
-                context, through Meld's service to Azure AI Foundry, one thread at a time, to find your lines of work ("Gmail
-                workstreams") and Updates, which then appear on your research cards with short quoted evidence. Threads that are not
-                research work are skipped. Meld's server does not store the email text; the workstreams, their Updates and quotes, and
-                a list of the threads already analyzed are kept in the encrypted research store and your end-to-end encrypted sync.
+                context, through Meld's service to Azure AI Foundry, one thread at a time, together with short descriptions of your
+                research projects (title, a few sentences, topics) so the thread can be placed. Each thread becomes a list of short
+                bullet points with quoted evidence that grows as replies arrive; it joins the research project it belongs to, and
+                its newsworthy progress appears in your Updates feed. Threads that fit none of your projects wait in Private updates
+                until you skip them, add them to a project or start a new one; Meld never starts a project on its own. Threads that
+                are not work are skipped. A project's email bullets (not the emails) are also sent to summarize its email for the
+                project's card. Meld's server does not store the email text; the threads' bullets and quotes and the list of threads
+                already analyzed are kept in the encrypted research store and your end-to-end encrypted sync.
                 Google's access grant is kept only in the encrypted research store and in your end-to-end encrypted sync; it is never
                 sent to Meld's server, put into a backup or logged. Meld's server provides only the Google sign-in client. While Meld
                 Research is in Google's testing phase, Google asks you to reconnect every 7 days. Meld's use of information received
@@ -210,7 +214,7 @@
               stops local processing and requests remote credential revocation, retrying if the service is unavailable.
               <strong>Forget local research</strong> removes that project's summary, processing state, and update history for the
               linked account. <strong>Excluding</strong> a project also deletes its encrypted synced copy. <strong>Removing</strong> a Gmail
-              account (Account &rarr; Gmail) withdraws Meld's access at Google and removes the account and its workstreams on all your
+              account (Account &rarr; Gmail) withdraws Meld's access at Google and removes the account and its email threads on all your
               computers; you can also withdraw access in your Google account's security settings. <strong>Start over</strong>
               (offered when the passphrase and recovery key are lost) deletes every encrypted synced copy of the account; research on
               the computer where you choose it is uploaded again under the new passphrase. Disconnecting an account does not delete

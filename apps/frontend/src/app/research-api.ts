@@ -76,13 +76,29 @@ export interface ResearchStatus {
 export interface GmailAccount {
   address: string; status: 'connected' | 'reconnect' | 'error'; error: string | null; threads: number | null;
   checkedAt: string | null; connectedAt: string;
-  /** Threads analyzed so far and the workstreams found in them; importing: the import running now (waiting: on another computer). */
+  /**
+   * Threads analyzed so far, and workstreams: research projects this account's email contributes to. importing: the import
+   * running now (waiting: on another computer).
+   */
   analyzed?: number; workstreams?: number; lastImportAt?: string | null; nextImportAt?: string | null;
   importing?: { done: number; total: number; waiting: boolean } | null; importError?: string | null;
 }
 export interface GmailStatus {
   configured: boolean; windowDays: number; consentVersion: string; accounts: ReadonlyArray<GmailAccount>; lastError: string | null;
+  /** Recorded threads for the feed: assigned ones with newsworthy progress, and pending ones waiting for the user. */
+  threads?: ReadonlyArray<GmailThread> | null;
 }
+export interface GmailBullet { id: string; text: string; sentAt: string; newsworthy: boolean; evidence: ReadonlyArray<ResearchCitation>; }
+/**
+ * One email thread as a growing list of bullets. assigned: on research card cardId (newsAt: its latest newsworthy progress);
+ * pending: Meld found no fitting project, the user decides (suggested: a name for a new one).
+ */
+export interface GmailThread {
+  address: string; id: string; subject: string; title: string; status: 'assigned' | 'pending'; cardId: string | null;
+  cardTitle: string | null; suggested: string | null; bullets: ReadonlyArray<GmailBullet>; lastSentAt: string; newsAt: string | null;
+}
+/** dismiss: ignore the thread from now on; project: put it on research card cardId; new: a new research project named name. */
+export type GmailThreadAction = 'dismiss' | 'project' | 'new';
 /** A data download being prepared, ready (url works until expiresAt, five minutes) or failed. */
 export interface ExportStatus {
   id: string; state: 'preparing' | 'ready' | 'failed'; startedAt: string; readyAt: string | null; expiresAt: string | null;
@@ -170,6 +186,11 @@ export class ResearchApi {
   /** Google's consent page for a Gmail account; it returns to this app (the caller navigates there). */
   connectGmail(consentVersion: string): Promise<{ authorizationUrl: string; expiresAt: string }> {
     return firstValueFrom(this.http.post<{ authorizationUrl: string; expiresAt: string }>('/api/research/gmail/connect', { consentVersion }));
+  }
+  /** Where a recorded Gmail thread belongs: ignore it, a research card, or a new research project. */
+  decideGmailThread(thread: Pick<GmailThread, 'address' | 'id'>, action: GmailThreadAction, cardId?: string, name?: string): Promise<void> {
+    return firstValueFrom(this.http.post<void>('/api/research/gmail/threads/decision',
+      { address: thread.address, threadId: thread.id, action, cardId: cardId ?? null, name: name ?? null }));
   }
   /** Imports new mail from a connected Gmail account now (also if it was imported recently). */
   importGmail(address: string): Promise<void> {

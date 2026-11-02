@@ -8,7 +8,7 @@ describe('Research Updates onboarding', () => {
   const projectId = '0123456789abcdef01234567';
   const api = {
     status: vi.fn(), link: vi.fn(), unlink: vi.fn(), monitor: vi.fn(),
-    forget: vi.fn(), sync: vi.fn(), demoChange: vi.fn(),
+    forget: vi.fn(), sync: vi.fn(), demoChange: vi.fn(), decideGmailThread: vi.fn(),
   };
   const base: ResearchStatus = {
     account: { id: 'account-one', name: 'Synthetic researcher', email: 'researcher@example.invalid' },
@@ -122,6 +122,68 @@ describe('Research Updates onboarding', () => {
     expect(dialog.textContent).toContain('from Demo <demo@example.invalid>');
     expect(dialog.querySelector('a[href*="overleaf.com"]')).toBeNull();
     expect(dialog.textContent).not.toContain('Revision');
+    fixture.destroy();
+  });
+
+  it('shows email threads as growing bullet lists in Updates and lets the user decide threads in Private updates', async () => {
+    const card = 'a'.repeat(32);
+    const evidence = [{ path: 'Pilot results', quote: 'Task completion is 15 percent higher.', version: 'current' as const,
+      email: { messageId: 'm1', from: 'Demo <demo@example.invalid>', sentAt: '2026-11-01T10:00:00Z' } }];
+    const bullet = (id: string, text: string, newsworthy = true) => ({ id, text, sentAt: '2026-11-01T10:00:00Z', newsworthy, evidence });
+    api.status.mockResolvedValue({ ...base, totalUpdates: 1,
+      themes: [{ id: card, profile: { title: 'Weekly feedback study', description: 'd', contributions: [], topics: [] }, projectIds: [], updating: false }],
+      updates: [{ id: 'u1', projectId, projectName: 'Synthetic project', kind: 'change', title: 'Overleaf change', summary: 'Changed.',
+        observedAt: '2026-10-01T00:00:00Z', sourceUpdatedAt: null, revision: 'r', previousRevision: null, previousSummary: null, evidence: [] }],
+      gmail: { configured: true, windowDays: 30, consentVersion: 'gmail-2026-11', lastError: null,
+        accounts: [{ address: 'me@example.invalid', status: 'connected', error: null, threads: 3, checkedAt: null, connectedAt: '2026-11-01T00:00:00Z' }],
+        threads: [
+          { address: 'me@example.invalid', id: 't1', subject: 'Pilot results', title: 'Pilot shows higher completion', status: 'assigned', cardId: card,
+            cardTitle: 'Weekly feedback study', suggested: null, lastSentAt: '2026-11-02T00:00:00Z', newsAt: '2026-11-02T00:00:00Z',
+            bullets: [1, 2, 3, 4, 5].map(index => bullet('b' + index, 'Bullet ' + index)) },
+          { address: 'me@example.invalid', id: 'g1', subject: 'Grant budget', title: 'Grant budget', status: 'pending', cardId: null, cardTitle: null,
+            suggested: 'Grant renewal', lastSentAt: '2026-10-20T00:00:00Z', newsAt: null, bullets: [bullet('g', 'The user finalized the budget.', false)] }] } });
+    api.decideGmailThread.mockResolvedValue(undefined);
+    const fixture = await screen('home');
+    const element: HTMLElement = fixture.nativeElement;
+    const updates = element.querySelector('#feed-updates')!;
+    const cards = updates.querySelectorAll('.feed-card');
+    // Newest first: the thread (Nov 2), then the Overleaf Update (Oct 1); one card per thread with its latest bullets.
+    expect(cards.length).toBe(2);
+    expect(cards[0].classList).toContain('thread-card');
+    expect(cards[0].querySelector('.feed-card-title')?.textContent).toContain('Pilot shows higher completion');
+    expect(Array.from(cards[0].querySelectorAll('.thread-bullets li:not(.thread-earlier)')).map(item => item.textContent?.trim()))
+      .toEqual(['Bullet 2', 'Bullet 3', 'Bullet 4', 'Bullet 5']);
+    expect(cards[0].querySelector('.thread-earlier')?.textContent).toContain('1 earlier');
+    expect(cards[0].querySelector('.feed-project')?.textContent).toContain('Weekly feedback study');
+
+    const pendingColumn = element.querySelector('#feed-private')!;
+    expect(pendingColumn.querySelector('h2')?.textContent).toContain('Private updates');
+    const waiting = pendingColumn.querySelector('.pending-card')!;
+    expect(waiting.textContent).toContain('Suggested project: Grant renewal');
+    expect(element.querySelector('.feed-column-nav')?.textContent).toContain('Private updates');
+
+    waiting.querySelector<HTMLButtonElement>('.new-thread')!.click();
+    fixture.detectChanges();
+    const input = waiting.querySelector<HTMLInputElement>('.thread-name input')!;
+    expect(input.value).toBe('Grant renewal');
+    input.value = 'Grant renewal 2027';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    waiting.querySelector<HTMLButtonElement>('.thread-name button[type="submit"]')!.click();
+    await vi.waitFor(() => expect(api.decideGmailThread).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'g1' }), 'new', undefined, 'Grant renewal 2027'));
+
+    await vi.waitFor(() => expect(fixture.componentInstance.deciding()).toBeNull());
+    fixture.detectChanges();
+    waiting.querySelector<HTMLButtonElement>('.skip-thread')!.click();
+    await vi.waitFor(() => expect(api.decideGmailThread).toHaveBeenCalledWith(expect.objectContaining({ id: 'g1' }), 'dismiss', undefined, undefined));
+    fixture.destroy();
+  });
+
+  it('keeps a single Updates column without Gmail', async () => {
+    const fixture = await screen('home');
+    expect(fixture.nativeElement.querySelector('#feed-private')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.feed-column-nav')).toBeNull();
     fixture.destroy();
   });
 });

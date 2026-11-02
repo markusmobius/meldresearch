@@ -67,30 +67,47 @@ internal sealed record LocalResearchState(int Version, LinkedCredential? Credent
     IReadOnlyList<ProjectDecision>? Decisions = null, IReadOnlyList<ResearcherState>? Researchers = null, int ResetEpoch = 0,
     IReadOnlyList<ProjectSummaryState>? Summaries = null, IReadOnlyList<ResearchTheme>? Themes = null,
     string? ThemesRegroupedFor = null, SyncState? Sync = null, IReadOnlyList<GmailAccountState>? GmailAccounts = null,
-    string? DeviceId = null);
+    string? DeviceId = null, IReadOnlyList<GmailThreadRecord>? GmailThreads = null, int GmailVersion = 0);
 
 /// <summary>
 /// A Gmail account connected for read-only access. RefreshToken is Google's long-lived grant; it is kept only in this encrypted
 /// state and in the end-to-end encrypted sync (never in backups or logs, never sent to Meld's server). ChangedAt orders
 /// connections across computers; a removed account stays as a tombstone (Removed, no token) so other computers drop it too.
 /// Status: connected, reconnect (Google withdrew the grant, for example after 7 days in testing mode) or error. Threads is
-/// how many threads the user wrote in during the import window at the last check. Processed lists the threads already
-/// analyzed, so only later messages are analyzed again (on any computer). LeaseBy/LeaseUntil: the computer importing now;
-/// others wait, so mail is not analyzed twice.
+/// how many threads the user wrote in during the import window at the last check. ImportVersion is the thread analysis
+/// the last import used (an older one imports again). LeaseBy/LeaseUntil: the computer importing now; others wait, so mail
+/// is not analyzed twice. Processed belongs to the earlier per-workstream analysis and is only kept so older state loads.
 /// </summary>
 internal sealed record GmailAccountState(Guid AccountId, string Address, string? RefreshToken, string ConsentVersion,
     DateTimeOffset ChangedAt, bool Removed = false, string Status = "connected", string? Error = null, int? Threads = null,
     DateTimeOffset? CheckedAt = null, string? HistoryId = null, DateTimeOffset? LastImportAt = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<GmailThreadState>? Processed = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? LeaseBy = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateTimeOffset? LeaseUntil = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateTimeOffset? LeaseUntil = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ImportVersion = null);
 
-/// <summary>
-/// An analyzed Gmail thread: HistoryId when it was analyzed (Gmail changes it when the thread changes), the last message
-/// analyzed (only later ones are new) and the workstream its messages went to (null: skipped as not research work).
-/// </summary>
+/// <summary>Obsolete per-workstream analysis record; kept only so state written by an earlier version still loads.</summary>
 internal sealed record GmailThreadState(string Id, string HistoryId, string LastMessageId, DateTimeOffset LastSentAt,
     string? WorkstreamId, DateTimeOffset ProcessedAt);
+
+/// <summary>
+/// One Gmail thread as Meld recorded it: a list of bullets that grows as mail arrives. Status: assigned (its bullets are part
+/// of the email stream StreamId on a research card), pending (work, but the user decides where it goes: Private updates),
+/// skipped (not work; looked at again only when new mail arrives) or dismissed (the user chose to ignore it for good).
+/// HistoryId is Gmail's version of the thread when it was last analyzed ("" while a long thread is analyzed in parts) and
+/// LastMessageId/LastSentAt the last message analyzed, so only later messages are new. Headline and NewsAt are set when the
+/// thread made newsworthy progress (it then appears in the Updates feed); Suggested names a project for a pending thread.
+/// </summary>
+internal sealed record GmailThreadRecord(Guid AccountId, string Address, string Id, string Subject, string Status, string HistoryId,
+    string LastMessageId, DateTimeOffset LastSentAt, DateTimeOffset UpdatedAt, IReadOnlyList<GmailBullet> Bullets,
+    string? StreamId = null, string? Headline = null, DateTimeOffset? NewsAt = null, string? Suggested = null, string? Explanation = null)
+{
+    public const string Assigned = "assigned", Pending = "pending", Skipped = "skipped", Dismissed = "dismissed";
+}
+
+/// <summary>One fact from a thread with its quoted evidence; Newsworthy when it was part of a step forward.</summary>
+internal sealed record GmailBullet(Guid Id, string Text, IReadOnlyList<ResearchCitation> Evidence, DateTimeOffset SentAt, DateTimeOffset AddedAt,
+    bool Newsworthy);
 
 /// <summary>The user's active choice whether an Overleaf project is part of their private profile.</summary>
 internal sealed record ProjectDecision(Guid AccountId, string ProjectId, bool Included, DateTimeOffset DecidedAt);

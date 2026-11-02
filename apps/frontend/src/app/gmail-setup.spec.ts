@@ -48,7 +48,7 @@ describe('Gmail setup', () => {
     fixture.componentInstance.changed.subscribe(changed);
     const items = element.querySelectorAll('.account');
     expect(items[0].textContent).toContain('12 threads you wrote in during the last 30 days');
-    expect(items[0].querySelector('.account-counts')?.textContent).toMatch(/9 analyzed\s*·\s*2\s*workstreams/);
+    expect(items[0].querySelector('.account-counts')?.textContent).toMatch(/9 analyzed\s*·\s*on 2\s*projects/);
     expect(items[0].querySelector('.account-import')?.textContent).toContain('next around');
     expect(items[1].querySelector('.account-status')?.textContent).toContain('Reconnect needed');
     expect(items[1].querySelector('.import-gmail')).toBeNull();

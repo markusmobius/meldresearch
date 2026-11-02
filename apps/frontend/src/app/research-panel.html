@@ -6,11 +6,20 @@
 
   @if (page() === 'home') {
     <div class="page-container feed-page">
-      <div class="feed-layout" aria-label="Research feed">
-        <section class="feed-column" aria-labelledby="updates-title">
+      <div class="feed-layout" [class.two-columns]="privateColumn()" aria-label="Research feed">
+        @if (privateColumn()) {
+          <nav class="feed-column-nav" aria-label="Feed columns">
+            <button type="button" [class.selected]="column() === 'updates'" [attr.aria-pressed]="column() === 'updates'" aria-controls="feed-updates"
+              (click)="column.set('updates')">Updates <span>{{ feedItems().length }}</span></button>
+            <button type="button" [class.selected]="column() === 'private'" [class.has-updates]="pending().length > 0"
+              [attr.aria-pressed]="column() === 'private'" aria-controls="feed-private"
+              (click)="column.set('private')">Private updates <span>{{ pending().length }}</span></button>
+          </nav>
+        }
+        <section id="feed-updates" class="feed-column feed-column-updates" [class.feed-column-active]="column() === 'updates'" aria-labelledby="updates-title">
           <header class="feed-column-head">
             <mat-icon>newspaper</mat-icon><h2 id="updates-title">Updates</h2>
-            <span class="feed-count" [attr.aria-label]="current.totalUpdates + ' research updates'">{{ current.totalUpdates }}</span>
+            <span class="feed-count" [attr.aria-label]="feedItems().length + ' research updates'">{{ feedItems().length }}</span>
             <a mat-icon-button class="feed-icon-button feed-settings" href="/#account" aria-label="Manage projects" title="Manage projects"><mat-icon>tune</mat-icon></a>
             <button mat-icon-button class="feed-icon-button" (click)="sync()" [disabled]="!current.account || !!action() || current.busy"
               aria-label="Check for changes" title="Check for changes"><mat-icon>refresh</mat-icon></button>
@@ -34,7 +43,7 @@
             </a>
             <mat-progress-bar mode="determinate" [value]="progressPercent()" aria-hidden="true"></mat-progress-bar>
           } @else if (current.busy) {
-            <p class="processing-strip idle" role="status"><mat-icon class="spin">sync</mat-icon><span>Checking included projects for changes...</span></p>
+            <p class="processing-strip idle" role="status"><mat-icon class="spin">sync</mat-icon><span>{{ current.gmail?.accounts?.length ? 'Checking your projects and email for changes...' : 'Checking included projects for changes...' }}</span></p>
             <mat-progress-bar mode="indeterminate" aria-label="Checking included projects"></mat-progress-bar>
           }
           <div class="feed-column-body" tabindex="0" aria-label="Research updates">
@@ -55,7 +64,24 @@
                   attentionProjects().length + ' projects could not be processed: ' + attentionProjects().slice(0, 3).join(', ') + (attentionProjects().length > 3 ? ', ...' : '') + '.' }}
                 Meld retries automatically. <a href="/#account">See why</a>.</p>
             }
-            @for (update of current.updates; track update.id) {
+            @for (item of feedItems(); track item.key) {
+              @if (item.thread; as thread) {
+                <article class="feed-card thread-card">
+                  <header class="feed-card-head">
+                    <mat-icon class="feed-source">mail</mat-icon><span class="feed-kind">Email thread</span>
+                    <time class="feed-date" [attr.datetime]="thread.newsAt" [title]="thread.newsAt | date:'medium'">{{ thread.newsAt | date:'MMM d' }}</time>
+                  </header>
+                  <h3 class="feed-card-title"><button class="feed-card-open" (click)="showThread(thread, threadDialog)">{{ thread.title }}</button></h3>
+                  <ng-container *ngTemplateOutlet="bullets; context: { $implicit: thread }"></ng-container>
+                  @if (naming() === threadKey(thread)) { <ng-container *ngTemplateOutlet="nameProject; context: { $implicit: thread }"></ng-container> }
+                  <div class="feed-card-actions">
+                    <button mat-button class="feed-action" (click)="showThread(thread, threadDialog)"><mat-icon>rate_review</mat-icon>Review</button>
+                    <button mat-button class="feed-action move-thread" [matMenuTriggerFor]="threadMenu" [matMenuTriggerData]="{ thread: thread }"
+                      [disabled]="!!deciding()"><mat-icon>drive_file_move</mat-icon>Move</button>
+                    <span class="feed-project" [title]="'Research project: ' + (thread.cardTitle ?? '')">{{ thread.cardTitle }}</span>
+                  </div>
+                </article>
+              } @else if (item.update; as update) {
               <article class="feed-card share-source-own">
                 <header class="feed-card-head">
                   <span class="feed-kind">{{ update.kind === 'initialImport' ? 'Initial import' : update.kind === 'removal' ? 'Knowledge removed' : 'Update' }}</span>
@@ -69,6 +95,7 @@
                     @if (fromGmail(update)) { <mat-icon class="feed-source">mail</mat-icon> }{{ update.projectName }}</span>
                 </div>
               </article>
+              }
             } @empty {
               @if (current.projects.length) {
                 <p class="feed-state">
@@ -83,11 +110,49 @@
             }
             @if (current.totalUpdates > current.updates.length) {
               <p class="feed-state">Showing the latest {{ current.updates.length }} updates. Earlier updates remain in the encrypted local store.</p>
-            } @else if (current.updates.length) {
+            } @else if (feedItems().length) {
               <p class="feed-state feed-end">Caught up.</p>
             }
           </div>
         </section>
+        @if (privateColumn()) {
+          <section id="feed-private" class="feed-column feed-column-private" [class.feed-column-active]="column() === 'private'" aria-labelledby="private-title">
+            <header class="feed-column-head">
+              <mat-icon>move_to_inbox</mat-icon><h2 id="private-title">Private updates</h2>
+              <span class="feed-count" [attr.aria-label]="pending().length + ' threads waiting for a decision'">{{ pending().length }}</span>
+              <a mat-icon-button class="feed-icon-button feed-settings" href="/#gmail" aria-label="Gmail accounts" title="Gmail accounts"><mat-icon>tune</mat-icon></a>
+            </header>
+            <div class="feed-column-body" tabindex="0" aria-label="Email threads waiting for a decision">
+              <p class="feed-notice">Email threads that Meld could not place on one of your research projects. Nothing joins your profile until you decide.</p>
+              @if (threadError()) { <p class="alert" role="alert">{{ threadError() }}</p> }
+              @for (thread of pending(); track threadKey(thread)) {
+                <article class="feed-card thread-card pending-card">
+                  <header class="feed-card-head">
+                    <mat-icon class="feed-source">mail</mat-icon><span class="feed-kind feed-address" [title]="thread.address">{{ thread.address }}</span>
+                    <time class="feed-date" [attr.datetime]="thread.lastSentAt" [title]="thread.lastSentAt | date:'medium'">{{ thread.lastSentAt | date:'MMM d' }}</time>
+                  </header>
+                  <h3 class="feed-card-title"><button class="feed-card-open" (click)="showThread(thread, threadDialog)">{{ thread.title }}</button></h3>
+                  <ng-container *ngTemplateOutlet="bullets; context: { $implicit: thread }"></ng-container>
+                  @if (thread.suggested) { <p class="thread-suggestion">Suggested project: <strong>{{ thread.suggested }}</strong></p> }
+                  @if (naming() === threadKey(thread)) { <ng-container *ngTemplateOutlet="nameProject; context: { $implicit: thread }"></ng-container> }
+                  <div class="feed-card-actions">
+                    <button mat-button class="feed-action add-thread" [matMenuTriggerFor]="cardMenu" [matMenuTriggerData]="{ thread: thread }"
+                      [disabled]="!!deciding() || !cards().length"><mat-icon>playlist_add</mat-icon>Add to project</button>
+                    <button mat-button class="feed-action new-thread" [disabled]="!!deciding()" (click)="startNaming(thread)"><mat-icon>add</mat-icon>New project</button>
+                    <button mat-button class="feed-action skip-thread" [disabled]="!!deciding()" (click)="decide(thread, 'dismiss')"><mat-icon>close</mat-icon>Skip</button>
+                  </div>
+                </article>
+              } @empty {
+                @if (current.gmail?.accounts?.length) {
+                  <p class="feed-state">Nothing waiting. When Meld finds work in your email that fits none of your projects, it appears here for you to decide.</p>
+                } @else {
+                  <p class="feed-state">Connect Gmail to add what you write about your research by email. Threads Meld cannot place on a project wait here for you.</p>
+                  <a mat-stroked-button class="feed-setup" href="/#gmail"><mat-icon>mail</mat-icon>Connect Gmail</a>
+                }
+              }
+            </div>
+          </section>
+        }
       </div>
     </div>
   }
@@ -115,6 +180,67 @@
         <blockquote>{{ citation.quote }}</blockquote>
       }
       @if (update.previousSummary) { <p><strong>Previous knowledge:</strong> {{ update.previousSummary }}</p> }
+    </mat-dialog-content>
+    <mat-dialog-actions align="end"><button mat-button mat-dialog-close>Close</button></mat-dialog-actions>
+  }
+</ng-template>
+
+<ng-template #bullets let-thread>
+  <ul class="thread-bullets">
+    @if (thread.bullets.length > threadBulletsShown) { <li class="thread-earlier">{{ thread.bullets.length - threadBulletsShown }} earlier</li> }
+    @for (bullet of latestBullets(thread); track bullet.id) { <li [class.news]="bullet.newsworthy">{{ bullet.text }}</li> }
+  </ul>
+</ng-template>
+
+<ng-template #nameProject let-thread>
+  <form class="thread-name" (submit)="$event.preventDefault(); decide(thread, 'new')">
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>New project name</mat-label>
+      <input matInput maxlength="120" [value]="projectName()" (input)="projectName.set($any($event.target).value)" />
+    </mat-form-field>
+    <button mat-flat-button type="submit" [disabled]="!!deciding()">Create</button>
+    <button mat-button type="button" (click)="naming.set(null)">Cancel</button>
+  </form>
+</ng-template>
+
+<mat-menu #cardMenu="matMenu">
+  <ng-template matMenuContent let-thread="thread">
+    @for (card of cards(); track card.id) {
+      <button mat-menu-item (click)="decide(thread, 'project', card.id)"><mat-icon>topic</mat-icon><span>{{ card.title }}</span></button>
+    }
+  </ng-template>
+</mat-menu>
+
+<mat-menu #threadMenu="matMenu">
+  <ng-template matMenuContent let-thread="thread">
+    @for (card of cards(); track card.id) {
+      @if (card.id !== thread.cardId) {
+        <button mat-menu-item (click)="decide(thread, 'project', card.id)"><mat-icon>topic</mat-icon><span>{{ card.title }}</span></button>
+      }
+    }
+    <button mat-menu-item (click)="startNaming(thread)"><mat-icon>add</mat-icon><span>New project…</span></button>
+    <button mat-menu-item (click)="decide(thread, 'dismiss')"><mat-icon>close</mat-icon><span>Skip this thread</span></button>
+  </ng-template>
+</mat-menu>
+
+<ng-template #threadDialog>
+  @if (selectedThread(); as thread) {
+    <h2 mat-dialog-title>{{ thread.title }}</h2>
+    <mat-dialog-content class="update-detail">
+      <p class="muted"><mat-icon class="evidence-mail">mail</mat-icon> {{ thread.subject }} &middot; {{ thread.address }}</p>
+      <p>@if (thread.status === 'assigned') { Research project: <strong>{{ thread.cardTitle }}</strong> }
+        @else { Waiting for your decision@if (thread.suggested) { &middot; suggested project: <strong>{{ thread.suggested }}</strong> } }</p>
+      <ol class="thread-detail">
+        @for (bullet of thread.bullets; track bullet.id) {
+          <li>
+            <p>{{ bullet.text }}</p>
+            @for (citation of bullet.evidence; track $index) {
+              @if (citation.email; as email) { <p class="muted thread-quote-source">{{ email.from }} &middot; {{ email.sentAt | date: 'MMM d, y, h:mm a' }}</p> }
+              <blockquote>{{ citation.quote }}</blockquote>
+            }
+          </li>
+        }
+      </ol>
     </mat-dialog-content>
     <mat-dialog-actions align="end"><button mat-button mat-dialog-close>Close</button></mat-dialog-actions>
   }

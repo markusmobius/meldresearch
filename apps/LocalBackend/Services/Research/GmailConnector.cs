@@ -36,7 +36,7 @@ internal sealed class GmailConnector(IResearchStore store, IResearchRemote remot
         var accounts = (state.GmailAccounts ?? []).Where(item => item.AccountId == account && !item.Removed)
             .OrderBy(item => item.Address, StringComparer.OrdinalIgnoreCase)
             .Select(item => Response(item, state, importer)).ToArray();
-        return new(_configuration?.Configured ?? false, WindowDays, ConsentVersion, accounts, _lastError);
+        return new(_configuration?.Configured ?? false, WindowDays, ConsentVersion, accounts, _lastError, GmailImporter.Threads(state, account));
     }
 
     /// <summary>Whether Meld's server offers Gmail (cached for ten minutes; refreshed by the status poll).</summary>
@@ -156,6 +156,8 @@ internal sealed class GmailConnector(IResearchStore store, IResearchRemote remot
             return current with
             {
                 GmailAccounts = [.. Others(current, credential.Account.Id, account.Address), tombstone],
+                GmailThreads = [.. (current.GmailThreads ?? []).Where(item => item.AccountId != credential.Account.Id ||
+                    !string.Equals(item.Address, account.Address, StringComparison.OrdinalIgnoreCase))],
                 Projects = [.. current.Projects.Where(project => project.AccountId != credential.Account.Id || project.Source != ResearchSources.Gmail ||
                     !string.Equals(project.Parent, account.Address, StringComparison.OrdinalIgnoreCase))]
             };
@@ -259,7 +261,9 @@ internal sealed class GmailConnector(IResearchStore store, IResearchRemote remot
         throw new ResearchFailure(404, "gmail_account_not_found", "This Gmail account is not connected.");
 
     private static GmailAccountResponse Response(GmailAccountState item, LocalResearchState? state, GmailImporter? importer) =>
-        new(item.Address, item.Status, item.Error, item.Threads, item.CheckedAt, item.ChangedAt, item.Processed?.Count ?? 0,
+        new(item.Address, item.Status, item.Error, item.Threads, item.CheckedAt, item.ChangedAt,
+            state?.GmailThreads?.Count(thread => thread.AccountId == item.AccountId &&
+                string.Equals(thread.Address, item.Address, StringComparison.OrdinalIgnoreCase)) ?? 0,
             state?.Projects.Count(project => project.AccountId == item.AccountId && project.Source == ResearchSources.Gmail &&
                 string.Equals(project.Parent, item.Address, StringComparison.OrdinalIgnoreCase)) ?? 0,
             item.LastImportAt, item.Status == "connected" && item.LastImportAt is not null ? GmailImporter.NextImportAt(item) : null,

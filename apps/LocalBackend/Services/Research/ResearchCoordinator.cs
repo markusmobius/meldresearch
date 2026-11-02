@@ -99,6 +99,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         string Phase(MonitoredProject project) =>
             project.ErrorCode is not null && Transient(project.ErrorCode) && project.FailureCount < TransientFailuresShown ? "retrying"
             : project.ErrorCode is not null ? "error"
+            // An email stream has no files to import; its summary is refreshed in the background.
+            : !project.IsOverleaf ? "ready"
             : project.Pending is not null ? (running.Contains(project) ? (project.ImportComplete ? "updating" : "importing") : "queued")
             : active.Contains(project.ProjectId) ? "checking"
             : !project.ImportComplete ? "waiting" : "ready";

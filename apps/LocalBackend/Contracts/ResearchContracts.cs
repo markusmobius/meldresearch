@@ -35,7 +35,20 @@ public sealed record ResearchStatusResponse(MeldAccountResponse? Account, DateTi
 /// connection attempt did not complete (shown once on return from Google).
 /// </summary>
 public sealed record GmailStatusResponse(bool Configured, int WindowDays, string ConsentVersion, IReadOnlyList<GmailAccountResponse> Accounts,
-    string? LastError);
+    string? LastError, IReadOnlyList<GmailThreadResponse>? Threads = null);
+
+/// <summary>
+/// A recorded Gmail thread for the feed: assigned ones with newsworthy progress (Updates column, on research card CardId) and
+/// pending ones (Private updates column, where the user decides). Title is the headline, else the subject.
+/// </summary>
+public sealed record GmailThreadResponse(string Address, string Id, string Subject, string Title, string Status, string? CardId,
+    string? CardTitle, string? Suggested, IReadOnlyList<GmailBulletResponse> Bullets, DateTimeOffset LastSentAt, DateTimeOffset? NewsAt);
+public sealed record GmailBulletResponse(Guid Id, string Text, DateTimeOffset SentAt, bool Newsworthy, IReadOnlyList<ResearchCitation> Evidence);
+/// <summary>
+/// The user's choice for a thread: "dismiss" (ignore it from now on), "project" (put it on research card CardId) or "new"
+/// (a new research project named Name).
+/// </summary>
+public sealed record GmailThreadDecisionRequest(string Address, string ThreadId, string Action, string? CardId = null, string? Name = null);
 /// <summary>
 /// Status: connected, reconnect (Google withdrew the grant) or error. Threads: threads written in during the window.
 /// Analyzed: threads analyzed so far; Workstreams: lines of work found in this account; Importing: the import running now;

@@ -332,34 +332,46 @@ public sealed class FoundryTests
         using var http = new HttpClient(new Handler(_ => Task.FromResult(Response(new { choices = new[] { new { finish_reason = "stop", message = new { content = reply } } } }))));
         using var foundry = Create(http);
         var now = DateTimeOffset.UtcNow;
+        string card = new('a', 32);
         var request = new EmailStepRequest("t1", "Robustness results", "me@example.invalid",
             [new("m2", "Me <me@example.invalid>", now, true, "Lukas,\nthe 200-agent simulations are done.\nTable 4 is in the draft.")],
-            [new("m1", "Lukas <lukas@example.invalid>", now.AddDays(-1), false, "Can you run the larger simulations?")], null, []);
+            [new("m1", "Lukas <lukas@example.invalid>", now.AddDays(-1), false, "Can you run the larger simulations?")], false, [], null,
+            [new(card, "Social learning", "A paper.", ["learning"])]);
         object Citation(string id, int start, int end) => new { messageId = id, startLine = start, endLine = end };
+        object Bullet(string text, params object[] evidence) => new { text, evidence };
         reply = JsonSerializer.Serialize(new
         {
-            decision = "new", workstreamId = (string?)null, profile = Profile, explanation = "A research result.",
-            updates = new object[]
-            {
-                new { title = "Simulations done", summary = "The user finished the larger simulations.", evidence = new[] { Citation("m2", 2, 3), Citation("m1", 1, 1) } },
-                new { title = "Invented", summary = "Cites nothing real.", evidence = new[] { Citation("m2", 7, 9), Citation("m9", 1, 1) } }
-            }
+            decision = "project", projectId = card, suggestedProject = "ignored", newsworthy = true, headline = "Simulations done",
+            explanation = "A research result.",
+            bullets = new[] { Bullet("The user finished the larger simulations.", Citation("m2", 2, 3), Citation("m1", 1, 1)),
+                Bullet("Invented.", Citation("m2", 7, 9), Citation("m9", 1, 1)) }
         }, ResearchJson.Options);
         var response = await foundry.EmailStepAsync(request, CancellationToken.None);
-        var update = Assert.Single(response.Updates);
-        var citation = Assert.Single(update.Evidence);
+        var citation = Assert.Single(Assert.Single(response.Bullets).Evidence);
         Assert.Equal(("Robustness results", "the 200-agent simulations are done.\nTable 4 is in the draft.", "m2"),
             (citation.Path, citation.Quote, citation.Email!.MessageId));
-        Assert.Equal((EmailSteps.New, (string?)null), (response.Decision, response.WorkstreamId));
+        Assert.Equal((EmailSteps.Project, card, (string?)null, true, "Simulations done"),
+            (response.Decision, response.ProjectId, response.SuggestedProject, response.Newsworthy, response.Headline));
 
-        reply = JsonSerializer.Serialize(new { decision = "skip", workstreamId = (string?)null, profile = Profile, explanation = "Scheduling.", updates = Array.Empty<object>() },
-            ResearchJson.Options);
+        // Newsworthy without any valid bullet is not newsworthy; a skip carries nothing.
+        reply = JsonSerializer.Serialize(new { decision = "unassigned", projectId = (string?)null, suggestedProject = "Robustness work",
+            bullets = new[] { Bullet("Invented.", Citation("m9", 1, 1)) }, newsworthy = true, headline = "Invented", explanation = "No fit." }, ResearchJson.Options);
         response = await foundry.EmailStepAsync(request, CancellationToken.None);
-        Assert.Equal((EmailSteps.Skip, (ProjectProfile?)null), (response.Decision, response.Profile));
+        Assert.Equal(("Robustness work", 0, false, (string?)null), (response.SuggestedProject, response.Bullets.Count, response.Newsworthy, response.Headline));
+        reply = JsonSerializer.Serialize(new { decision = "skip", projectId = (string?)null, suggestedProject = (string?)null,
+            bullets = Array.Empty<object>(), newsworthy = false, headline = (string?)null, explanation = "Scheduling." }, ResearchJson.Options);
+        Assert.Equal(EmailSteps.Skip, (await foundry.EmailStepAsync(request, CancellationToken.None)).Decision);
 
-        reply = JsonSerializer.Serialize(new { decision = "existing", workstreamId = "gmail-" + new string('e', 32), profile = Profile, explanation = "Invented.",
-            updates = Array.Empty<object>() }, ResearchJson.Options);
+        reply = JsonSerializer.Serialize(new { decision = "project", projectId = new string('e', 32), suggestedProject = (string?)null,
+            bullets = Array.Empty<object>(), newsworthy = false, headline = (string?)null, explanation = "Invented." }, ResearchJson.Options);
         Assert.Equal("invalid_email_decision", (await Assert.ThrowsAsync<ResearchFailure>(() => foundry.EmailStepAsync(request, CancellationToken.None))).Code);
+
+        // An email stream summary keeps the stream's name as its title.
+        reply = JsonSerializer.Serialize(new { profile = Profile with { Title = "Something else" } }, ResearchJson.Options);
+        var stream = await foundry.EmailStreamAsync(new("Email · Social learning", null, [new("Robustness results", "Simulations done", ["The user finished the simulations."])]),
+            CancellationToken.None);
+        Assert.Equal("Email · Social learning", stream.Profile.Title);
+        await Assert.ThrowsAsync<ResearchFailure>(() => foundry.EmailStreamAsync(new("Email", null, []), CancellationToken.None));
     }
 
     [Fact]

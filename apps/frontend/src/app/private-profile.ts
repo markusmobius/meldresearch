@@ -57,15 +57,23 @@ export class PrivateProfile {
         .map(update => Date.parse(update.sourceUpdatedAt ?? update.observedAt))).filter(time => Number.isFinite(time));
       return times.length ? Math.max(...times) : null;
     };
-    const recent = (ids: ReadonlyArray<string>) => status.updates.filter(update => ids.includes(update.projectId) &&
-      update.kind !== 'initialImport' && Date.parse(update.sourceUpdatedAt ?? update.observedAt) >= since);
+    // Email threads on a card count as its Updates too: their newsworthy bullets, dated by the mail.
+    const threads = (cardId: string): ResearchUpdate[] => (status.gmail?.threads ?? [])
+      .filter(thread => thread.status === 'assigned' && thread.cardId === cardId && !!thread.newsAt && Date.parse(thread.newsAt) >= since)
+      .map(thread => ({ id: `thread:${thread.address}|${thread.id}`, projectId: '', projectName: 'Email', kind: 'change', title: thread.title,
+        summary: thread.bullets.filter(bullet => bullet.newsworthy).slice(-3).map(bullet => bullet.text).join(' '),
+        observedAt: thread.newsAt!, sourceUpdatedAt: thread.newsAt, revision: '', previousRevision: null, previousSummary: null,
+        evidence: thread.bullets.flatMap(bullet => bullet.evidence) }));
+    const recent = (ids: ReadonlyArray<string>, cardId?: string) => [...status.updates.filter(update => ids.includes(update.projectId) &&
+      update.kind !== 'initialImport' && Date.parse(update.sourceUpdatedAt ?? update.observedAt) >= since), ...(cardId ? threads(cardId) : [])]
+      .sort((a, b) => Date.parse(b.sourceUpdatedAt ?? b.observedAt) - Date.parse(a.sourceUpdatedAt ?? a.observedAt));
     const cards: ProfileCard[] = [];
     const placed = new Set<string>();
     for (const theme of status.themes ?? []) {
       const members = theme.projectIds.map(id => byId.get(id)).filter((project): project is ResearchProject => !!project);
       if (!members.length) continue;
       members.forEach(member => placed.add(member.projectId));
-      cards.push({ id: theme.id, themeId: theme.id, profile: theme.profile ?? members[0].profile, members, recent: recent(theme.projectIds),
+      cards.push({ id: theme.id, themeId: theme.id, profile: theme.profile ?? members[0].profile, members, recent: recent(theme.projectIds, theme.id),
         updating: theme.updating, progress: members.find(member => BUSY.has(member.phase)) ?? null, lastEdited: lastEdited(theme.projectIds),
         blurb: theme.blurb ?? null });
     }

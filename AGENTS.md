@@ -36,7 +36,10 @@ instruction file. Start with the [README](README.md) for setup and release detai
 - Gmail import ([GmailImporter](apps/LocalBackend/Services/Research/GmailImporter.cs),
   called from the coordinator's cycle): only threads whose `historyId` changed
   are read, and only their new messages are analyzed (`/api/research/email-step`,
-  verbatim line citations). Unchanged mail must make zero model calls. Commit
+  verbatim line citations). Each thread is one record whose bullet list grows;
+  new threads are placed on a research card (its per-account email stream),
+  skipped, or left for the user in Private updates. Never create a project
+  without the user's choice. Unchanged mail must make zero model calls. Commit
   each thread atomically; with sync, push the lease before reading mail and
   stop if another computer holds it.
 - All model decisions and embeddings use configured Azure AI Foundry.
@@ -57,15 +60,18 @@ instruction file. Start with the [README](README.md) for setup and release detai
 
 - Research card members are source-generic
   ([ResearchSources](libraries/Research/ResearchSources.cs)): Overleaf projects
-  (24-hex ids, `Source` null) and Gmail workstreams (`gmail-` +
-  32 hex, `Source` "gmail", `Parent` = Gmail address). Only Overleaf projects are
+  (24-hex ids, `Source` null) and email streams (`gmail-` + 32 hex, `Source`
+  "gmail", `Parent` = Gmail address; one per account and card, pinned, profile
+  summarized from its threads' bullets). Only Overleaf projects are
   swept and processed file by file; other members join, move between and leave
   cards like projects. Workstreams sync via `WorkstreamRef` in the profile bundle;
   email evidence is `ResearchCitation.Email`. New optional fields are omitted from
   JSON when empty so Overleaf data and sync fingerprints stay unchanged. Gmail
-  plan and decisions: Gmail workstreams, Updates first (News later), threads the
-  user wrote in, 30-day first import, Overleaf stays required, hourly jittered
-  imports coordinated by a synced lease, Google testing mode first.
+  plan and decisions: thread-level bullets, card-first placement, Private updates
+  for the rest, threads the user wrote in, 30-day first import, Overleaf stays
+  required, hourly jittered imports coordinated by a synced lease, Google
+  testing mode first. The feed is Project Meld's column layout with Updates and
+  Private updates only (no News/Share/Help/Ask).
 - Start processing work in [ResearchCoordinator](apps/LocalBackend/Services/Research/ResearchCoordinator.cs),
   [ResearchEvidence](libraries/Research/ResearchEvidence.cs), and
   [FoundryService](apps/RemoteBackend/Services/FoundryService.cs).
@@ -236,7 +242,7 @@ Use .NET 10, Node 24/npm and PowerShell 7. Run from this repository's root, e.g.
   restore the removed application Playwright approach. Use the normal browser
   and connector; never execute downloaded TeX.
 - Current Chrome identity: `pejcljoimoeklelcfbfddnkimlkjgfhe`; extension version
-  `0.6.1`, native protocol `2`. Identity derives from the public manifest key,
+  `0.6.2`, native protocol `2`. Identity derives from the public manifest key,
   not a secret signing key. Update related identity/handshake checks together;
   compatible extension releases need not have identical version numbers.
 - Bump the connector manifest version whenever extension files change: installed

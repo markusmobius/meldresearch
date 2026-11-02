@@ -137,6 +137,13 @@ internal static class ResearchEndpoints
             research.RequestWork();
             return TypedResults.NoContent();
         }).WithName("ImportGmailAccount").WithSummary("Import new mail from a connected Gmail account now.");
+        group.MapPost("/gmail/threads/decision", async Task<NoContent> (GmailThreadDecisionRequest request, GmailImporter importer,
+            ResearchCoordinator research, CancellationToken ct) =>
+        {
+            await importer.DecideAsync(request, ct);
+            research.RequestWork();
+            return TypedResults.NoContent();
+        }).WithName("DecideGmailThread").WithSummary("Ignore a Gmail thread, put it on a research card, or start a new research project for it.");
         group.MapPost("/gmail/accounts/{address}/check", async Task<Ok<GmailAccountResponse>> (string address, GmailConnector gmail, CancellationToken ct) =>
             TypedResults.Ok(await gmail.CheckAsync(address, ct)))
             .WithName("CheckGmailAccount").WithSummary("Count the threads written in during the import window (no mail content is read).");

@@ -220,7 +220,10 @@ internal sealed class DummyGmailGoogle : IGmailGoogle
         Task.FromResult(Mailbox(accessToken.Split('|')[^1]).FirstOrDefault(thread => thread.Id == threadId) ??
             throw new ResearchFailure(404, "gmail_thread_missing", "The thread no longer exists."));
 
-    /// <summary>Synthetic threads the user wrote in (newest first): research work, a grant, and a lunch that should be skipped.</summary>
+    /// <summary>
+    /// Synthetic threads the user wrote in (newest first): the weekly-feedback pilot of the synthetic Overleaf project, a
+    /// paper and a grant that no project covers, and a lunch that should be skipped.
+    /// </summary>
     private static IReadOnlyList<GmailThread> Mailbox(string address)
     {
         var day = DateTimeOffset.UtcNow.Date;
@@ -231,6 +234,9 @@ internal sealed class DummyGmailGoogle : IGmailGoogle
                 Mine("dummyc1a", 5, "Hi all,\nI posted the draft syllabus for Behavioral Economics. New this year: a two-week module on social learning\nexperiments with an in-class replication of an information cascade.\nBest,\nDemo"),
                 From("dummyc1b", "Teaching Assistant <ta@example.invalid>", 4, "Thanks! I can prepare the cascade experiment materials by next week.")])];
         return [
+            new GmailThread("dummyt5", "205", "Pilot results: weekly feedback and collaboration", [
+                Mine("dummyt5a", 3, "Hi Lukas,\nthe pilot data are in: 80 participants, and task completion is 15 percent higher in the weekly-feedback\ngroup. I will write up the analysis section this week.\nDemo"),
+                From("dummyt5b", "Lukas Bolte <lukas@example.invalid>", 2, "Great result. Let us preregister the full study before the next wave; I will draft the\npreregistration and send it by Friday.")]),
             new GmailThread("dummyt4", "204", "Robustness results for the social learning paper", [
                 Mine("dummyt4a", 2, "Lukas,\nthe 200-agent simulations are done. They confirm the main result: herding falls by about 30% when signals\nare correlated, and the effect is stable across network sizes from 50 to 200.\nI added Table 4 to the draft.\nDemo")]),
             new GmailThread("dummyt3", "203", "Lunch on Friday?", [
