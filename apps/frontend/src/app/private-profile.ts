@@ -11,6 +11,8 @@ import { ProjectProfile, ResearchApi, ResearchProject, ResearchStatus, ResearchU
 /** One card: a research line with one or more Overleaf projects, or a project still being imported or grouped. */
 interface ProfileCard {
   id: string; themeId: string | null; profile: ProfileOrNull; members: ReadonlyArray<ResearchProject>;
+  /** The member the card is described from (its main paper), and why its projects were grouped. */
+  anchorId?: string | null; reason?: string | null;
   recent: ReadonlyArray<ResearchUpdate>; updating: boolean; progress: ResearchProject | null;
   /** The card's 4-5 sentence description; until it is written, the full description is shown. */
   blurb: string | null;
@@ -75,7 +77,7 @@ export class PrivateProfile {
       members.forEach(member => placed.add(member.projectId));
       cards.push({ id: theme.id, themeId: theme.id, profile: theme.profile ?? members[0].profile, members, recent: recent(theme.projectIds, theme.id),
         updating: theme.updating, progress: members.find(member => BUSY.has(member.phase)) ?? null, lastEdited: lastEdited(theme.projectIds),
-        blurb: theme.blurb ?? null });
+        blurb: theme.blurb ?? null, anchorId: theme.anchorId ?? null, reason: theme.reason ?? null });
     }
     // Projects still importing, or imported and about to be placed on a card.
     for (const project of shown.filter(item => !placed.has(item.projectId))) {
@@ -97,7 +99,23 @@ export class PrivateProfile {
       .afterClosed().subscribe(() => this.selectedId.set(null));
   }
 
-  memberNames(card: ProfileCard): string { return card.members.map(member => member.name).join(' \u00b7 '); }
+  /** The card's projects, its main paper first. */
+  memberNames(card: ProfileCard): string {
+    return [...card.members].sort((a, b) => Number(b.projectId === card.anchorId) - Number(a.projectId === card.anchorId))
+      .map(member => member.name).join(' \u00b7 ');
+  }
+
+  /** Makes a project the one the card is described from. */
+  async makeMain(card: ProfileCard, project: ResearchProject): Promise<void> {
+    if (!card.themeId || this.moving()) return;
+    this.moving.set(true);
+    this.moveError.set('');
+    try {
+      await this.api.setThemeAnchor(card.themeId, project.projectId);
+      this.changed.emit();
+    } catch (error: unknown) { this.moveError.set(describeFailure(error)); }
+    finally { this.moving.set(false); }
+  }
 
   /** Combines the whole card into another card ('keep' does nothing). */
   async mergeInto(card: ProfileCard, event: Event): Promise<void> {

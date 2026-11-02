@@ -119,8 +119,14 @@ export type SyncState = 'off' | 'signed-out' | 'checking' | 'setup' | 'locked' |
 export interface SyncStatus {
   state: SyncState; syncedProjects: number; lastPushAt: string | null; lastPullAt: string | null; error: string | null;
 }
-/** blurb: a 4-5 sentence description written from the card's whole summary (null until made). */
-export interface ResearchTheme { id: string; profile: ProjectProfile | null; projectIds: ReadonlyArray<string>; updating: boolean; blurb?: string | null; }
+/**
+ * blurb: the card's short description (null until made). anchorId: the project the card is described from, its main paper
+ * (anchorChosen: chosen by the user). reason: why the last project was grouped onto the card.
+ */
+export interface ResearchTheme {
+  id: string; profile: ProjectProfile | null; projectIds: ReadonlyArray<string>; updating: boolean; blurb?: string | null;
+  anchorId?: string | null; anchorChosen?: boolean; reason?: string | null;
+}
 export interface ProjectSummary {
   projectId: string; status: 'queued' | 'running' | 'ready' | 'error'; summary: string | null; mainPath: string | null;
   updatedAt: string | null; sourceUpdatedAt: string | null; error: string | null;
@@ -157,6 +163,10 @@ export class ResearchApi {
     return firstValueFrom(this.http.put<void>(`/api/research/projects/${encodeURIComponent(id)}/theme`, { themeId }));
   }
   /** Combines a research card into another card; its projects stay there. */
+  /** Chooses the project a research card is described from (its main paper). */
+  setThemeAnchor(themeId: string, projectId: string): Promise<void> {
+    return firstValueFrom(this.http.put<void>(`/api/research/themes/${encodeURIComponent(themeId)}/anchor`, { projectId }));
+  }
   mergeTheme(themeId: string, intoThemeId: string): Promise<void> {
     return firstValueFrom(this.http.put<void>(`/api/research/themes/${encodeURIComponent(themeId)}/merge`, { intoThemeId }));
   }

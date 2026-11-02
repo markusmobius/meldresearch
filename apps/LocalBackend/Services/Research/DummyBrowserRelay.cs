@@ -78,6 +78,11 @@ internal sealed class DummyBrowserRelay : IBrowserRelay
                     \documentclass{article}
                     \title{Synthetic study of research collaboration}
                     \begin{document}
+                    \begin{abstract}
+                    We ask whether structured weekly feedback improves how research teams collaborate. In a randomized pilot,
+                    teams receive short weekly feedback on their progress, and we measure task completion. This is synthetic
+                    test evidence, not a real research result.
+                    \end{abstract}
                     This is synthetic test evidence, not a real research result.
                     We study whether structured weekly feedback improves collaboration.
                     """ + (revision == 0 ? """

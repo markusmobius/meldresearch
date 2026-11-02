@@ -52,6 +52,8 @@ internal interface IResearchRemote
     Task<ThemeMergeResponse> MergeThemeAsync(string token, ThemeMergeRequest request, CancellationToken ct);
     Task<ThemeRegroupResponse> RegroupThemesAsync(string token, ThemeRegroupRequest request, CancellationToken ct);
     Task<CardBlurbResponse> DescribeCardAsync(string token, CardBlurbRequest request, CancellationToken ct);
+    /// <summary>A research card's summary from its main paper's title and abstract.</summary>
+    Task<ThemeMergeResponse> SummarizeCardAsync(string token, CardSummaryRequest request, CancellationToken ct);
     Task<SyncListResponse> SyncListAsync(string token, CancellationToken ct);
     Task<SyncLinksResponse> SyncLinksAsync(string token, SyncLinksRequest request, CancellationToken ct);
     Task SyncDeleteAllAsync(string token, CancellationToken ct);
@@ -167,6 +169,8 @@ internal sealed class ResearchRemote(ResearchOptions options, IHttpClientFactory
         catch (Exception error) when (error is HttpRequestException or OperationCanceledException) { return null; }
     }
 
+    public Task<ThemeMergeResponse> SummarizeCardAsync(string token, CardSummaryRequest request, CancellationToken ct) =>
+        CallAsync<ThemeMergeResponse>("api/research/card-summary", HttpMethod.Post, request, token, ct);
     public Task<CardBlurbResponse> DescribeCardAsync(string token, CardBlurbRequest request, CancellationToken ct) =>
         CallAsync<CardBlurbResponse>("api/research/card-blurb", HttpMethod.Post, request, token, ct);
     public Task<ResearcherSearchResponse> SearchResearcherAsync(string token, ResearcherSearchRequest request, CancellationToken ct) =>

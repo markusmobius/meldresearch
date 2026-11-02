@@ -60,6 +60,12 @@ internal static class ResearchEndpoints
             await service.MergeThemeIntoAsync(themeId, request.IntoThemeId, ct);
             return TypedResults.NoContent();
         }).WithName("MergeResearchTheme").WithSummary("Combine a research card into another; its projects are pinned there.");
+        group.MapPut("/themes/{themeId}/anchor", async Task<NoContent> (
+            string themeId, ThemeAnchorRequest request, IResearchCoordinator service, CancellationToken ct) =>
+        {
+            await service.SetAnchorAsync(themeId, request.ProjectId, ct);
+            return TypedResults.NoContent();
+        }).WithName("SetResearchThemeAnchor").WithSummary("Choose the project a research card is described from (its main paper).");
         group.MapPost("/projects/{projectId}/summary", async Task<Accepted> (
             string projectId, IResearchCoordinator service, CancellationToken ct) =>
         {

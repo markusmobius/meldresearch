@@ -592,7 +592,7 @@ public sealed class ResearchCoordinatorTests
     }
 
     [Fact]
-    public async Task AProjectOfTheSameResearchLineJoinsThatCardAndTheCardIsCombinedOnce()
+    public async Task AProjectOfTheSameResearchJoinsThatCardWhichIsDescribedFromItsMainProject()
     {
         var store = new MemoryStore(new(1, Credential, null, null, [IncludedAs(ProjectId, "news-slant"), IncludedAs(SecondId, "news-slant-slides")], []));
         var remote = new Remote { Match = request => request.Candidates[0].Id };
@@ -602,14 +602,17 @@ public sealed class ResearchCoordinatorTests
         // Both import in parallel; whichever finishes first starts the card and the other is matched to it.
         Assert.Equal([ProjectId, SecondId], theme.Members.Order());
         Assert.Single(remote.Matches);
-        var merge = Assert.Single(remote.Merges);
-        Assert.Equal(["news-slant", "news-slant-slides"], merge.Members.Select(member => member.ProjectName).Order());
-        Assert.Equal("Combined research line", theme.Profile!.Title);
+        // Members are not blended: without a paper abstract, the card is its main project's own summary.
+        Assert.Empty(remote.Merges);
+        var anchor = ThemePlan.AnchorOf(store.State, theme)!;
+        Assert.Equal(anchor.Profile, theme.Profile);
+        Assert.Equal(anchor.ProjectId, (await coordinator.StatusAsync(CancellationToken.None)).Themes!.Single().AnchorId);
+        Assert.Equal("Synthetic decision.", theme.Reason);
 
         // Nothing changed: no further grouping calls.
         await Drain(coordinator, force: true);
         Assert.Single(remote.Matches);
-        Assert.Single(remote.Merges);
+        Assert.Empty(remote.Cards);
     }
 
     [Fact]
@@ -639,17 +642,15 @@ public sealed class ResearchCoordinatorTests
         Assert.Equal([ProjectId], store.State.Themes.Single(theme => theme.Id == themeId).Members);
         // A single remaining member is the card's summary again, without a model call.
         Assert.Equal(store.State.Projects.Single(project => project.ProjectId == ProjectId).Profile, store.State.Themes.Single(theme => theme.Id == themeId).Profile);
-        Assert.Single(remote.Merges);
 
         await coordinator.MoveToThemeAsync(SecondId, themeId, CancellationToken.None);
         await Drain(coordinator);
         Assert.Single(store.State.Themes!);
-        Assert.Equal(2, remote.Merges.Count);
 
         await coordinator.DecideProjectAsync(SecondId, new(false, null), CancellationToken.None);
         await Drain(coordinator);
         Assert.Equal([ProjectId], Assert.Single(store.State.Themes!).Members);
-        Assert.Equal(2, remote.Merges.Count);
+        Assert.Empty(remote.Merges);
         Assert.Equal("invalid_theme_move", (await Assert.ThrowsAsync<ResearchFailure>(() =>
             coordinator.MoveToThemeAsync(ProjectId, "not-a-card", CancellationToken.None))).Code);
     }
@@ -666,7 +667,7 @@ public sealed class ResearchCoordinatorTests
         Assert.Equal([ProjectId, SecondId], theme.Members.Order());
         Assert.Single(remote.Regroups);
         Assert.Equal(2, remote.Regroups[0].Cards.Count);
-        Assert.Single(remote.Merges);
+        Assert.Equal("Same scooping programme.", theme.Reason);
 
         // Unchanged cards are not compared again.
         await Drain(coordinator, force: true);
@@ -707,17 +708,78 @@ public sealed class ResearchCoordinatorTests
     }
 
     [Fact]
-    public void ACardIsCombinedAgainOnlyOnceAllMembersAreSettled()
+    public void ACardFollowsItsAnchorAndTheUsersChoiceOfMainPaper()
     {
         var profile = new ProjectProfile("T", "D", ["C"], ["t"]);
-        var settled = Included() with { Profile = profile, ImportComplete = true };
-        var pending = IncludedAs(SecondId, "slides") with { Profile = profile with { Title = "Changed" }, ImportComplete = true,
+        var paper = Included() with { Profile = profile, ImportComplete = true, Paper = new("main.tex", "h", "Paying for Information, Not Clicks", "We build a marketplace.") };
+        var slides = IncludedAs(SecondId, "slides") with { Profile = profile with { Title = "Changed" }, ImportComplete = true,
             Pending = new ProjectManifest("r", DateTimeOffset.UtcNow, null, []) };
-        var theme = new ResearchTheme(Account.Id, Guid.NewGuid().ToString("N"), [ProjectId, SecondId], profile,
-            new Dictionary<string, string> { [ProjectId] = ThemePlan.Fingerprint(profile), [SecondId] = ThemePlan.Fingerprint(profile) }, DateTimeOffset.UtcNow);
-        var state = new LocalResearchState(1, Credential, null, null, [settled, pending], [], Themes: [theme]);
+        var theme = new ResearchTheme(Account.Id, Guid.NewGuid().ToString("N"), [SecondId, ProjectId], profile,
+            new Dictionary<string, string> { [ProjectId] = ThemePlan.AnchorPrint(paper) }, DateTimeOffset.UtcNow);
+        var state = new LocalResearchState(1, Credential, null, null, [paper, slides], [], Themes: [theme]);
+        // The member with a paper abstract is the anchor; a change elsewhere on the card does not describe it again.
+        Assert.Equal(ProjectId, ThemePlan.AnchorOf(state, theme)!.ProjectId);
         Assert.Null(ThemePlan.Stale(state, Account.Id));
-        Assert.NotNull(ThemePlan.Stale(state with { Projects = [settled, pending with { Pending = null }] }, Account.Id));
+        Assert.Null(ThemePlan.Stale(state with { Projects = [paper, slides with { Pending = null }] }, Account.Id));
+        Assert.NotNull(ThemePlan.Stale(state with { Projects = [paper with { Paper = paper.Paper! with { Abstract = "Revised." } }, slides] }, Account.Id));
+        // The user's choice wins.
+        var chosen = state with { Projects = [paper, slides with { Pending = null }], Themes = [theme with { Anchor = SecondId }] };
+        Assert.Equal(SecondId, ThemePlan.AnchorOf(chosen, chosen.Themes![0])!.ProjectId);
+        Assert.NotNull(ThemePlan.Stale(chosen, Account.Id));
+    }
+
+    [Fact]
+    public void ThePapersTitleAndAbstractAreReadFromTheMainDocument()
+    {
+        var paper = Papers.Read([
+            ("sections/intro.tex", "\\section{Introduction} Text."),
+            ("abstract.tex", "We study how AI answers can pay publishers \\cite{x} for the information~they contribute."),
+            ("main.tex", "\\documentclass{article}\n% \\title{Commented out}\n\\title[Short]{Paying for Information, \\\\ Not Clicks\\thanks{We thank {all}.}}\n" +
+                "\\begin{document}\\maketitle\n\\input{abstract}\n\\end{document}")])!;
+        Assert.Equal(("main.tex", "Paying for Information, Not Clicks"), (paper.Path, paper.Title));
+        Assert.Equal("We study how AI answers can pay publishers for the information they contribute.", paper.Abstract);
+        var inline = Papers.Read([("paper.tex", "\\documentclass{article}\\begin{document}\\begin{abstract}\n A \\emph{publisher} marketplace.\n\\end{abstract}\\end{document}")])!;
+        Assert.Equal(((string?)null, (string?)"A publisher marketplace."), (inline.Title, inline.Abstract));
+        Assert.Null(Papers.Read([("notes.tex", "Just notes.")]));
+    }
+
+    [Fact]
+    public async Task ACardIsDescribedFromItsMainPapersAbstractAndCardsAreRebuiltOnceStrictly()
+    {
+        string main = "\\documentclass{article}\\title{Paying for Information, Not Clicks}\\begin{document}\\begin{abstract}A publisher content marketplace " +
+            "pays news publishers for the information AI answers use.\\end{abstract}\\end{document}";
+        var store = new MemoryStore(new(1, Credential, null, null, [IncludedAs(ProjectId, "pcm-manuscript"), IncludedAs(SecondId, "legonews")], []));
+        var remote = new Remote { Match = request => request.Candidates[0].Id };
+        using var coordinator = Coordinator(store, remote, new MultiSource(
+            Files(("main.tex", main)) with { ProjectId = ProjectId, ProjectName = "pcm-manuscript" },
+            Files(("notes.tex", "Selective sampling of commentary.")) with { ProjectId = SecondId, ProjectName = "legonews" }));
+        await Drain(coordinator);
+        var theme = Assert.Single(store.State.Themes!);
+        Assert.Equal(new PaperInfo("main.tex", ResearchEvidence.Hash(main), "Paying for Information, Not Clicks",
+            "A publisher content marketplace pays news publishers for the information AI answers use."),
+            store.State.Projects.Single(project => project.ProjectId == ProjectId).Paper);
+        // Described once from the paper: its title, the condensed abstract (also the card's text), no blend of members.
+        var request = Assert.Single(remote.Cards);
+        Assert.Equal(("Paying for Information, Not Clicks", "A publisher content marketplace pays news publishers for the information AI answers use."),
+            (request.Title, request.Abstract));
+        Assert.Equal("Paying for Information, Not Clicks", theme.Profile!.Title);
+        Assert.Equal(theme.Profile.Description, theme.Blurb);
+        Assert.Empty(remote.Merges);
+        Assert.Empty(remote.Blurbs);
+
+        // An earlier card grouping both is rebuilt once: the anchor stays, the other member is placed again (strictly).
+        remote.Match = _ => null;
+        store.State = store.State with { ThemesVersion = 1 };
+        int matches = remote.Matches.Count;
+        await Drain(coordinator);
+        Assert.Equal(2, store.State.Themes!.Count);
+        Assert.Equal(matches + 1, remote.Matches.Count);
+        Assert.Contains(store.State.Themes, card => card.Members.SequenceEqual([ProjectId]));
+        Assert.Equal(ThemePlan.Version, store.State.ThemesVersion);
+        await Drain(coordinator, force: true);
+        Assert.Equal(matches + 1, remote.Matches.Count);
+        // The rebuild describes the paper's card once more; nothing further while nothing changes.
+        Assert.Equal(2, remote.Cards.Count);
     }
 
     private sealed class MultiSource(params ResearchSnapshot[] snapshots) : IOverleafEvidenceSource
@@ -832,6 +894,12 @@ public sealed class ResearchCoordinatorTests
                 ["Combined."], ["combined"]), "chat"));
         }
         public Task<AccountPicture?> AccountPictureAsync(string token, CancellationToken ct) => Task.FromResult<AccountPicture?>(null);
+        public List<CardSummaryRequest> Cards { get; } = [];
+        public Task<ThemeMergeResponse> SummarizeCardAsync(string token, CardSummaryRequest request, CancellationToken ct)
+        {
+            lock (Cards) Cards.Add(request);
+            return Task.FromResult(new ThemeMergeResponse(new(request.Title, "Condensed: " + request.Abstract, ["From the abstract."], ["paper"]), "chat"));
+        }
         public List<CardBlurbRequest> Blurbs { get; } = [];
         public Task<CardBlurbResponse> DescribeCardAsync(string token, CardBlurbRequest request, CancellationToken ct)
         {

@@ -30,7 +30,7 @@
             <mat-progress-bar mode="determinate" [value]="100 * project.filesDone / project.filesTotal"></mat-progress-bar>
           }
         } @else if (card.updating) {
-          <span class="progress-note" role="status"><mat-icon>autorenew</mat-icon>{{ card.themeId ? 'Combining the summaries of related projects...' : 'Finding related projects...' }}</span>
+          <span class="progress-note" role="status"><mat-icon>autorenew</mat-icon>{{ card.themeId ? 'Describing this research from its main paper...' : 'Finding related projects...' }}</span>
         }
       </button>
     } @empty {
@@ -59,9 +59,16 @@
           }
           @if (card.themeId) {
             <h3 class="members-title">{{ allOverleaf(card.members) ? 'Overleaf projects on this card' : 'On this card' }}</h3>
+            @if (card.reason && card.members.length > 1) { <p class="muted grouping-reason"><mat-icon>link</mat-icon>Grouped because: {{ card.reason }}</p> }
             <ul class="members">
               @for (member of card.members; track member.projectId) {
                 <li><span class="member-name">{{ member.name }}</span>
+                  @if (member.projectId === card.anchorId) {
+                    <span class="main-paper" title="This card is described from this project"><mat-icon>star</mat-icon>Main paper</span>
+                  } @else if (card.members.length > 1 && member.source !== 'gmail' && member.profile && (member.phase === 'ready' || member.phase === 'error')) {
+                    <button mat-button type="button" class="make-main" [disabled]="moving()" (click)="makeMain(card, member)"
+                      [attr.aria-label]="'Describe this card from ' + member.name"><mat-icon>star_outline</mat-icon>Make main paper</button>
+                  }
                   @if (member.source === 'gmail') {
                     <span class="member-source" [title]="'From Gmail: ' + (member.parent ?? '')"><mat-icon>mail</mat-icon>Gmail{{ member.parent ? ' · ' + member.parent : '' }}</span>
                   }

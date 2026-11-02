@@ -174,7 +174,7 @@ that backend requires real Google OAuth configuration. No synthetic identity is
 available in Live mode.
 
 The source manifest now uses the supplied Chrome draft public key:
-**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.6.2**, wire protocol **2**.
+**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.6.3**, wire protocol **2**.
 It is a public identity key, not a signing secret.
 
 Until the private listing is approved, remove the old development-ID unpacked
@@ -248,21 +248,31 @@ Chrome Web Store instead.
   with the usual backoff but shown as *Waiting to retry* (not an error) until a
   project has failed four times in a row, and the account banner appears only after
   five minutes without the server.
-- **Research cards.** About me groups included projects into research cards: once a
-  project's first import finishes, Foundry decides from the summaries whether it
-  continues an existing card (same question, model, data or paper; a shared field is
-  not enough) or starts a new one, and a card with several projects gets one combined
-  summary, made again only when a member's summary changes. Each project's own
-  summary and Updates are kept. A card is one research *programme*: companion
-  theory/experiment papers, extensions and the same idea in another setting belong
-  together; sharing only a field or method does not. Because projects are placed one
-  at a time, a regrouping pass compares all cards once whenever they changed and no
-  first import is running (one Foundry call), and combines cards of one programme.
-  The card dialog moves a project to another card or a card of its own, or merges the
-  whole card into another; projects placed by hand are pinned and never moved by
-  regrouping. Cards are ordered by their projects' most recent Overleaf edit and show
-  a 4-5 sentence description Foundry writes from the whole card (one call, made
-  again only when the card's summary changes).
+- **Research cards.** About me groups included projects into research cards. A card
+  is ONE piece of research: the same paper or the same core question (drafts,
+  versions, slides, referee responses, evaluation material, a companion paper testing
+  the same model). A shared topic, data set, pipeline, method or field is not enough,
+  and when in doubt cards stay separate. Once a project's first import finishes,
+  Foundry decides whether it is the same research as an existing card; a regrouping
+  pass compares all cards once whenever they changed and no first import is running.
+  The reason for the last grouping is shown in the card dialog.
+  A card is described from its **main paper** (anchor,
+  [ThemePlan.AnchorOf](apps/LocalBackend/Services/Research/ThemePlan.cs)): Meld reads
+  `\title{}` and the abstract (`\begin{abstract}`, `\abstract{}` or an
+  `\input` abstract file) straight from each project's main .tex
+  ([Papers](libraries/Research/PaperContracts.cs), no model). The anchor is the
+  project with an abstract (then a title), most recently edited first; the user can
+  choose another with **Make main paper**. With an abstract, one Foundry call
+  (`/api/research/card-summary`) writes the card's title (the paper's), a 3-5
+  sentence condensation of the abstract (also the card text) and its main
+  contributions; without one, the anchor's own summary describes the card. Other
+  members (drafts, slides, evaluation logs, email streams) are the card's materials
+  and feed its Recent updates, never its description. A card is described again only
+  when its anchor, the anchor's paper or its summary changes. The card dialog moves
+  a project to another card or a card of its own, or merges the whole card into
+  another; projects placed by hand are pinned and never moved by regrouping. Cards
+  grouped under the earlier, looser rule are rebuilt once (`ThemesVersion`): each
+  keeps its anchor and hand-placed members, and the others are placed again.
 - **Log.** More → Log shows the local app's own activity (checks, progress per file,
   grouping, updates, warnings and errors), newest first, with level and source
   filters, as in Project Meld. Entries name projects by Overleaf id (the page shows

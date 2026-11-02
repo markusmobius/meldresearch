@@ -83,6 +83,13 @@ internal static class RemoteEndpoints
             using var slot = await gate.EnterAsync(account.Id, ct);
             return TypedResults.Ok(await foundry.EmailStepAsync(request, ct));
         }).WithName("EmailStep").WithSummary("Place one email thread and record its new messages as cited bullets; nothing is stored.");
+        app.MapPost("/api/research/card-summary", async Task<Ok<ThemeMergeResponse>> (
+            CardSummaryRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, InferenceGate gate, CancellationToken ct) =>
+        {
+            var account = await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            using var slot = await gate.EnterAsync(account.Id, ct);
+            return TypedResults.Ok(await foundry.SummarizeCardAsync(request, ct));
+        }).WithName("CardSummary").WithSummary("Summarize a research card from its main paper's title and abstract; nothing is stored.");
         app.MapPost("/api/research/email-stream", async Task<Ok<EmailStreamResponse>> (
             EmailStreamRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, InferenceGate gate, CancellationToken ct) =>
         {

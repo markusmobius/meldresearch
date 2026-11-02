@@ -52,3 +52,9 @@
 .member-source { display: inline-flex; align-items: center; gap: 3px; margin-left: 8px; padding: 1px 8px; border-radius: 10px;
   background: #fef2f2; color: #b42336; font-size: 11.5px; font-weight: 600; vertical-align: middle; }
 .member-source mat-icon { font-size: 13px; width: 13px; height: 13px; }
+.main-paper { display: inline-flex; align-items: center; gap: 3px; margin-left: 8px; padding: 1px 8px; border-radius: 10px; background: #fef3c7; color: #92400e; font-size: 11.5px; font-weight: 600; }
+.main-paper mat-icon { font-size: 13px; width: 13px; height: 13px; }
+.make-main { margin-left: 4px; height: 28px !important; font-size: 12px !important; }
+.make-main mat-icon { font-size: 15px; width: 15px; height: 15px; }
+.grouping-reason { display: flex; align-items: flex-start; gap: 6px; margin: 0 0 8px; font-size: 12.5px; }
+.grouping-reason mat-icon { flex: none; font-size: 16px; width: 16px; height: 16px; }

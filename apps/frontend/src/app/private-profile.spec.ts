@@ -19,7 +19,7 @@ describe('Private profile', () => {
     observedAt: new Date(Date.now() - daysAgo * day).toISOString(), sourceUpdatedAt: new Date(Date.now() - daysAgo * day).toISOString(),
     revision: 'r', previousRevision: null, previousSummary: null, evidence: [],
   });
-  const api = { moveToTheme: vi.fn(), mergeTheme: vi.fn() };
+  const api = { moveToTheme: vi.fn(), mergeTheme: vi.fn(), setThemeAnchor: vi.fn() };
   const status = (projects: ResearchProject[], themes: ResearchStatus['themes'], updates: ResearchUpdate[] = []): ResearchStatus => ({
     account: { id: 'a', name: 'R', email: 'r@example.invalid' }, credentialExpiresAt: null, pendingLink: null, accountError: null,
     busy: false, dummy: false, privacyUrl: '', consentVersion: 'v', pollSeconds: 300, pendingRevocations: 0,
@@ -113,6 +113,28 @@ describe('Private profile', () => {
     select.value = otherCard;
     select.dispatchEvent(new Event('change'));
     await vi.waitFor(() => expect(api.moveToTheme).toHaveBeenCalledWith(workstreamId, otherCard));
+    fixture.destroy();
+  });
+
+  it('marks the main paper a card is described from, lets the user choose another, and says why projects are grouped', async () => {
+    api.setThemeAnchor.mockResolvedValue(undefined);
+    const value = grouped();
+    const fixture = TestBed.createComponent(PrivateProfile);
+    fixture.componentRef.setInput('status', { ...value, themes: value.themes!.map(theme => theme.id === cardId
+      ? { ...theme, anchorId: slidesId, reason: 'The slides present the same paper.' } : theme) });
+    fixture.detectChanges();
+    // The main paper is named first on the card.
+    expect(fixture.nativeElement.querySelector('.card-source')?.textContent).toContain('news-slant-slides · news-slant');
+    fixture.nativeElement.querySelector('.profile-card').click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const dialog = document.querySelector('mat-dialog-container')!;
+    expect(dialog.querySelector('.grouping-reason')?.textContent).toContain('Grouped because: The slides present the same paper.');
+    const members = [...dialog.querySelectorAll('.members li')];
+    expect(members[1].querySelector('.main-paper')?.textContent).toContain('Main paper');
+    expect(members[1].querySelector('.make-main')).toBeNull();
+    members[0].querySelector<HTMLButtonElement>('.make-main')!.click();
+    await vi.waitFor(() => expect(api.setThemeAnchor).toHaveBeenCalledWith(cardId, paperId));
     fixture.destroy();
   });
 

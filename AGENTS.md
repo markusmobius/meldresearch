@@ -90,9 +90,12 @@ instruction file. Start with the [README](README.md) for setup and release detai
   `.tex`) are sent only on the user's per-project Summarize click, recent projects
   only, and never resent while the main file's hash is unchanged. Research cards
   ([ThemePlan](apps/LocalBackend/Services/Research/ThemePlan.cs)) group settled
-  projects by Foundry decision ("same research programme"), regroup all cards once
-  per card-set change when imports are idle, merge members' summaries only when a
-  member's summary fingerprint changes, and never move a pinned (hand-placed) project.
+  projects by Foundry decision (strictly "same paper or same core question"),
+  regroup all cards once per card-set change when imports are idle, and never move a
+  pinned (hand-placed) project. A card is described from its anchor (main paper:
+  `\title` + abstract read locally by [Papers](libraries/Research/PaperContracts.cs),
+  or the user's choice), never by blending members; other members, including email
+  streams, are materials. Re-describe only when the anchor's paper or summary changes.
   Keep every remote request under Cloudflare's 100 s origin limit (45 s wait budget).
 - More → Log ([AppLog](apps/LocalBackend/Services/AppLog.cs)) records only Meld's own
   log categories. Keep log messages free of research text, project names and
@@ -242,7 +245,7 @@ Use .NET 10, Node 24/npm and PowerShell 7. Run from this repository's root, e.g.
   restore the removed application Playwright approach. Use the normal browser
   and connector; never execute downloaded TeX.
 - Current Chrome identity: `pejcljoimoeklelcfbfddnkimlkjgfhe`; extension version
-  `0.6.2`, native protocol `2`. Identity derives from the public manifest key,
+  `0.6.3`, native protocol `2`. Identity derives from the public manifest key,
   not a secret signing key. Update related identity/handshake checks together;
   compatible extension releases need not have identical version numbers.
 - Bump the connector manifest version whenever extension files change: installed

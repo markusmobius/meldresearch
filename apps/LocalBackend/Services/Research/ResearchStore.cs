@@ -14,7 +14,8 @@ internal sealed record PendingDeviceLink(string DeviceCode, string Verifier, str
 /// PendingOrder; together they form the persistent work queue, so processing resumes after a restart. PrioritizedAt is when
 /// the user last included or resumed the project: the most recent choice is read and processed first. Source is null for an
 /// Overleaf project and "gmail" for a Gmail workstream, whose Parent is the Gmail address it comes from; a workstream has a
-/// profile and Updates like a project but no files, and joins research cards the same way.
+/// profile and Updates like a project but no files, and joins research cards the same way. Paper is the title and abstract
+/// read from the main LaTeX document of the Baseline revision PaperFor (an Overleaf project's anchor for its card).
 /// </summary>
 internal sealed record MonitoredProject(Guid AccountId, string ProjectId, string Name, bool Enabled, string ConsentVersion,
     ResearchSnapshot? Snapshot, string? Summary, IReadOnlyList<ResearchFact> Facts, IReadOnlyList<ResearchUpdate> Updates,
@@ -24,7 +25,9 @@ internal sealed record MonitoredProject(Guid AccountId, string ProjectId, string
     ProjectManifest? Pending = null, IReadOnlyList<string>? PendingOrder = null, DateTimeOffset? PendingSince = null,
     bool ImportComplete = false, DateTimeOffset? LastSweepAt = null, DateTimeOffset? NextAttemptAt = null,
     DateTimeOffset? PrioritizedAt = null, string? SyncETag = null, string? SyncedFor = null, DateTimeOffset? LastSyncedAt = null,
-    string? Source = null, string? Parent = null)
+    string? Source = null, string? Parent = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PaperInfo? Paper = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? PaperFor = null)
 {
     /// <summary>An Overleaf project (Source null or "overleaf"): read from Overleaf file by file. Other sources are not swept.</summary>
     public bool IsOverleaf => Source is null or ResearchSources.Overleaf;
@@ -52,14 +55,17 @@ internal sealed record ProjectSummaryState(Guid AccountId, string ProjectId, str
     DateTimeOffset? SourceUpdatedAt = null, string? Error = null);
 
 /// <summary>
-/// A research card in the private profile: one line of research made of one or more included Overleaf projects. Profile is
-/// the combined summary; MergedFrom maps each member to the fingerprint of the summary it was combined from, so a card is
-/// summarized again only when a member's summary changed or members were added or removed. Pinned members were placed by
-/// the user and are never moved by automatic regrouping.
+/// A research card in the private profile: one piece of research (a paper with its drafts, slides and material, and the email
+/// about it). Profile describes the card's anchor, its main paper (ThemePlan.AnchorOf; Anchor when the user chose it);
+/// MergedFrom maps the anchor to the fingerprint it was described from, so a card is described again only when its anchor
+/// or the anchor's paper or summary changed. Other members are the card's materials. Pinned members were placed by the user
+/// and are never moved by automatic regrouping. Reason says why the last member was grouped here.
 /// </summary>
 internal sealed record ResearchTheme(Guid AccountId, string Id, IReadOnlyList<string> Members, ProjectProfile? Profile,
     IReadOnlyDictionary<string, string>? MergedFrom, DateTimeOffset CreatedAt, IReadOnlyList<string>? Pinned = null,
-    string? Blurb = null, string? BlurbFor = null);
+    string? Blurb = null, string? BlurbFor = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Anchor = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Reason = null);
 
 /// <summary>ResetEpoch records the last one-time research reset this installation applied (see ResearchCoordinator.ResetEpoch).</summary>
 internal sealed record LocalResearchState(int Version, LinkedCredential? Credential, PendingDeviceLink? PendingLink,
@@ -67,7 +73,7 @@ internal sealed record LocalResearchState(int Version, LinkedCredential? Credent
     IReadOnlyList<ProjectDecision>? Decisions = null, IReadOnlyList<ResearcherState>? Researchers = null, int ResetEpoch = 0,
     IReadOnlyList<ProjectSummaryState>? Summaries = null, IReadOnlyList<ResearchTheme>? Themes = null,
     string? ThemesRegroupedFor = null, SyncState? Sync = null, IReadOnlyList<GmailAccountState>? GmailAccounts = null,
-    string? DeviceId = null, IReadOnlyList<GmailThreadRecord>? GmailThreads = null, int GmailVersion = 0);
+    string? DeviceId = null, IReadOnlyList<GmailThreadRecord>? GmailThreads = null, int GmailVersion = 0, int ThemesVersion = 0);
 
 /// <summary>
 /// A Gmail account connected for read-only access. RefreshToken is Google's long-lived grant; it is kept only in this encrypted

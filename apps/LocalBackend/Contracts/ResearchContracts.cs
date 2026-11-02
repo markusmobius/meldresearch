@@ -98,8 +98,13 @@ public sealed record LeaveRequest(string? Confirmation = null);
 public sealed record LeaveResponse(bool Uninstalling, bool AccountDeleted, string? LogPath);
 
 /// <summary>A research card: its combined summary (null until made) and its Overleaf projects. Updating while being summarized again.</summary>
+/// <summary>
+/// A research card. AnchorId is the project it is described from (its main paper); AnchorChosen when the user chose it.
+/// Reason says why the last project was grouped onto it.
+/// </summary>
 public sealed record ResearchThemeResponse(string Id, ProjectProfile? Profile, IReadOnlyList<string> ProjectIds, bool Updating,
-    string? Blurb = null);
+    string? Blurb = null, string? AnchorId = null, bool AnchorChosen = false, string? Reason = null);
+public sealed record ThemeAnchorRequest(string ProjectId);
 
 /// <summary>Moves a project to another research card, or to a new card of its own when ThemeId is null.</summary>
 public sealed record MoveToThemeRequest(string? ThemeId);

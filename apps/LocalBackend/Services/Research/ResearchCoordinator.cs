@@ -23,6 +23,8 @@ internal interface IResearchCoordinator
     Task MoveToThemeAsync(string projectId, string? themeId, CancellationToken ct);
     /// <summary>Combines one research card into another; all its projects are pinned there.</summary>
     Task MergeThemeIntoAsync(string themeId, string intoThemeId, CancellationToken ct);
+    /// <summary>Chooses the project a research card is described from (its main paper).</summary>
+    Task SetAnchorAsync(string themeId, string projectId, CancellationToken ct);
     void RequestSync();
     /// <summary>True while a research cycle is reading sources or calling the remote models.</summary>
     bool Busy { get; }
@@ -129,10 +131,13 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             (state.Summaries ?? []).Where(item => item.AccountId == account).Select(item => new ProjectSummaryResponseItem(item.ProjectId,
                 item.Status == "queued" && item.ProjectId == _summarizing ? "running" : item.Status, item.Summary, item.MainPath,
                 item.UpdatedAt, item.SourceUpdatedAt, item.Error)).ToArray(),
-            account is not { } owner ? [] : ThemePlan.Themes(state, owner).Select(theme => new ResearchThemeResponse(theme.Id, theme.Profile,
-                theme.Members, theme.Profile is null || !ThemePlan.Matches(theme, theme.Members.Select(id => projects.FirstOrDefault(project =>
-                    project.ProjectId == id)).Where(project => project?.Profile is not null).ToArray()!),
-                theme.Profile is not null && theme.BlurbFor == ThemePlan.Fingerprint(theme.Profile) ? theme.Blurb : null)).ToArray(),
+            account is not { } owner ? [] : ThemePlan.Themes(state, owner).Select(theme =>
+            {
+                var anchor = ThemePlan.AnchorOf(state, theme);
+                return new ResearchThemeResponse(theme.Id, theme.Profile, theme.Members, theme.Profile is null || !ThemePlan.Matches(theme, anchor),
+                    theme.Profile is not null && theme.BlurbFor == ThemePlan.Fingerprint(theme.Profile) ? theme.Blurb : null,
+                    anchor?.ProjectId, theme.Anchor is not null && theme.Anchor == anchor?.ProjectId, theme.Reason);
+            }).ToArray(),
             _sync.Status(state), gmail?.Status(state, importer));
     }
 
@@ -413,6 +418,81 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         Wake();
     }
 
+    public async Task SetAnchorAsync(string themeId, string projectId, CancellationToken ct)
+    {
+        if (!ResearchThemes.IsThemeId(themeId) || !ResearchSources.IsMemberId(projectId))
+            throw new ResearchFailure(400, "invalid_theme_anchor", "Choose a research card and one of its projects.");
+        var account = RequireCredential(await store.ReadAsync(ct)).Account.Id;
+        await store.ChangeAsync(current =>
+        {
+            if (current.Credential?.Account.Id != account) throw AccountChanged();
+            var theme = ThemePlan.Themes(current, account).FirstOrDefault(item => item.Id == themeId)
+                ?? throw new ResearchFailure(404, "theme_not_found", "That research card no longer exists. Reload and try again.");
+            if (!theme.Members.Contains(projectId) || current.Projects.FirstOrDefault(item => item.AccountId == account && item.ProjectId == projectId)?.Profile is null)
+                throw new ResearchFailure(409, "project_not_ready", "Choose a project of this card whose import has finished.");
+            return current with { Themes = [.. current.Themes!.Select(item => item == theme ? theme with { Anchor = projectId } : item)] };
+        }, ct);
+        _themeRetryAt = DateTimeOffset.MinValue;
+        Wake();
+    }
+
+    /// <summary>
+    /// Describes a card from its anchor. A card says what its main paper says: its title and a condensed abstract. Without an
+    /// abstract, the anchor's own summary describes the card (under the paper's title when there is one).
+    /// </summary>
+    private async Task DescribeAsync(LinkedCredential credential, ResearchTheme card, MonitoredProject anchor, CancellationToken ct)
+    {
+        var account = credential.Account.Id;
+        var stale = (Theme: card, Anchor: anchor);
+        ProjectProfile profile;
+        string? blurb = null;
+        if (anchor.Paper is { Title: { } title, Abstract: { } summary })
+        {
+            profile = (await remote.SummarizeCardAsync(credential.Token, new(Trim(title, ProfileEvidence.HardMaxTitle), summary, anchor.Profile!), ct)).Profile;
+            if (!ProfileEvidence.ValidProfile(profile))
+                throw new ResearchFailure(502, "invalid_theme_summary", "Foundry returned an unsupported card summary. Nothing was changed.");
+            blurb = string.Join(' ', profile.Description.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)).Trim();
+            if (!ResearchThemes.ValidBlurb(blurb)) blurb = null;
+        }
+        else profile = anchor.Profile! with { Title = anchor.Paper?.Title is { } paperTitle ? Trim(paperTitle, ProfileEvidence.HardMaxTitle) : anchor.Profile!.Title };
+        string print = ThemePlan.AnchorPrint(anchor);
+        await store.ChangeAsync(current =>
+        {
+            if (current.Credential?.Account.Id != account) return current;
+            var theme = current.Themes?.FirstOrDefault(item => item.AccountId == account && item.Id == stale.Theme.Id);
+            // The anchor or its summary changed meanwhile: the next step describes the card again.
+            if (theme is null || ThemePlan.AnchorOf(current, theme) is not { } now || now.ProjectId != anchor.ProjectId || ThemePlan.AnchorPrint(now) != print)
+                return current;
+            var described = theme with { Profile = profile, MergedFrom = new Dictionary<string, string> { [anchor.ProjectId] = print } };
+            if (blurb is not null) described = described with { Blurb = blurb, BlurbFor = ThemePlan.Fingerprint(profile) };
+            return current with { Themes = [.. current.Themes!.Select(item => item == theme ? described : item)] };
+        }, ct);
+        logger.LogInformation(blurb is null ? "A research card was described from its main project's summary." :
+            "A research card was described from its main paper's title and abstract.");
+    }
+
+    /// <summary>
+    /// Reads the title and abstract of a project's main LaTeX document from the stored texts (no model call), once per
+    /// processed revision. Returns false when no project needs it.
+    /// </summary>
+    private async Task<bool> PaperStepAsync(Guid account, LocalResearchState state, CancellationToken ct)
+    {
+        var project = state.Projects.FirstOrDefault(item => item.AccountId == account && item.IsOverleaf && item.Pending is null &&
+            item.Baseline is { } baseline && item.PaperFor != baseline.Revision);
+        if (project is null) return false;
+        var baseline = project.Baseline!;
+        var texts = new List<(string Path, string Text)>();
+        foreach (var file in baseline.Files.Where(file => file.Analyzed && file.Path.EndsWith(".tex", StringComparison.OrdinalIgnoreCase)).Take(300))
+            if (await store.ReadTextAsync(file.Sha256, ct) is { } text) texts.Add((file.Path, text));
+        var paper = Papers.Read(texts);
+        await store.ChangeAsync(current => current with
+        {
+            Projects = [.. current.Projects.Select(item => item.AccountId == account && item.ProjectId == project.ProjectId &&
+                item.Baseline?.Revision == baseline.Revision ? item with { Paper = paper, PaperFor = baseline.Revision } : item)]
+        }, ct);
+        return true;
+    }
+
     /// <summary>
     /// One unit of research card work: drop departed members, place a newly imported project on a card (one model call when
     /// cards exist), or combine a card's member summaries (one model call when it has several members). Returns false when
@@ -429,18 +509,35 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 ? current with { Themes = cleaned } : current, ct);
             return true;
         }
+        // Reading papers and the one-time rebuild need no model call, so they do not use up a step.
+        while (await PaperStepAsync(account, state, ct)) state = await store.ReadAsync(ct);
+        if (state.ThemesVersion < ThemePlan.Version)
+        {
+            bool cards = ThemePlan.Themes(state, account).Count != 0;
+            state = await store.ChangeAsync(current => current.Credential?.Account.Id == account && current.ThemesVersion < ThemePlan.Version
+                ? ThemePlan.Rebuild(current, account) : current, ct);
+            if (cards) logger.LogInformation("Research cards are rebuilt once: each is described from its main paper, and projects are grouped again strictly.");
+            if (ThemePlan.Cleaned(state, account) is not null) return await ThemeStepAsync(credential, ct);
+        }
         if (clock.GetUtcNow() < _themeRetryAt) return false;
         try
         {
+            // A new card is described before the next project is placed, so that project can be matched against it.
+            if (ThemePlan.Stale(state, account) is { Theme.Profile: null } fresh)
+            {
+                await DescribeAsync(credential, fresh.Theme, fresh.Anchor, ct);
+                return true;
+            }
             if (ThemePlan.Unplaced(state, account) is { } project)
             {
                 var candidates = ThemePlan.Themes(state, account).Where(theme => theme.Profile is not null).Take(ResearchThemes.MaxCandidates)
                     .Select(theme => new ThemeCandidate(theme.Id, theme.Profile!.Title, theme.Profile.Description, theme.Profile.Topics)).ToArray();
-                string? target = candidates.Length == 0 ? null
-                    : (await remote.MatchThemeAsync(credential.Token, new(project.Name, project.Profile!, candidates), ct)).ThemeId;
+                var match = candidates.Length == 0 ? null : await remote.MatchThemeAsync(credential.Token, new(project.Name, project.Profile!, candidates), ct);
+                string? target = match?.ThemeId;
                 await store.ChangeAsync(current =>
                     current.Credential?.Account.Id == account && ThemePlan.Unplaced(current, account)?.ProjectId == project.ProjectId
-                        ? ThemePlan.Place(current, account, project.ProjectId, target, clock.GetUtcNow()) : current, ct);
+                        ? ThemePlan.Place(current, account, project.ProjectId, target, clock.GetUtcNow(), reason: target is null ? null : match!.Explanation)
+                        : current, ct);
                 logger.LogInformation("Placed a newly imported project on {Kind} research card. Names omitted.", target is null ? "a new" : "an existing");
                 return true;
             }
@@ -462,21 +559,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             }
             if (ThemePlan.Stale(state, account) is { } stale)
             {
-                var members = stale.Members.OrderByDescending(member => member.LastSuccessAt).Take(ResearchThemes.MaxMembers).ToArray();
-                var profile = members.Length == 1 ? members[0].Profile!
-                    : (await remote.MergeThemeAsync(credential.Token, new(members.Select(member => new ThemeMember(member.Name, member.Profile!)).ToArray()), ct)).Profile;
-                var merged = stale.Members.ToDictionary(member => member.ProjectId, member => ThemePlan.Fingerprint(member.Profile!), StringComparer.Ordinal);
-                await store.ChangeAsync(current =>
-                {
-                    if (current.Credential?.Account.Id != account) return current;
-                    var theme = current.Themes?.FirstOrDefault(item => item.AccountId == account && item.Id == stale.Theme.Id);
-                    // Membership or a member's summary changed meanwhile: the next step summarizes the card again.
-                    if (theme is null || !theme.Members.SequenceEqual(stale.Theme.Members) || current.Projects.Any(item =>
-                            merged.TryGetValue(item.ProjectId, out var print) && item.AccountId == account &&
-                            (item.Profile is null || ThemePlan.Fingerprint(item.Profile) != print)))
-                        return current;
-                    return current with { Themes = [.. current.Themes!.Select(item => item == theme ? theme with { Profile = profile, MergedFrom = merged } : item)] };
-                }, ct);
+                await DescribeAsync(credential, stale.Theme, stale.Anchor, ct);
                 return true;
             }
             if (ThemePlan.BlurbDue(state, account) is { } described)
@@ -980,6 +1063,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     private LinkedCredential RequireCredential(LocalResearchState state) =>
         state.Credential is { } credential && credential.ExpiresAt > clock.GetUtcNow() ? credential :
             throw new ResearchFailure(401, "meld_account_required", "Link this installation to an existing Meld account before monitoring projects.");
+    private static string Trim(string value, int max) => value.Length <= max ? value : value[..max].TrimEnd();
     private static ResearchFailure AccountChanged() => new(409, "research_state_changed", "The account or monitored project changed. Uncommitted results were discarded.");
     private static IReadOnlyList<MonitoredProject> Replace(IReadOnlyList<MonitoredProject> projects, MonitoredProject updated) =>
         [.. projects.Where(item => item.AccountId != updated.AccountId || item.ProjectId != updated.ProjectId), updated];
