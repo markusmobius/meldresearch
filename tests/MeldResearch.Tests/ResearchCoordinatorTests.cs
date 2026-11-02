@@ -741,6 +741,13 @@ public sealed class ResearchCoordinatorTests
         var inline = Papers.Read([("paper.tex", "\\documentclass{article}\\begin{document}\\begin{abstract}\n A \\emph{publisher} marketplace.\n\\end{abstract}\\end{document}")])!;
         Assert.Equal(((string?)null, (string?)"A publisher marketplace."), (inline.Title, inline.Abstract));
         Assert.Null(Papers.Read([("notes.tex", "Just notes.")]));
+
+        // A memo next to the paper: the document with an abstract is the paper, even when the memo looks like the main file.
+        var memo = Papers.Read([
+            ("main.tex", "\\documentclass{article}\\title{Measurement Error in our News Slant Project}\\begin{document}" + new string('x', 5000) + "\\end{document}"),
+            ("paper/slant.tex", "\\documentclass{article}\\title{\\texorpdfstring{\\texttt{slant}}{slant}: Article-Level Slant, see \\href{https://x.example}{the site}}" +
+                "\\begin{document}\\begin{abstract}We measure slant.\\end{abstract}\\end{document}")])!;
+        Assert.Equal(("paper/slant.tex", "slant: Article-Level Slant, see the site", "We measure slant."), (memo.Path, memo.Title, memo.Abstract));
     }
 
     [Fact]

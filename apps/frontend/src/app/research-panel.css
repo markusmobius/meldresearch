@@ -23,9 +23,9 @@
 .feed-card-body { margin: 0; font-size: 0.8rem; line-height: 1.45; color: #475569; }
 .feed-clamp { display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .feed-card-actions { display: flex; align-items: center; gap: 4px; margin-top: 7px; }
-.feed-action { height: 30px !important; padding: 0 6px !important; min-width: 0 !important; font-size: 0.75rem !important; color: #145749 !important; }
+.feed-action { flex-shrink: 0; white-space: nowrap; height: 30px !important; padding: 0 6px !important; min-width: 0 !important; font-size: 0.75rem !important; color: #145749 !important; }
 .feed-action mat-icon { width: 16px; height: 16px; font-size: 16px; }
-.feed-project { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.7rem; color: #64748b; }
+.feed-project { flex: 0 1 auto; margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.7rem; color: #64748b; }
 .feed-state { margin: 16px 2px; font-size: 0.82rem; line-height: 1.5; color: #64748b; }
 .feed-end { text-align: center; }
 .feed-setup { align-self: flex-start; }

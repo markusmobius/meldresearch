@@ -29,6 +29,9 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
     public const int Version = 2;
     /// <summary>Characters of new messages per request; the rest of the thread limit is left for earlier messages.</summary>
     public const int MessageBudget = 32000;
+    /// <summary>The name of a card's email stream; earlier streams were named after their card's title then.</summary>
+    public const string StreamName = "Email";
+    private const string EarlierStreamPrefix = "Email · ";
     /// <summary>The description of a new email stream until its first summary.</summary>
     public const string Placeholder = "Email threads about this line of work, summarized once the import finishes.";
 
@@ -72,7 +75,7 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
     }
 
     public bool HasWork(LocalResearchState state, Guid account, DateTimeOffset now) =>
-        state.GmailVersion < Version ||
+        state.GmailVersion < Version || Renamed(state, account) is not null ||
         Eligible(state, account).Any(mail => !Blocked(mail.Address, now) && (_runs.ContainsKey(mail.Address) || Due(mail, now))) ||
         StreamDue(state, account, now) is not null;
 
@@ -87,6 +90,12 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
         if (state.GmailVersion < Version)
         {
             await UpgradeAsync(ct);
+            return true;
+        }
+        if (Renamed(state, account) is not null)
+        {
+            // Streams named after their card's title at the time keep a stale name when the card is described anew.
+            await store.ChangeAsync(current => Renamed(current, account) ?? current, ct);
             return true;
         }
         var eligible = Eligible(state, account).OrderBy(mail => mail.Address, StringComparer.OrdinalIgnoreCase).ToArray();
@@ -517,11 +526,26 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
                 Same(project.Parent, address) && card.Members.Contains(project.ProjectId)) is { } existing)
             return (state, existing.ProjectId);
         string id = ResearchSources.NewGmailWorkstreamId();
-        string title = Trim(name ?? "Email · " + (card is null ? "research" : CardTitle(state, card)), 120);
+        // A card's stream is simply "Email" (shown with its Gmail address); its card's title may change later.
+        string title = Trim(name ?? StreamName, 120);
         var stream = new MonitoredProject(account, id, title, true, ResearchEvidence.ConsentVersion, null, null, [], [], now, null, null, null,
             null, 0, 0, Profile: new(title, Placeholder, [], []), ImportComplete: false, Source: ResearchSources.Gmail, Parent: address);
         state = state with { Projects = [.. state.Projects, stream] };
         return (ThemePlan.Place(state, account, id, card?.Id, now, pin: true), id);
+    }
+
+    private static LocalResearchState? Renamed(LocalResearchState state, Guid account)
+    {
+        if (!state.Projects.Any(project => project.AccountId == account && project.Source == ResearchSources.Gmail &&
+                project.Name.StartsWith(EarlierStreamPrefix, StringComparison.Ordinal)))
+            return null;
+        return state with
+        {
+            Projects = [.. state.Projects.Select(project => project.AccountId == account && project.Source == ResearchSources.Gmail &&
+                project.Name.StartsWith(EarlierStreamPrefix, StringComparison.Ordinal)
+                    ? project with { Name = StreamName, Profile = project.Profile is { } profile ? profile with { Title = StreamName } : null }
+                    : project)]
+        };
     }
 
     /// <summary>An email stream's threads changed: it is summarized again (and its card waits for that summary).</summary>

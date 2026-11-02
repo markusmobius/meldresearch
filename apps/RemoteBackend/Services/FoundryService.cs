@@ -740,8 +740,10 @@ internal sealed class FoundryService : IFoundryService, IDisposable
           newsletters, announcements, marketing, mailing lists, and confidential matters about other people (peer review of
           others' manuscripts, hiring, admissions, students' grades, personnel). Skipped threads have no bullets.
         - "project" with projectId when the thread clearly belongs to one of projects (the user's research projects): the
-          same paper, grant, dataset, experiment, collaboration or line of research, also under another subject. Sharing only
-          a broad field, method or keyword is NOT enough.
+          same paper, grant, dataset, experiment, collaboration or line of research, also under another subject. Judge from
+          what the messages discuss (the paper's question, its method or pipeline, its data and collaborators), not from words
+          in the subject alone. Sharing only a broad field, method or keyword is NOT enough; when two projects could fit, or
+          none clearly does, return "unassigned".
         - "unassigned" when it is the user's research or professional work (including administration of their own papers,
           grants, data, courses or talks) but no project fits; suggestedProject is a short working title for that line of
           work (not the email subject).

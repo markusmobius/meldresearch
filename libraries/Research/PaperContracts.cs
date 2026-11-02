@@ -13,13 +13,19 @@ public sealed record PaperInfo(string Path, string Sha256, string? Title, string
 public sealed record CardSummaryRequest(string Title, string Abstract, ProjectProfile Summary);
 
 /// <summary>
-/// Reads the title and abstract of a project's main document directly from the LaTeX (no model): \title{...} (also
-/// \title[short]{long}) and \begin{abstract}...\end{abstract} or \abstract{...}, also from a file the main document
-/// includes with \input or \include. LaTeX markup is reduced to plain text.
+/// Reads the title and abstract of a project's paper directly from the LaTeX (no model): \title{...} (also
+/// \title[short]{long}) and \begin{abstract}...\end{abstract} or \abstract{...}, also from a file the document includes
+/// with \input or \include. Among several complete documents (a paper next to memos or notes), one with an abstract is the
+/// paper; otherwise the usual main document. LaTeX markup is reduced to plain text.
 /// </summary>
 public static partial class Papers
 {
     public const int MaxTitle = 300, MaxAbstract = 4000;
+    /// <summary>How papers are read; a newer reading reads every project's paper again (no model call).</summary>
+    public const int Version = 2;
+
+    /// <summary>The marker of the processed revision a project's paper was read from.</summary>
+    public static string ReadFor(string revision) => $"{Version}:{revision}";
 
     [GeneratedRegex(@"(?<!\\)%[^\n]*")]
     private static partial Regex Comment();
@@ -31,8 +37,18 @@ public static partial class Papers
     public static PaperInfo? Read(IEnumerable<(string Path, string Text)> texFiles)
     {
         var files = texFiles.ToDictionary(file => file.Path, file => file.Text, StringComparer.Ordinal);
-        string? main = ProjectSummaries.MainDocument(files.Select(file => (file.Key, file.Value)));
-        if (main is null) return null;
+        var documents = new List<PaperInfo>();
+        var remaining = files.Select(file => (file.Key, file.Value)).ToList();
+        while (ProjectSummaries.MainDocument(remaining) is { } candidate)
+        {
+            documents.Add(ReadDocument(files, candidate));
+            remaining.RemoveAll(file => file.Key == candidate);
+        }
+        return documents.FirstOrDefault(document => document.Abstract is not null) ?? documents.FirstOrDefault();
+    }
+
+    private static PaperInfo ReadDocument(IReadOnlyDictionary<string, string> files, string main)
+    {
         string text = Comment().Replace(files[main], "");
         string? title = Argument(text, "\\title");
         string? summary = AbstractEnvironment().Match(text) is { Success: true } environment ? environment.Groups[1].Value : Argument(text, "\\abstract");
@@ -88,6 +104,19 @@ public static partial class Papers
         return null;
     }
 
+    /// <summary>The position of the brace closing the one at <paramref name="open"/>, or -1.</summary>
+    private static int Close(string text, int open)
+    {
+        int depth = 0;
+        for (int index = open; index < text.Length; index++)
+        {
+            if (text[index] == '\\') { index++; continue; }
+            if (text[index] == '{') depth++;
+            else if (text[index] == '}' && --depth == 0) return index;
+        }
+        return -1;
+    }
+
     private static string Resolve(string main, string name)
     {
         string folder = main.Contains('/') ? main[..main.LastIndexOf('/')] : "";
@@ -102,6 +131,15 @@ public static partial class Papers
         string text = latex;
         foreach (string dropped in new[] { "\\thanks", "\\footnote", "\\cite", "\\citep", "\\citet", "\\label", "\\ref", "\\eqref", "\\vspace", "\\hspace" })
             while (Find(text, dropped) is { } found) text = text[..found.Start] + text[(found.Close + 1)..];
+        // \texorpdfstring{typeset}{plain} and \href{url}{text} keep only their text.
+        foreach (string command in new[] { "\\texorpdfstring", "\\href" })
+            while (Find(text, command) is { } found)
+            {
+                string rest = text[(found.Close + 1)..].TrimStart();
+                int close = rest.StartsWith('{') ? Close(rest, 0) : -1;
+                string kept = close < 0 ? text[(found.Open + 1)..found.Close] : rest[1..close];
+                text = text[..found.Start] + kept + (close < 0 ? rest : rest[(close + 1)..]);
+            }
         text = text.Replace("\\\\", " ").Replace("~", " ").Replace("\\&", "&").Replace("\\%", "%").Replace("\\$", "$").Replace("\\_", "_")
             .Replace("``", "\"").Replace("''", "\"").Replace("---", "—").Replace("--", "–");
         text = Regex.Replace(text, @"\\(?:textbf|textit|emph|textsc|texttt|textrm|underline|mbox|text|mathrm|mathbf|url)\s*\{", "{");

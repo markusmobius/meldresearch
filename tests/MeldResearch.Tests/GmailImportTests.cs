@@ -147,7 +147,7 @@ public sealed class GmailImportTests
         Assert.Equal((GmailThreadRecord.Pending, "Grant renewal"), (threads["g1"].Status, threads["g1"].Suggested));
         Assert.Equal(GmailThreadRecord.Skipped, threads["t2"].Status);
         Assert.Equal(GmailThreadRecord.Skipped, threads["t0"].Status);
-        Assert.Equal((Address, "Email · Social learning"), (stream.Parent, stream.Name));
+        Assert.Equal((Address, GmailImporter.StreamName), (stream.Parent, stream.Name));
         var card = mail.Store.State.Themes!.Single(theme => theme.Id == Card);
         Assert.Contains(stream.ProjectId, card.Members);
         Assert.Contains(stream.ProjectId, card.Pinned!);
@@ -161,7 +161,7 @@ public sealed class GmailImportTests
         var summary = Assert.Single(mail.Remote.StreamRequests);
         Assert.Equal(["Results for the social learning paper", "Revision of the social learning paper"], summary.Threads.Select(thread => thread.Subject));
         stream = mail.Store.State.Projects.Single(project => project.ProjectId == stream.ProjectId);
-        Assert.Equal((true, "Email · Social learning"), (stream.ImportComplete, stream.Profile!.Title));
+        Assert.Equal((true, GmailImporter.StreamName), (stream.ImportComplete, stream.Profile!.Title));
 
         // The feed: assigned threads with news on their card, and the thread waiting for a decision.
         var feed = GmailImporter.Threads(mail.Store.State, Account.Id);
@@ -214,7 +214,7 @@ public sealed class GmailImportTests
         await mail.Importer.DecideAsync(new(Address, "t3", "project", CardId: created.Id), None);
         Assert.Equal(stream.ProjectId, mail.Store.State.GmailThreads!.Single(thread => thread.Id == "t3").StreamId);
         await mail.Importer.DecideAsync(new(Address, "t1", "dismiss"), None);
-        Assert.DoesNotContain(mail.Store.State.Projects, project => project.Name == "Email · Social learning");
+        Assert.DoesNotContain(mail.Store.State.Projects, project => project.Name == GmailImporter.StreamName);
         Assert.DoesNotContain(mail.Store.State.Themes!.SelectMany(theme => theme.Members), member => member.StartsWith("gmail-") && member != stream.ProjectId);
         Assert.Equal("gmail_thread_not_found", (await Assert.ThrowsAsync<ResearchFailure>(() =>
             mail.Importer.DecideAsync(new(Address, "t2", "project", CardId: Card), None))).Code);

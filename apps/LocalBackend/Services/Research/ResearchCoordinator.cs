@@ -438,7 +438,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
 
     /// <summary>
     /// Describes a card from its anchor. A card says what its main paper says: its title and a condensed abstract. Without an
-    /// abstract, the anchor's own summary describes the card (under the paper's title when there is one).
+    /// abstract, the anchor's own summary describes the card.
     /// </summary>
     private async Task DescribeAsync(LinkedCredential credential, ResearchTheme card, MonitoredProject anchor, CancellationToken ct)
     {
@@ -454,7 +454,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             blurb = string.Join(' ', profile.Description.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)).Trim();
             if (!ResearchThemes.ValidBlurb(blurb)) blurb = null;
         }
-        else profile = anchor.Profile! with { Title = anchor.Paper?.Title is { } paperTitle ? Trim(paperTitle, ProfileEvidence.HardMaxTitle) : anchor.Profile!.Title };
+        // Without an abstract the document may be a memo or notes rather than the paper: its title is not used either.
+        else profile = anchor.Profile!;
         string print = ThemePlan.AnchorPrint(anchor);
         await store.ChangeAsync(current =>
         {
@@ -478,7 +479,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     private async Task<bool> PaperStepAsync(Guid account, LocalResearchState state, CancellationToken ct)
     {
         var project = state.Projects.FirstOrDefault(item => item.AccountId == account && item.IsOverleaf && item.Pending is null &&
-            item.Baseline is { } baseline && item.PaperFor != baseline.Revision);
+            item.Baseline is { } baseline && item.PaperFor != Papers.ReadFor(baseline.Revision));
         if (project is null) return false;
         var baseline = project.Baseline!;
         var texts = new List<(string Path, string Text)>();
@@ -488,7 +489,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         await store.ChangeAsync(current => current with
         {
             Projects = [.. current.Projects.Select(item => item.AccountId == account && item.ProjectId == project.ProjectId &&
-                item.Baseline?.Revision == baseline.Revision ? item with { Paper = paper, PaperFor = baseline.Revision } : item)]
+                item.Baseline?.Revision == baseline.Revision ? item with { Paper = paper, PaperFor = Papers.ReadFor(baseline.Revision) } : item)]
         }, ct);
         return true;
     }

@@ -33,9 +33,9 @@ internal static class ThemePlan
             .ThenByDescending(member => member.Processed?.Count ?? 0).ThenBy(member => member.ProjectId, StringComparer.Ordinal).FirstOrDefault();
     }
 
-    /// <summary>What a card's description depends on: its anchor's summary and paper.</summary>
+    /// <summary>What a card's description depends on: its anchor's summary and, when it has an abstract, its paper.</summary>
     public static string AnchorPrint(MonitoredProject anchor) =>
-        Fingerprint(anchor.Profile!) + "|" + (anchor.Paper is { } paper ? ResearchEvidence.Hash(paper.Title + "\n" + paper.Abstract) : "");
+        Fingerprint(anchor.Profile!) + "|" + (anchor.Paper is { Abstract: not null } paper ? ResearchEvidence.Hash(paper.Title + "\n" + paper.Abstract) : "");
 
     public static IReadOnlyList<ResearchTheme> Themes(LocalResearchState state, Guid account) =>
         (state.Themes ?? []).Where(theme => theme.AccountId == account).ToArray();
@@ -75,7 +75,7 @@ internal static class ThemePlan
     /// <summary>An Overleaf project whose processed revision's title and abstract have not been read yet.</summary>
     public static bool PaperDue(LocalResearchState state, Guid account) =>
         state.Projects.Any(project => project.AccountId == account && project.IsOverleaf && project.Pending is null &&
-            project.Baseline is { } baseline && project.PaperFor != baseline.Revision);
+            project.Baseline is { } baseline && project.PaperFor != Papers.ReadFor(baseline.Revision));
 
     /// <summary>A card whose description no longer matches its settled anchor.</summary>
     public static (ResearchTheme Theme, MonitoredProject Anchor)? Stale(LocalResearchState state, Guid account)
