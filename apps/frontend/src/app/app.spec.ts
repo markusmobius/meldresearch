@@ -362,10 +362,8 @@ describe('Overleaf connection screen', () => {
     expect(header?.querySelector('a[aria-label="Feed"]')).not.toBeNull();
     expect(header?.querySelector('a[aria-label="About me"]')).not.toBeNull();
     expect(header?.querySelector('button[aria-label="More"]')).not.toBeNull();
-    for (const page of ['docs', 'privacy', 'team'])
-      expect(element.querySelector(`footer a[href="/${page}.html"]`)).not.toBeNull();
-    expect(element.querySelector('footer')?.textContent).toContain('Independent research software');
-    expect(element.querySelector('footer')?.textContent).not.toContain('Microsoft');
+    // No footer bar in the app: Docs, Privacy, Project Team and Contact are under More.
+    expect(element.querySelector('footer')).toBeNull();
     expect(element.querySelector('.intro')).toBeNull();
     expect(element.querySelector('.feed-column')).not.toBeNull();
     expect(element.querySelector('.connection-settings')).toBeNull();
