@@ -135,7 +135,8 @@ export class App implements OnInit {
   }
 
   // Setup: the Meld account (Google), Remote Sync (required when the server offers it: choose or enter the passphrase),
-  // an optional restore from a backup, Overleaf (connection, then an active choice per recent project), then OpenAlex.
+  // an optional restore from a backup, Overleaf (connection, then an active choice per recent project), then OpenAlex and,
+  // when offered, the optional Gmail step.
   // Only the Account view exists until a project is included; the restore and OpenAlex never block the feed.
   private readonly researchApi = inject(ResearchApi);
   private readonly panel = viewChild(ResearchPanel);
@@ -166,8 +167,9 @@ export class App implements OnInit {
     if (accounts.some(account => account.status !== 'connected')) return 'Reconnect needed';
     return accounts.length ? `${accounts.length} ${accounts.length === 1 ? 'account' : 'accounts'} connected` : 'Optional';
   });
+  // Gmail is optional, so it comes last, after OpenAlex (which needs a decision).
   readonly steps = computed<SetupTab[]>(() => ['meld', ...(this.syncOffered() ? ['sync' as const] : []), 'backup', 'overleaf',
-    ...(this.gmailOffered() ? ['gmail' as const] : []), 'openalex']);
+    'openalex', ...(this.gmailOffered() ? ['gmail' as const] : [])]);
   stepLabel(tab: SetupTab): string { return `Step ${this.steps().indexOf(tab) + 1} of ${this.steps().length}`; }
   readonly overleafReady = computed(() => this.verified() ||
     (!!this.research()?.account && this.overleafConfirmedFor() === this.research()?.account?.id));

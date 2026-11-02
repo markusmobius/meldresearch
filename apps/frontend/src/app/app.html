@@ -95,6 +95,13 @@
               <span class="setup-tab-text"><strong>Overleaf</strong><small>{{ overleafLabel() }}</small></span>
               <mat-icon class="setup-state" [class.done]="stepDone('overleaf')">{{ stepIcon('overleaf') }}</mat-icon>
             </button>
+            <button type="button" role="tab" class="setup-tab" [class.active]="setupTab() === 'openalex'"
+              [attr.aria-selected]="setupTab() === 'openalex'" [disabled]="!stepOpen('openalex')" [class.locked]="!stepOpen('openalex')"
+              [attr.title]="stepOpen('openalex') ? null : 'Finish the previous step first'" (click)="chooseTab('openalex')">
+              <mat-icon>school</mat-icon>
+              <span class="setup-tab-text"><strong>OpenAlex</strong><small>{{ researcherLabel() }}</small></span>
+              <mat-icon class="setup-state" [class.done]="stepDone('openalex')">{{ stepIcon('openalex') }}</mat-icon>
+            </button>
             @if (gmailOffered()) {
               <button type="button" role="tab" class="setup-tab gmail-tab" [class.active]="setupTab() === 'gmail'"
                 [attr.aria-selected]="setupTab() === 'gmail'" [disabled]="!stepOpen('gmail')" [class.locked]="!stepOpen('gmail')"
@@ -104,13 +111,6 @@
                 <mat-icon class="setup-state" [class.done]="stepDone('gmail')">{{ stepIcon('gmail') }}</mat-icon>
               </button>
             }
-            <button type="button" role="tab" class="setup-tab" [class.active]="setupTab() === 'openalex'"
-              [attr.aria-selected]="setupTab() === 'openalex'" [disabled]="!stepOpen('openalex')" [class.locked]="!stepOpen('openalex')"
-              [attr.title]="stepOpen('openalex') ? null : 'Finish the previous step first'" (click)="chooseTab('openalex')">
-              <mat-icon>school</mat-icon>
-              <span class="setup-tab-text"><strong>OpenAlex</strong><small>{{ researcherLabel() }}</small></span>
-              <mat-icon class="setup-state" [class.done]="stepDone('openalex')">{{ stepIcon('openalex') }}</mat-icon>
-            </button>
           </nav>
 
           <div class="setup-panel" role="tabpanel">

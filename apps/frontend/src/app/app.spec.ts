@@ -168,7 +168,7 @@ describe('Overleaf connection screen', () => {
     fixture.destroy();
   });
 
-  it('offers Gmail as an optional step after Overleaf and opens it on return from Google', async () => {
+  it('offers Gmail as the last, optional step and opens it on return from Google', async () => {
     const gmail = { configured: true, windowDays: 30, consentVersion: 'gmail-2026-11', lastError: null,
       accounts: [{ address: 'a@example.invalid', status: 'connected', error: null, threads: 4, checkedAt: null, connectedAt: '2026-11-01T00:00:00Z' }] };
     researchApi.status.mockResolvedValue(researchStatus(true, { gmail, researcher: null, overleafProjects: { projects: [], fetchedAt: new Date().toISOString() } }));
@@ -176,10 +176,10 @@ describe('Overleaf connection screen', () => {
     const fixture = await screen('account');
     const element: HTMLElement = fixture.nativeElement;
     expect([...element.querySelectorAll('.setup-tab strong')].map(tab => tab.textContent))
-      .toEqual(['Meld account', 'Backup', 'Overleaf', 'Gmail', 'OpenAlex']);
+      .toEqual(['Meld account', 'Backup', 'Overleaf', 'OpenAlex', 'Gmail']);
     expect(fixture.componentInstance.setupTab()).toBe('gmail');
     expect(element.querySelector('.gmail-tab')?.textContent).toContain('1 account connected');
-    expect(element.querySelector('.gmail-card mat-card-subtitle')?.textContent).toContain('Step 4 of 5');
+    expect(element.querySelector('.gmail-card mat-card-subtitle')?.textContent).toContain('Step 5 of 5');
     expect(element.querySelector('app-gmail-setup .account')?.textContent).toContain('a@example.invalid');
     fixture.destroy();
   });
