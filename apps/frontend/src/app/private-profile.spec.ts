@@ -121,7 +121,9 @@ describe('About me: my projects', () => {
     const first = change('c1', '2026-10-02T12:00:00Z', { kind: 'gmail', title: 'Pilot results', projectName: null,
       changes: [{ op: 'revise', detailId: 'd2', before: 'A pilot is planned.', after: 'A pilot with 80 publishers is running.' }] });
     const second = change('c2', '2026-09-01T12:00:00Z', { changes: [] });
-    api.changelog.mockResolvedValueOnce({ entries: [first], more: true }).mockResolvedValueOnce({ entries: [second], more: false });
+    const review = change('c3', '2026-08-01T12:00:00Z', { kind: 'review', title: 'Review: overlapping details merged, overtaken plans retired', projectName: null,
+      changes: [{ op: 'remove', detailId: 'd9', before: 'A pilot is planned.', after: null }] });
+    api.changelog.mockResolvedValueOnce({ entries: [first], more: true }).mockResolvedValueOnce({ entries: [second, review], more: false });
     const fixture = render();
     const card = await expand(fixture);
     await selectTab(fixture, card, 1);
@@ -133,9 +135,11 @@ describe('About me: my projects', () => {
     expect(entry.querySelector('.was')?.textContent).toContain('Was: A pilot is planned.');
 
     card.querySelector<HTMLButtonElement>('.changelog-state button')!.click();
-    await vi.waitFor(() => { fixture.detectChanges(); expect(card.querySelectorAll('.change')).toHaveLength(2); });
+    await vi.waitFor(() => { fixture.detectChanges(); expect(card.querySelectorAll('.change')).toHaveLength(3); });
     expect(api.changelog).toHaveBeenLastCalledWith(cardId, first);
     expect(card.querySelectorAll('.change')[1].textContent).toContain('Read; no change to the details.');
+    expect(card.querySelectorAll('.change')[2].querySelector('.change-kind')?.textContent).toBe('Review');
+    expect(card.querySelectorAll('.change')[2].querySelector('.op-remove')?.textContent).toContain('A pilot is planned.');
     expect(card.querySelector('.changelog-state')?.textContent).toContain("Beginning of this project's history.");
     fixture.destroy();
   });

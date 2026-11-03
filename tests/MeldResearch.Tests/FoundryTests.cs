@@ -377,11 +377,15 @@ public sealed class FoundryTests
     [Fact]
     public async Task DetailStepsCiteSentLinesVerbatimAndIgnoreUnknownDetails()
     {
-        string reply = "";
-        using var http = new HttpClient(new Handler(_ => Task.FromResult(Response(new { choices = new[] { new { finish_reason = "stop", message = new { content = reply } } } }))));
+        string reply = "", sent = "";
+        using var http = new HttpClient(new Handler(async message =>
+        {
+            sent = await message.Content!.ReadAsStringAsync();
+            return Response(new { choices = new[] { new { finish_reason = "stop", message = new { content = reply } } } });
+        }));
         using var foundry = Create(http);
         var request = new DetailStepRequest(DetailSource.Overleaf, "PCM", "Paying for Information, Not Clicks", "We build a marketplace.",
-            [new("d1", "The paper proposes a publisher marketplace.", [new("r1", "main.tex", false)])],
+            [new("d1", "The paper proposes a publisher marketplace.", [new("r1", "main.tex", false, new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero))])],
             ["main.tex [sent]", "sections/model.tex [sent]"],
             [new("main.tex", "\\title{PCM}\nWe build a marketplace.", 1), new("sections/model.tex", "Credit is split by Shapley values.\nPrices are fixed.", 41)]);
         object Op(string op, string? id, string? text, object[] cite, string[] remove) => new { op, id, text, cite, remove };
@@ -398,10 +402,23 @@ public sealed class FoundryTests
             }
         }, ResearchJson.Options);
         var response = await foundry.DetailStepAsync(request, CancellationToken.None);
-        Assert.Equal([DetailRules.Add, DetailRules.Revise], response.Ops.Select(op => op.Op));
+        // The model sees each citation's date and today's date, so it can tell how old a plan or status is.
+        Assert.Contains("2026-09-01", sent);
+        Assert.Contains(DateTimeOffset.UtcNow.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), sent);
+        // Edits come back in the order they are applied: removals, revisions, additions.
+        Assert.Equal([DetailRules.Revise, DetailRules.Add], response.Ops.Select(op => op.Op));
+        Assert.Equal(("We build a marketplace.", "r1"), (response.Ops[0].Add.Single().Quote, response.Ops[0].Remove.Single()));
         // Line 41 is the first line of a segment that starts at line 41; line 1 is not part of that segment.
-        Assert.Equal(new DetailQuote("sections/model.tex", 41, 41, "Credit is split by Shapley values."), Assert.Single(response.Ops[0].Add));
-        Assert.Equal(("We build a marketplace.", "r1"), (response.Ops[1].Add.Single().Quote, response.Ops[1].Remove.Single()));
+        Assert.Equal(new DetailQuote("sections/model.tex", 41, 41, "Credit is split by Shapley values."), Assert.Single(response.Ops[1].Add));
+
+        // A full list: an addition listed before the removal that makes room for it is still made.
+        var full = request with { Details = [.. Enumerable.Range(0, DetailRules.MaxDetails).Select(index => new DetailInput("d" + index, "Detail " + index + ".", [new("c0", "main.tex", false)]))] };
+        reply = JsonSerializer.Serialize(new
+        {
+            explanation = "A new result replaces an old plan.",
+            ops = new[] { Op("add", null, "Prices are fixed.", [Cite("sections/model.tex", 42, 42)], []), Op("remove", "d3", null, [], []) }
+        }, ResearchJson.Options);
+        Assert.Equal([DetailRules.Remove, DetailRules.Add], (await foundry.DetailStepAsync(full, CancellationToken.None)).Ops.Select(op => op.Op));
 
         reply = JsonSerializer.Serialize(new { title = "ignored", summary = "The paper proposes a marketplace.\nIt is under revision." }, ResearchJson.Options);
         var summary = await foundry.SummarizeDetailsAsync(new("Paying for Information, Not Clicks", null, ["The paper proposes a marketplace."]), CancellationToken.None);
@@ -411,6 +428,17 @@ public sealed class FoundryTests
             ResearchJson.Options);
         var merged = await foundry.MergeDetailsAsync(new([new("A", [new("a", "Detail A.", [])]), new("B", [new("b", "Detail B.", [])])]), CancellationToken.None);
         Assert.Equal(new DetailMerged("Combined.", ["a"]), Assert.Single(merged.Details), new MergedComparer());
+
+        // A review merges and retires details, never inventing ids and never keeping fewer than half of them.
+        var review = new DetailReviewRequest("PCM", null, null, [new("a", "Pilot planned.", [new("c0", "email: Plan", false, new DateTimeOffset(2026, 3, 1, 0, 0, 0, TimeSpan.Zero))]),
+            new("b", "Pilot has 80 publishers.", []), new("c", "The pilot has 80 publishers.", []), new("d", "Prices are fixed.", [])]);
+        reply = JsonSerializer.Serialize(new { explanation = "Merged the pilot.", details = new[]
+            { new { text = "The pilot has 80 publishers.", from = new[] { "b", "c", "zz" } }, new { text = "Prices are fixed.", from = new[] { "d", "b" } } } }, ResearchJson.Options);
+        var reviewed = await foundry.ReviewDetailsAsync(review, CancellationToken.None);
+        Assert.Equal([new DetailMerged("The pilot has 80 publishers.", ["b", "c"]), new DetailMerged("Prices are fixed.", ["d"])], reviewed.Details, new MergedComparer());
+        Assert.Contains("2026-03-01", sent);
+        reply = JsonSerializer.Serialize(new { explanation = "Too much.", details = new[] { new { text = "Prices are fixed.", from = new[] { "d" } } } }, ResearchJson.Options);
+        Assert.Equal("invalid_detail_review", (await Assert.ThrowsAsync<ResearchFailure>(() => foundry.ReviewDetailsAsync(review, CancellationToken.None))).Code);
     }
 
     private sealed class MergedComparer : IEqualityComparer<DetailMerged>

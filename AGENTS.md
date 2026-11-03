@@ -76,7 +76,7 @@ instruction file. Start with the [README](README.md) for setup and release detai
   before monitoring. Preserve account isolation and server-side authorization.
 - Compare supported source content, not ZIP order/timestamps. Unchanged supported
   content must make **zero inference calls**, including after a restart.
-- A research card (About me) is a) a two-sentence summary, b) at most 25
+- A research card (About me) is a) a two-sentence summary, b) at most 30
   one-sentence details, each with sources (an Overleaf document at a hash, a Gmail
   thread up to a message), and c) a changelog of the sources that updated it
   (OVERLEAF.md §1). Overleaf is read as include trees: roots whose tree changed
@@ -86,7 +86,12 @@ instruction file. Start with the [README](README.md) for setup and release detai
   that changed b). Later cycles send only changed documents; deleted documents lose
   their sources without a model call. `PendingTrees`, `Partial` and `Processed` are
   the persistent queue: commit per part, resume after restart, never resend an
-  unchanged hash. The feed's Updates are changelog entries that changed details.
+  unchanged hash. Steps see each source's date; edits apply removals first so a full
+  list takes new details; a review (OVERLEAF.md §8a, at most monthly per changed card, before
+  the summary) merges overlaps and retires overtaken plans. The feed's Updates are
+  changelog entries that changed details, except reviews. Raising `ResetEpoch`
+  that must also discard synced research needs a new sync blob format in
+  [SyncCrypto](libraries/Research/SyncCrypto.cs) (old names become legacy).
   A source the user removes leaves every detail of the card and waits in Private
   updates (`PendingFile` or a pending thread). Include/resume is processed first.
   Project summaries (one paragraph from the main
@@ -253,7 +258,7 @@ Use .NET 10, Node 24/npm and PowerShell 7. Run from this repository's root, e.g.
   restore the removed application Playwright approach. Use the normal browser
   and connector; never execute downloaded TeX.
 - Current Chrome identity: `pejcljoimoeklelcfbfddnkimlkjgfhe`; extension version
-  `0.6.4`, native protocol `2`. Identity derives from the public manifest key,
+  `0.6.5`, native protocol `2`. Identity derives from the public manifest key,
   not a secret signing key. Update related identity/handshake checks together;
   compatible extension releases need not have identical version numbers.
 - Bump the connector manifest version whenever extension files change: installed

@@ -95,25 +95,31 @@ internal static class DetailPlan
     private static bool Folded(MonitoredProject project, string path, string hash) =>
         project.Processed is { } processed && processed.TryGetValue(path, out var folded) && folded == hash;
 
-    /// <summary>Details as sent to a step: each citation gets a ref (c0, c1, ...); Outdated marks an older version of a sent document.</summary>
+    /// <summary>
+    /// Details as sent to a step: each citation gets a ref (c0, c1, ...) and its source's date; Outdated marks an older version
+    /// of a sent document.
+    /// </summary>
     public static IReadOnlyList<DetailInput> Inputs(IReadOnlyList<DetailBullet> details, Func<DetailSource, bool>? outdated = null) =>
         [.. details.Select(detail => new DetailInput(detail.Id, detail.Text, [.. detail.Citations.Select((citation, index) =>
-            new DetailCitationInput($"c{index}", Label(citation.Source), outdated?.Invoke(citation.Source) == true))]))];
+            new DetailCitationInput($"c{index}", Label(citation.Source), outdated?.Invoke(citation.Source) == true, citation.Source.At))]))];
 
     public static string Label(DetailSource source) => source.Kind == DetailSource.Overleaf ? source.Label : "email: " + source.Label;
 
-    /// <summary>Applies a step's edits; a detail left without citations is removed. Returns the details and what changed.</summary>
+    /// <summary>
+    /// Applies a step's edits, removals first (so a full list makes room before additions); a detail left without citations
+    /// is removed, and an addition beyond <see cref="DetailRules.MaxDetails"/> is not made. Returns the details and what changed.
+    /// </summary>
     public static (IReadOnlyList<DetailBullet> Details, IReadOnlyList<DetailChange> Changes) Apply(IReadOnlyList<DetailBullet> details,
         DetailStepResponse response, Func<DetailQuote, DetailSource> source)
     {
         var result = details.ToList();
         var changes = new List<DetailChange>();
-        foreach (var op in response.Ops)
+        foreach (var op in response.Ops.OrderBy(op => DetailRules.Order(op.Op)))
         {
             var citations = op.Add.Select(quote => new DetailCitation(source(quote), quote.Quote)).ToArray();
             switch (op.Op)
             {
-                case DetailRules.Add:
+                case DetailRules.Add when result.Count < DetailRules.MaxDetails:
                     var added = new DetailBullet(NewId(), op.Text!, Distinct(citations));
                     result.Add(added);
                     changes.Add(new(DetailRules.Add, added.Id, null, added.Text));
@@ -142,7 +148,37 @@ internal static class DetailPlan
                     break;
             }
         }
-        return (result.Take(DetailRules.MaxDetails).ToArray(), changes);
+        return (result, changes);
+    }
+
+    /// <summary>
+    /// Applies a review (OVERLEAF.md §8a): each kept detail keeps the id and place of the first detail it came from and the
+    /// sources of all of them; details it names none of are retired. Returns the details and what changed.
+    /// </summary>
+    public static (IReadOnlyList<DetailBullet> Details, IReadOnlyList<DetailChange> Changes) Review(IReadOnlyList<DetailBullet> details,
+        DetailReviewResponse response)
+    {
+        var byId = details.ToDictionary(detail => detail.Id, StringComparer.Ordinal);
+        var position = details.Select((detail, index) => (detail.Id, index)).ToDictionary(item => item.Id, item => item.index, StringComparer.Ordinal);
+        var kept = new List<(int Position, DetailBullet Detail)>();
+        var changes = new List<DetailChange>();
+        foreach (var item in response.Details)
+        {
+            var from = item.From.Where(byId.ContainsKey).ToArray();
+            if (from.Length == 0) continue;
+            var first = byId[from[0]];
+            var merged = first with
+            {
+                Text = item.Text,
+                Citations = [.. from.SelectMany(id => byId[id].Citations).DistinctBy(citation => (citation.Source.Key, citation.Source.Version, citation.Quote)).Take(12)]
+            };
+            kept.Add((position[first.Id], merged));
+            if (merged.Text != first.Text) changes.Add(new(DetailRules.Revise, first.Id, first.Text, merged.Text));
+            foreach (var id in from.Skip(1)) changes.Add(new(DetailRules.Remove, id, byId[id].Text, null));
+        }
+        var used = response.Details.SelectMany(item => item.From).ToHashSet(StringComparer.Ordinal);
+        foreach (var detail in details.Where(detail => !used.Contains(detail.Id))) changes.Add(new(DetailRules.Remove, detail.Id, detail.Text, null));
+        return ([.. kept.OrderBy(item => item.Position).Select(item => item.Detail)], changes);
     }
 
     /// <summary>Removes citations matching <paramref name="drop"/>; details left without citations are removed.</summary>

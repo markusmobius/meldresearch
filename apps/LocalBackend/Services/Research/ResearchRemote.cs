@@ -58,6 +58,8 @@ internal interface IResearchRemote
     Task<DetailSummaryResponse> SummarizeDetailsAsync(string token, DetailSummaryRequest request, CancellationToken ct);
     /// <summary>The details of research projects combined into one.</summary>
     Task<DetailMergeResponse> MergeDetailsAsync(string token, DetailMergeRequest request, CancellationToken ct);
+    /// <summary>A periodic review of a research project's details: overlaps merged, overtaken plans retired (OVERLEAF.md §8a).</summary>
+    Task<DetailReviewResponse> ReviewDetailsAsync(string token, DetailReviewRequest request, CancellationToken ct);
     /// <summary>A research card's summary from its main paper's title and abstract.</summary>
     Task<ThemeMergeResponse> SummarizeCardAsync(string token, CardSummaryRequest request, CancellationToken ct);
     Task<SyncListResponse> SyncListAsync(string token, CancellationToken ct);
@@ -181,6 +183,8 @@ internal sealed class ResearchRemote(ResearchOptions options, IHttpClientFactory
         CallAsync<DetailSummaryResponse>("api/research/detail-summary", HttpMethod.Post, request, token, ct);
     public Task<DetailMergeResponse> MergeDetailsAsync(string token, DetailMergeRequest request, CancellationToken ct) =>
         CallAsync<DetailMergeResponse>("api/research/detail-merge", HttpMethod.Post, request, token, ct);
+    public Task<DetailReviewResponse> ReviewDetailsAsync(string token, DetailReviewRequest request, CancellationToken ct) =>
+        CallAsync<DetailReviewResponse>("api/research/detail-review", HttpMethod.Post, request, token, ct);
     public Task<ThemeMergeResponse> SummarizeCardAsync(string token, CardSummaryRequest request, CancellationToken ct) =>
         CallAsync<ThemeMergeResponse>("api/research/card-summary", HttpMethod.Post, request, token, ct);
     public Task<CardBlurbResponse> DescribeCardAsync(string token, CardBlurbRequest request, CancellationToken ct) =>

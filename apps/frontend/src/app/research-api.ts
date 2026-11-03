@@ -91,10 +91,11 @@ export interface ResearchDetail { id: string; text: string; sources: ReadonlyArr
 export interface DetailChange { op: 'add' | 'revise' | 'remove'; detailId: string; before: string | null; after: string | null; }
 /**
  * A changelog entry of a research project: a source that updated it (kind overleaf: documents of one tree; gmail: new email
- * of a thread), a removed source, the user's change or a merge. changes is empty when the source changed no detail.
+ * of a thread), a removed source, the user's change, a merge, or a periodic review (overlaps merged, overtaken plans
+ * retired; shown in the changelog only). changes is empty when the source changed no detail.
  */
 export interface ResearchChange {
-  id: string; cardId: string; cardTitle: string | null; at: string; kind: 'overleaf' | 'gmail' | 'removed' | 'user' | 'merge';
+  id: string; cardId: string; cardTitle: string | null; at: string; kind: 'overleaf' | 'gmail' | 'removed' | 'user' | 'merge' | 'review';
   title: string; projectName: string | null; documents: ReadonlyArray<string>; changes: ReadonlyArray<DetailChange>;
 }
 export interface ChangelogPage { entries: ReadonlyArray<ResearchChange>; more: boolean; }
@@ -163,7 +164,7 @@ export interface ResearchTheme {
   anchorId?: string | null; anchorChosen?: boolean; reason?: string | null;
   /** Skipped as not the user's own research (About me → Skipped). */
   skipped?: boolean;
-  /** The current state of the research: at most 25 one-sentence details with their sources (profile.description summarizes them). */
+  /** The current state of the research: at most 30 one-sentence details with their sources (profile.description summarizes them). */
   details?: ReadonlyArray<ResearchDetail> | null;
 }
 export interface ProjectSummary {

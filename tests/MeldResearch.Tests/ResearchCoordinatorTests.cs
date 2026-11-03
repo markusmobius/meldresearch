@@ -489,6 +489,14 @@ public sealed class ResearchCoordinatorTests
             return Task.FromResult(new DetailMergeResponse([.. request.Cards.SelectMany(card => card.Details)
                 .Select(detail => new DetailMerged(detail.Text, [detail.Id])).Take(DetailRules.MaxDetails)], "chat"));
         }
+        public List<DetailReviewRequest> Reviews { get; } = [];
+        /// <summary>The model's review; by default every detail is kept unchanged.</summary>
+        public Func<DetailReviewRequest, DetailReviewResponse>? Review { get; set; }
+        public Task<DetailReviewResponse> ReviewDetailsAsync(string token, DetailReviewRequest request, CancellationToken ct)
+        {
+            lock (Reviews) Reviews.Add(request);
+            return Task.FromResult((Review ?? (item => new([.. item.Details.Select(detail => new DetailMerged(detail.Text, [detail.Id]))], "Unchanged.", "chat")))(request));
+        }
         public List<CardSummaryRequest> Cards { get; } = [];
         public Task<ThemeMergeResponse> SummarizeCardAsync(string token, CardSummaryRequest request, CancellationToken ct)
         {

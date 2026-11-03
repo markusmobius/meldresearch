@@ -112,10 +112,10 @@ export class ResearchPanel implements OnInit {
   }
 
   kindLabel(change: ResearchChange): string {
-    return { overleaf: 'Overleaf', gmail: 'Email', removed: 'Source removed', user: 'Your change', merge: 'Merged' }[change.kind] ?? 'Update';
+    return { overleaf: 'Overleaf', gmail: 'Email', removed: 'Source removed', user: 'Your change', merge: 'Merged', review: 'Review' }[change.kind] ?? 'Update';
   }
   kindIcon(change: ResearchChange): string {
-    return { overleaf: 'description', gmail: 'mail', removed: 'remove_circle_outline', user: 'person', merge: 'call_merge' }[change.kind] ?? 'update';
+    return { overleaf: 'description', gmail: 'mail', removed: 'remove_circle_outline', user: 'person', merge: 'call_merge', review: 'fact_check' }[change.kind] ?? 'update';
   }
   opLabel(op: string): string { return op === 'add' ? 'Added' : op === 'remove' ? 'Removed' : 'Revised'; }
   threadKey(thread: Pick<GmailThread, 'address' | 'id'>): string { return `${thread.address}|${thread.id}`; }

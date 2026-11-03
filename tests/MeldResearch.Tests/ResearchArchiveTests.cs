@@ -35,7 +35,7 @@ public sealed class ResearchArchiveTests
             new ResearchArchive(store, coordinator, Updates, TimeProvider.System, NullLogger<ResearchArchive>.Instance));
     }
 
-    private static int ModelCalls(Remote remote) => remote.Calls + remote.Blurbs.Count + remote.Matches.Count + remote.Merges.Count + remote.Regroups.Count + remote.DetailSummaries.Count + remote.DetailMerges.Count;
+    private static int ModelCalls(Remote remote) => remote.Calls + remote.Blurbs.Count + remote.Matches.Count + remote.Merges.Count + remote.Regroups.Count + remote.DetailSummaries.Count + remote.DetailMerges.Count + remote.Reviews.Count;
 
     [Fact]
     public async Task TheExportIsReadableJsonAndRestoresOnAFreshComputerWithoutModelCalls()
@@ -148,11 +148,11 @@ public sealed class ResearchArchiveTests
         using var fresh = New(Credential, snapshot, box);
         await fresh.Coordinator.WithSyncAsync((sync, credential) => sync.CreateAsync(credential, "correct horse battery", None), None);
         await Drain(fresh.Coordinator);
-        Assert.DoesNotContain(box.Contents.Keys, key => key.StartsWith("p2/"));
+        Assert.DoesNotContain(box.Contents.Keys, key => key.StartsWith("p3/"));
 
         await fresh.Archive.ImportAsync(new MemoryStream(zip), None);
         await Drain(fresh.Coordinator);
-        Assert.Single(box.Contents.Keys, key => key.StartsWith("p2/"));
+        Assert.Single(box.Contents.Keys, key => key.StartsWith("p3/"));
         Assert.Equal(0, ModelCalls(fresh.Remote));
         Assert.Equal(1, (await fresh.Coordinator.StatusAsync(None)).Sync!.SyncedProjects);
     }

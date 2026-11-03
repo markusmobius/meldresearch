@@ -174,7 +174,7 @@ that backend requires real Google OAuth configuration. No synthetic identity is
 available in Live mode.
 
 The source manifest now uses the supplied Chrome draft public key:
-**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.6.4**, wire protocol **2**.
+**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.6.5**, wire protocol **2**.
 It is a public identity key, not a signing secret.
 
 Until the private listing is approved, remove the old development-ID unpacked
@@ -210,7 +210,7 @@ About me shows one card per **research project**, built as specified in
 [OVERLEAF.md](OVERLEAF.md):
 
 - **a) Summary**: two sentences, rewritten from b) once a cycle that changed b) ends.
-- **b) Details**: the current state of the project, at most 25 one-sentence details,
+- **b) Details**: the current state of the project, at most 30 one-sentence details,
   each with its **sources**: an Overleaf document at a content hash, or a Gmail
   thread up to a message. Select a detail to see its sources and the cited lines;
   **Remove** takes a source off every detail of the card (a detail left without
@@ -236,7 +236,10 @@ How Overleaf is read:
   (`ResearchCoordinator.RecentDays`, reported as `recentDays`).
 - **Steps.** A tree's documents are sent in parts of at most 60,000 characters
   (split at sections, then paragraphs); each part is one Foundry step that edits the
-  details with add/revise/remove operations. The model names line ranges; the
+  details with add/revise/remove operations. Each detail's sources are sent with
+  their dates (and today's), so plans and statuses the new evidence overtook are
+  revised or removed; removals apply first, so a full list always makes room for
+  new results. The model names line ranges; the
   server copies the cited lines verbatim and drops citations, ids or additions it
   cannot ground. Every step commits atomically (details, folded hashes, changelog),
   so a restart continues with the next part.
@@ -245,6 +248,11 @@ How Overleaf is read:
   tree changed are processed, and only their changed documents are sent; unchanged
   content makes **zero** model calls, also after a restart. Deleted documents lose
   their sources without a model call.
+- **Review.** At most every 30 days, a card whose details changed is reviewed
+  once (`/api/research/detail-review`, details and dates only, before the
+  summary): overlapping details are merged and plans or statuses that newer
+  details overtook are retired, keeping at least half. Reviews appear in the
+  card's changelog, not in the feed (OVERLEAF.md §8a).
 - **Cards.** A newly read project gets a card of its own; Foundry then decides with
   strict matching (the same paper or core question; a shared topic, data set or
   method is not enough) whether it belongs on an existing card, and combining two
@@ -288,10 +296,13 @@ How Overleaf is read:
   counts warnings and errors of the last ten minutes.
 - **One-time resets.** Raising `ResearchCoordinator.ResetEpoch` makes every
   installation start its research over once on the first start of that release.
-  Epoch 2 (this format) erases projects' processing state, cards, details,
-  changelog, recorded threads and stored texts, and keeps the sign-in, the sync key,
-  Gmail connections, include/exclude choices, skipped work and the OpenAlex match;
-  included projects and mail are then read again (OVERLEAF.md §13).
+  Epoch 2 introduced this format and epoch 3 repeats it once (with dated citations
+  and reviews): projects' processing state, cards, details, changelog, recorded
+  threads and stored texts are erased; the sign-in, the sync key, Gmail
+  connections, include/exclude choices, skipped work and the OpenAlex match are
+  kept, and included projects and mail are read again. Synced research uses format
+  3 blob names (`profile3.bin`, `p3/`); older blobs are ignored and deleted, so
+  deploy the server first (OVERLEAF.md §13).
 - Source text is kept in an encrypted, content-addressed store next to the state
   (`research/texts`), so the state file stays small; unreferenced texts are pruned.
 - UTF-8 `.tex`, `.md` and `.txt` files of up to 128 KiB are documents. Bibliographies,

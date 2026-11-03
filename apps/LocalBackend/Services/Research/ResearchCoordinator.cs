@@ -55,16 +55,19 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     // Set when the user includes or resumes a project: the worker stops after its current file step and reads that project.
     private int _urgent;
     /// <summary>
-    /// Raise to erase every installation's research once, on its first start of a release: projects (summaries, processed
-    /// hashes, Updates, queue), include/exclude choices, the OpenAlex match and the encrypted text store. Sign-in is kept.
+    /// Raise to start every installation's research over once, on its first start of a release (see <see cref="Fresh"/>).
+    /// Epoch 2 introduced the details format; epoch 3 rebuilds it once more with dated citations and reviews, together with
+    /// sync format 3 (SyncCrypto), so research synced by the earlier build cannot come back.
     /// </summary>
-    internal const int ResetEpoch = 2;
+    internal const int ResetEpoch = 3;
     /// <summary>
     /// The one recency window (OVERLEAF.md §2): projects updated within it need an include/exclude choice and can be summarized,
     /// and only document trees edited within it are read.
     /// </summary>
     internal static readonly TimeSpan SummaryWindow = TimeSpan.FromDays(RecentDays);
     internal const int RecentDays = 183;
+    /// <summary>A research project's details are reviewed for overlaps and overtaken plans at most this often (OVERLEAF.md §8a).</summary>
+    internal static readonly TimeSpan ReviewInterval = TimeSpan.FromDays(30);
     private volatile string? _summarizing;
     // After a failed grouping call, card work waits instead of retrying in a tight loop.
     private DateTimeOffset _themeRetryAt = DateTimeOffset.MinValue;
@@ -94,7 +97,9 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         // The Updates feed: changelog entries that changed the details of projects in the profile (OVERLEAF.md §8).
         var feedThemes = account is { } owner1 ? ThemePlan.Active(state, owner1) : [];
         var feedIds = feedThemes.Select(theme => theme.Id).ToHashSet(StringComparer.Ordinal);
-        var changes = (state.Changelog ?? []).Where(entry => entry.AccountId == account && entry.Changes.Count != 0 && feedIds.Contains(entry.CardId))
+        // A review only tidies the details (no new research), so it is in the changelog but not in the feed.
+        var changes = (state.Changelog ?? []).Where(entry => entry.AccountId == account && entry.Changes.Count != 0 && feedIds.Contains(entry.CardId) &&
+                entry.Kind != ChangelogEntry.Review)
             .OrderByDescending(entry => entry.At).ThenByDescending(entry => entry.RecordedAt).Select(entry => Change(entry, feedThemes, state)).ToArray();
         var signIn = _signIn is { } pending && pending.ExpiresAt > clock.GetUtcNow() && state.Credential is null ? pending : null;
         var researcher = state.Researchers?.FirstOrDefault(item => item.AccountId == account);
@@ -689,6 +694,50 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     }
 
     /// <summary>
+    /// Reviews a card's details without new evidence (OVERLEAF.md §8a): one Foundry call merges overlapping details and retires
+    /// plans and statuses that newer details overtook. The result applies only if the details did not change meanwhile; the
+    /// changes go to the changelog (not the feed). A review the server rejects is not retried until the details change again,
+    /// so it never holds up the summary; a server or connection problem is retried like other card work.
+    /// </summary>
+    private async Task ReviewAsync(LinkedCredential credential, ResearchTheme card, CancellationToken ct)
+    {
+        var account = credential.Account.Id;
+        var anchor = ThemePlan.AnchorOf(await store.ReadAsync(ct), card);
+        var paper = anchor?.Paper is { Abstract: not null } read ? read : null;
+        string print = DetailPlan.Fingerprint(card.Details);
+        IReadOnlyList<DetailBullet>? reviewed = null;
+        IReadOnlyList<DetailChange> changes = [];
+        try
+        {
+            var request = new DetailReviewRequest(Trim(card.Profile?.Title ?? card.Name ?? "Research project", ProfileEvidence.HardMaxTitle),
+                paper?.Title is { } title ? Trim(title, Papers.MaxTitle) : null, paper?.Abstract, DetailPlan.Inputs(card.Details!));
+            var response = await remote.ReviewDetailsAsync(credential.Token, request, ct);
+            DetailRules.ValidateReviewed(request, response);
+            (reviewed, changes) = DetailPlan.Review(card.Details!, response);
+        }
+        catch (ResearchFailure failure) when (!Transient(failure.Code))
+        {
+            logger.LogWarning("A research project's review was not applied: {Code}.", failure.Code);
+        }
+        var at = clock.GetUtcNow();
+        await store.ChangeAsync(current =>
+        {
+            var theme = current.Themes?.FirstOrDefault(item => item.AccountId == account && item.Id == card.Id);
+            // The details changed meanwhile: they are reviewed again later.
+            if (current.Credential?.Account.Id != account || theme is null || DetailPlan.Fingerprint(theme.Details) != print) return current;
+            var details = changes.Count != 0 ? reviewed! : theme.Details!;
+            var updated = theme with { Details = details, ReviewedFor = DetailPlan.Fingerprint(details), ReviewedAt = at };
+            return current with
+            {
+                Themes = [.. current.Themes!.Select(item => item == theme ? updated : item)],
+                Changelog = changes.Count == 0 ? current.Changelog : DetailPlan.Log(current.Changelog, new(Guid.NewGuid(), account, card.Id, at,
+                    ChangelogEntry.Review, "Review: overlapping details merged, overtaken plans retired", null, [], changes, null, at))
+            };
+        }, ct);
+        logger.LogInformation("A research project's {Count} details were reviewed: {Changes} change(s).", card.Details!.Count, changes.Count);
+    }
+
+    /// <summary>
     /// One unit of research card work: drop departed members and their sources, write a summary whose details changed, match a
     /// new card (strictly), compare all cards once more, or group a skipped card with related skipped work (loosely).
     /// </summary>
@@ -705,6 +754,12 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         if (clock.GetUtcNow() < _themeRetryAt) return false;
         try
         {
+            // A review comes before the summary, so the summary is written once from the reviewed details.
+            if (ThemePlan.ReviewDue(state, account, clock.GetUtcNow(), ReviewInterval) is { } stale)
+            {
+                await ReviewAsync(credential, stale, ct);
+                return true;
+            }
             if (ThemePlan.SummaryDue(state, account) is { } due)
             {
                 await WriteSummaryAsync(credential, due, ct);
@@ -918,7 +973,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         bool queued = selected.Any(project => project.Pending is not null && Due(project, now));
         var summaries = (state.Summaries ?? []).Where(item => item.AccountId == credential.Account.Id && item.Status == "queued")
             .OrderBy(item => item.RequestedAt).ToArray();
-        bool themes = ThemePlan.HasWork(state, credential.Account.Id) && clock.GetUtcNow() >= _themeRetryAt ||
+        bool themes = ThemePlan.HasWork(state, credential.Account.Id, now, ReviewInterval) && clock.GetUtcNow() >= _themeRetryAt ||
             state.PendingFiles?.Any(file => file.AccountId == credential.Account.Id && file.TargetCardId is not null) == true;
         bool mail = importer?.HasWork(state, credential.Account.Id, now) == true;
         if (due.Length == 0 && !queued && summaries.Length == 0 && !themes && !mail) return false;

@@ -100,13 +100,23 @@ internal static class ThemePlan
             theme.Members.All(member => state.Projects.FirstOrDefault(project => project.AccountId == account && project.ProjectId == member) is not { } project ||
                 Settled(project)) && !FoldPending(state, theme));
 
+    /// <summary>
+    /// A card of the profile whose details changed since its last review, settled like <see cref="SummaryDue"/>, with at least
+    /// <see cref="DetailRules.MinReviewDetails"/> details and no review in the last <paramref name="interval"/> (OVERLEAF.md §8a).
+    /// </summary>
+    public static ResearchTheme? ReviewDue(LocalResearchState state, Guid account, DateTimeOffset now, TimeSpan interval) =>
+        Active(state, account).FirstOrDefault(theme => theme.Details is { Count: >= DetailRules.MinReviewDetails } details &&
+            theme.ReviewedFor != DetailPlan.Fingerprint(details) && (theme.ReviewedAt is not { } reviewed || now - reviewed >= interval) &&
+            theme.Members.All(member => state.Projects.FirstOrDefault(project => project.AccountId == account && project.ProjectId == member) is not { } project ||
+                Settled(project)) && !FoldPending(state, theme));
+
     /// <summary>A new card, summarized, waiting to be compared (strictly) with the other cards.</summary>
     public static ResearchTheme? MatchDue(LocalResearchState state, Guid account) =>
         Active(state, account).FirstOrDefault(theme => theme.MatchPending == true && theme.Profile is not null &&
             theme.SummaryFor == DetailPlan.Fingerprint(theme.Details));
 
-    public static bool HasWork(LocalResearchState state, Guid account) =>
-        Cleaned(state, account) is not null || SummaryDue(state, account) is not null || MatchDue(state, account) is not null ||
+    public static bool HasWork(LocalResearchState state, Guid account, DateTimeOffset now, TimeSpan interval) =>
+        Cleaned(state, account) is not null || SummaryDue(state, account) is not null || ReviewDue(state, account, now, interval) is not null || MatchDue(state, account) is not null ||
         RegroupDue(state, account) || SkipUngrouped(state, account) is not null;
 
     /// <summary>The account's cards and their members, independent of order; regrouping runs again only when it changes.</summary>

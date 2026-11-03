@@ -72,7 +72,9 @@ internal sealed record ProjectSummaryState(Guid AccountId, string ProjectId, str
 /// and are never moved by automatic regrouping. Reason says why the last member was grouped here. Skipped: the user marked
 /// the card as not their own research (for example helping a family member): it leaves the profile and the feed, its
 /// Overleaf projects pause, and new email of the same kind is skipped too; SkipGrouped once it was compared (loosely) with
-/// the other skipped cards.
+/// the other skipped cards. ReviewedFor and ReviewedAt record the last review of the details (OVERLEAF.md §8a): which
+/// details it saw, and when, so a card is reviewed at most once per ResearchCoordinator.ReviewInterval and only after it
+/// changed.
 /// </summary>
 internal sealed record ResearchTheme(Guid AccountId, string Id, IReadOnlyList<string> Members, ProjectProfile? Profile,
     IReadOnlyDictionary<string, string>? MergedFrom, DateTimeOffset CreatedAt, IReadOnlyList<string>? Pinned = null,
@@ -84,17 +86,20 @@ internal sealed record ResearchTheme(Guid AccountId, string Id, IReadOnlyList<st
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<DetailBullet>? Details = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SummaryFor = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? MatchPending = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Name = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Name = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ReviewedFor = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateTimeOffset? ReviewedAt = null);
 
 /// <summary>
 /// One entry of a research project's changelog (OVERLEAF.md §8): a source that updated it (an Overleaf root tree, an email
-/// thread's new messages), a removal, or the user's change. Changes is what it did to the details; Key merges the parts of
-/// one root tree of one cycle into one entry.
+/// thread's new messages), a removal, the user's change, a merge of cards, or a periodic review (Review: overlapping details
+/// merged and overtaken plans retired; not shown in the feed). Changes is what it did to the details; Key merges the parts
+/// of one root tree of one cycle into one entry.
 /// </summary>
 internal sealed record ChangelogEntry(Guid Id, Guid AccountId, string CardId, DateTimeOffset At, string Kind, string Title,
     string? ProjectId, IReadOnlyList<string> Documents, IReadOnlyList<DetailChange> Changes, string? Key, DateTimeOffset RecordedAt)
 {
-    public const string Overleaf = "overleaf", Gmail = "gmail", Removed = "removed", User = "user", Merge = "merge";
+    public const string Overleaf = "overleaf", Gmail = "gmail", Removed = "removed", User = "user", Merge = "merge", Review = "review";
 }
 
 /// <summary>What one update did to one detail: added, revised (Before and After) or removed it.</summary>

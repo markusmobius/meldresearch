@@ -19,7 +19,7 @@ Every research project (a card in About me) has three parts:
 | Part | What it is | When it changes |
 | --- | --- | --- |
 | **a) Summary** | Two sentences, about as long as a Project Meld summary. | Rewritten from b) at the **end of an ingest cycle**, and only if b) changed in that cycle. |
-| **b) Details** | The current state of the project: at most **25 bullets**, each **one sentence**, each with its **sources**. | Edited by every update step (Overleaf or email). |
+| **b) Details** | The current state of the project: at most **30 bullets**, each **one sentence**, each with its **sources**. | Edited by every update step (Overleaf or email). |
 | **c) Changelog** | A chronological list of sources (newest first, infinitely scrollable), each with what it did to b). | One entry per update (a root tree for Overleaf, a thread's new messages for email). |
 
 A **source** is a concrete piece of evidence at a fixed version:
@@ -136,7 +136,9 @@ For each selected root, in the order of §6:
    `\section`/`\chapter` boundaries, and otherwise at paragraph boundaries. Each
    part is **one Foundry step**.
 4. **A step's input:**
-   - the card's current details (bullet ids, text and sources);
+   - the card's current details (bullet ids, text and sources, each source
+     with its date) and today's date, so the model can tell how old a plan or
+     status is;
    - the project and root context (root path, paper title and abstract if any,
      the outline);
    - the part's documents with numbered lines.
@@ -146,8 +148,16 @@ For each selected root, in the order of §6:
      to remove.
    - `remove` — an existing bullet (by id) that the new text contradicts or
      makes obsolete.
+
+   The prompt asks the model to keep the details current: a plan, next step or
+   "in progress" status that the new evidence shows was done, changed, dropped
+   or overtaken is revised or removed rather than left next to the newer fact,
+   and when the list is full the least important or most dated detail makes
+   room. Edits are applied removals first, then revisions, then additions, so a
+   full list can always take a new detail whatever order the model listed them
+   in; an addition that still does not fit is not made (and not logged).
 6. **Validation (server, then again locally):**
-   - At most 25 bullets after the step, each one sentence of at most 300
+   - At most 30 bullets after the step, each one sentence of at most 300
      characters.
    - Every citation names a document sent in this step and a valid line range.
      The server copies the cited lines verbatim (as for Updates today).
@@ -181,6 +191,33 @@ by the documents' own edit times.
 
 The **Updates feed** shows the changelog entries that changed details, newest
 first.
+
+## 8a. Periodic review
+
+Details only change when evidence arrives, so a plan stated in an old email
+("Lukas will draft the preregistration") could stay after the work moved on
+without anyone writing it down. A **review** guards against that:
+
+- **When:** a card of the profile (not skipped) with at least 3 details, whose
+  details changed since its last review, once its projects are settled (as for
+  the summary), and at most once every **30 days**
+  (`ResearchCoordinator.ReviewInterval`). It runs before the summary, so a) is
+  written once from the reviewed details. An initial ingest is reviewed right
+  away.
+- **Input:** only the details, each source's date, today's date and the paper's
+  title and abstract (`/api/research/detail-review`); no source text.
+- **Output:** the details to keep, each naming the details it came from (it keeps
+  all their sources). The model merges overlapping details, rewords a status
+  that newer details moved on, and retires plans, next steps and "in progress"
+  statuses that newer details overtook or that are many months older than the
+  project's newest sources with nothing newer supporting them. It never retires
+  the question, approach, model, data or results for their age and adds no new
+  facts. At least half of the details must survive; otherwise the review is
+  rejected.
+- **Commit:** only if the details did not change meanwhile; one changelog entry
+  of kind *review*. Reviews are housekeeping, so they are in the changelog but
+  not in the Updates feed. A review the server rejects is recorded as done for
+  those details (it never blocks the summary); a connection problem is retried.
 
 ## 9. Later ingests
 
@@ -218,12 +255,12 @@ The user can click a bullet, see its sources and remove one.
 
 Details belong to a **card**, the research project in About me. A card can hold
 several Overleaf projects (a paper project and a slides project) and email
-threads; their sources all edit the same 25 bullets.
+threads; their sources all edit the same 30 bullets.
 
 - **A newly included project** is ingested into a card of its own. After its
   first cycle, strict matching (same paper or same core question) may combine
   it with an existing card. Combining two cards is one Foundry call that merges
-  both detail lists into at most 25 bullets, keeping only the sources of the
+  both detail lists into at most 30 bullets, keeping only the sources of the
   bullets it merges. Every merged bullet must cite sources of the bullets it
   came from.
 - **Moving a project** to another card removes its sources from the old card's
@@ -243,7 +280,9 @@ needed: threads attach to cards directly.
 
 ## 13. Fresh start
 
-The new format starts from scratch, once.
+The new format starts from scratch, once (`ResearchCoordinator.ResetEpoch` 2).
+Epoch 3 repeats it once more, after the first build of this format ran briefly
+without dated citations and reviews.
 
 **Kept:**
 
@@ -261,9 +300,12 @@ The new format starts from scratch, once.
 - recorded threads and stored texts;
 - every synced research copy in the cloud (project and profile bundles).
 
-The new bundles carry a new format version. Bundles of the old format are
-ignored and deleted, so a computer still on the old version cannot bring them
-back. The rebuild then runs the initial ingest (§3–§8) for every included
+The new bundles carry a new format version in their blob names (format 3:
+`profile3.bin`, `p3/...`; [SyncCrypto](libraries/Research/SyncCrypto.cs)).
+Bundles of older formats (`profile.bin`, `p/...`, `profile2.bin`, `p2/...`)
+are ignored and deleted by the first upload in the current format, so a
+computer still on an older version cannot bring them back. Meld's server must
+accept the current names before clients use them, so it is deployed first. The rebuild then runs the initial ingest (§3–§8) for every included
 project, and the email import for every connected account.
 
 ## 14. Cost and limits
@@ -273,6 +315,8 @@ project, and the email import for every connected account.
   already-read documents are not counted twice.
 - Later ingests: one call per part of changed documents, plus at most one
   summary call per changed card. An unchanged project makes zero calls.
+- Reviews: at most one call per changed card every 30 days (§8a), plus one
+  right after a card's initial ingest.
 - Documents over 128 KB are not read (unchanged from today). Every model request
   stays under the 100-second Cloudflare limit.
 
@@ -306,3 +350,6 @@ project, and the email import for every connected account.
    the user's own removals; the changelog is ordered by the sources' dates.
 7. The changelog pages by entry (`after` = the last entry shown), so entries that
    share a date are never skipped between pages.
+8. Details are capped at 30. Steps see each source's date, edits apply removals
+   first, and a monthly review retires overtaken plans (§7.5, §8a), so details
+   do not go stale.

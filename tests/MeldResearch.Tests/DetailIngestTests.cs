@@ -373,6 +373,79 @@ public sealed class DetailIngestTests
     }
 
     [Fact]
+    public void AFullListMakesRoomForANewDetailWhateverOrderTheEditsCameIn()
+    {
+        var source = new DetailSource(DetailSource.Overleaf, ProjectId, "main.tex", "v1", "main.tex", DateTimeOffset.UtcNow);
+        var details = Enumerable.Range(0, DetailRules.MaxDetails).Select(index => new DetailBullet("d" + index, "Detail " + index + ".", [new(source, "q")])).ToArray();
+        var response = new DetailStepResponse([new(DetailRules.Add, null, "A new result.", [new("main.tex", 1, 1, "New")], []),
+            new(DetailRules.Remove, "d0", null, [], []), new(DetailRules.Add, null, "One too many.", [new("main.tex", 2, 2, "More")], [])], "", "chat");
+        var (result, changes) = DetailPlan.Apply(details, response, _ => source);
+        Assert.Equal(DetailRules.MaxDetails, result.Count);
+        Assert.Contains(result, detail => detail.Text == "A new result.");
+        Assert.DoesNotContain(result, detail => detail.Id == "d0");
+        // The addition that did not fit is not reported as made.
+        Assert.Equal([DetailRules.Remove, DetailRules.Add], changes.Select(change => change.Op));
+    }
+
+    [Fact]
+    public async Task ADetailsReviewRetiresOvertakenPlansBeforeTheSummaryAndAtMostMonthly()
+    {
+        var source = PaperProject(out _);
+        var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
+        var remote = new Remote();
+        // The review retires the memo's detail and merges two sections into one.
+        remote.Review = request =>
+        {
+            var ids = request.Details.Select(detail => detail.Id).ToArray();
+            return new([new("The paper builds a publisher marketplace.", [ids[1]]), new("Its model and results.", [ids[2], ids[3]])], "Retired the memo's plan.", "chat");
+        };
+        using var coordinator = Create(store, remote, source);
+        await Drain(coordinator);
+
+        var review = Assert.Single(remote.Reviews);
+        Assert.Equal(4, review.Details.Count);
+        // Dated citations, so plans can be judged by age.
+        Assert.All(review.Details.SelectMany(detail => detail.Citations), citation => Assert.NotNull(citation.At));
+        var card = Assert.Single(store.State.Themes!);
+        Assert.Equal(["The paper builds a publisher marketplace.", "Its model and results."], card.Details!.Select(detail => detail.Text));
+        Assert.Equal(2, card.Details![1].Citations.Select(citation => citation.Source.Item).Distinct().Count());
+        // One summary, written from the reviewed details.
+        Assert.Equal(["The paper builds a publisher marketplace.", "Its model and results."], Assert.Single(remote.DetailSummaries).Details);
+        var entry = Assert.Single(store.State.Changelog!, item => item.Kind == ChangelogEntry.Review);
+        // The memo's detail retired, one section absorbed by the merge; the kept ones reworded.
+        Assert.Equal(2, entry.Changes.Count(change => change.Op == DetailRules.Remove));
+        Assert.Equal(2, entry.Changes.Count(change => change.Op == DetailRules.Revise));
+        // The review is in the changelog but not in the feed.
+        var status = await coordinator.StatusAsync(None);
+        Assert.DoesNotContain(status.Changes!, change => change.Kind == ChangelogEntry.Review);
+        Assert.NotEmpty(status.Changes!);
+
+        // Changed again within the month: summarized, not reviewed again yet.
+        store.State = store.State with { Themes = [card with { Details = [.. card.Details!, card.Details![0] with { Id = "x1", Text = "A third detail." }] }] };
+        await Drain(coordinator);
+        Assert.Single(remote.Reviews);
+        Assert.Equal(2, remote.DetailSummaries.Count);
+        remote.Review = null;
+        store.State = store.State with { Themes = [store.State.Themes!.Single() with { ReviewedAt = DateTimeOffset.UtcNow - ResearchCoordinator.ReviewInterval }] };
+        await Drain(coordinator);
+        Assert.Equal(2, remote.Reviews.Count);
+    }
+
+    [Fact]
+    public async Task AReviewTheServerRejectsDoesNotHoldUpTheSummary()
+    {
+        var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
+        var remote = new Remote { Review = _ => throw new ResearchFailure(502, "invalid_detail_review", "Rejected.") };
+        using var coordinator = Create(store, remote, PaperProject(out _));
+        await Drain(coordinator);
+        Assert.Single(remote.Reviews);
+        Assert.Single(remote.DetailSummaries);
+        var card = Assert.Single(store.State.Themes!);
+        Assert.Equal(4, card.Details!.Count);
+        Assert.Equal(DetailPlan.Fingerprint(card.Details), card.ReviewedFor);
+    }
+
+    [Fact]
     public async Task ServerOutagesAreShownAsRetryingUntilTheyPersist()
     {
         var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));

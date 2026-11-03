@@ -20,9 +20,12 @@ public sealed record DetailCitation(DetailSource Source, string Quote);
 /// <summary>One detail of a research project: one sentence, with its sources.</summary>
 public sealed record DetailBullet(string Id, string Text, IReadOnlyList<DetailCitation> Citations);
 
-/// <summary>A detail as sent to a step: each citation has a Ref the step may remove; Outdated when its document changed.</summary>
+/// <summary>
+/// A detail as sent to a step: each citation has a Ref the step may remove, Outdated when its document changed, and At, the
+/// date of its source, so the model can tell how old a plan or status is.
+/// </summary>
 public sealed record DetailInput(string Id, string Text, IReadOnlyList<DetailCitationInput> Citations);
-public sealed record DetailCitationInput(string Ref, string Label, bool Outdated);
+public sealed record DetailCitationInput(string Ref, string Label, bool Outdated, DateTimeOffset? At = null);
 
 /// <summary>An email of a thread for a detail step (numbered lines are added by the server).</summary>
 public sealed record DetailMessage(string Id, string From, DateTimeOffset SentAt, bool FromUser, string Text);
@@ -55,11 +58,22 @@ public sealed record DetailMergeRequest(IReadOnlyList<DetailMergeCard> Cards);
 public sealed record DetailMerged(string Text, IReadOnlyList<string> From);
 public sealed record DetailMergeResponse(IReadOnlyList<DetailMerged> Details, string ChatModel);
 
+/// <summary>
+/// A periodic review of one research project's details without new evidence (OVERLEAF.md §8a): overlapping details are
+/// merged and plans or statuses that newer details overtook are retired. Each kept detail names the details it came from
+/// (whose sources it keeps); a detail named by none is retired.
+/// </summary>
+public sealed record DetailReviewRequest(string Title, string? PaperTitle, string? Abstract, IReadOnlyList<DetailInput> Details);
+public sealed record DetailReviewResponse(IReadOnlyList<DetailMerged> Details, string Explanation, string ChatModel);
+
 public static class DetailRules
 {
-    public const int MaxDetails = 25, MaxText = 300, MaxOps = 40, MaxCitations = 4, MaxSummary = 450, MaxTitle = 200,
+    public const int MaxDetails = 30, MinReviewDetails = 3, MaxText = 300, MaxOps = 40, MaxCitations = 4, MaxSummary = 450, MaxTitle = 200,
         MaxMergeCards = 12, MaxRequestCharacters = 90000;
     public const string Add = "add", Revise = "revise", Remove = "remove";
+
+    /// <summary>The order edits are applied in: removals first, so a full list can always take a new detail, then revisions, then additions.</summary>
+    public static int Order(string? op) => op == Remove ? 0 : op == Revise ? 1 : 2;
 
     public static void ValidateRequest(DetailStepRequest request)
     {
@@ -78,7 +92,7 @@ public static class DetailRules
             throw new ResearchFailure(400, "invalid_detail_request", "The project update is invalid or exceeds the supported limits.");
     }
 
-    /// <summary>The ops refer only to current details and citation refs, cite only what was sent, and leave at most 25 details.</summary>
+    /// <summary>The ops refer only to current details and citation refs, cite only what was sent, and leave at most MaxDetails details.</summary>
     public static void ValidateResponse(DetailStepRequest request, DetailStepResponse response)
     {
         if (response?.Ops is not { Count: <= MaxOps } ops || response.Explanation is null) throw Failed("invalid_detail_step");
@@ -118,7 +132,30 @@ public static class DetailRules
     {
         if (request?.Details is not { Count: > 0 and <= MaxDetails } || !request.Details.All(ValidText) ||
             request.PaperTitle is { Length: > Papers.MaxTitle + 1 } || request.Abstract is { Length: > Papers.MaxAbstract + 1 })
-            throw new ResearchFailure(400, "invalid_detail_summary", "A summary needs 1-25 valid details.");
+            throw new ResearchFailure(400, "invalid_detail_summary", $"A summary needs 1-{MaxDetails} valid details.");
+    }
+
+    public static void ValidateReview(DetailReviewRequest request)
+    {
+        if (request is null || string.IsNullOrWhiteSpace(request.Title) || request.Title.Length > ProfileEvidence.HardMaxTitle ||
+            request.Details is not { Count: >= MinReviewDetails and <= MaxDetails } || !ValidInputs(request.Details) ||
+            request.PaperTitle is { Length: > Papers.MaxTitle + 1 } || request.Abstract is { Length: > Papers.MaxAbstract + 1 })
+            throw new ResearchFailure(400, "invalid_detail_review", $"A review needs {MinReviewDetails}-{MaxDetails} valid details.");
+    }
+
+    /// <summary>
+    /// Every kept detail comes from known details, each used once, and at least half of the details survive (a review merges and
+    /// retires; it never rebuilds the project).
+    /// </summary>
+    public static void ValidateReviewed(DetailReviewRequest request, DetailReviewResponse response)
+    {
+        var known = request.Details.Select(detail => detail.Id).ToHashSet(StringComparer.Ordinal);
+        if (response?.Details is not { Count: <= MaxDetails } kept || response.Explanation is null ||
+            kept.Any(item => item is null || !ValidText(item.Text) || item.From is not { Count: > 0 } || !item.From.All(known.Contains)))
+            throw Failed("invalid_detail_review");
+        var used = kept.SelectMany(item => item.From).ToArray();
+        if (used.Distinct(StringComparer.Ordinal).Count() != used.Length || used.Length < (known.Count + 1) / 2)
+            throw Failed("invalid_detail_review");
     }
 
     public static void ValidateMerge(DetailMergeRequest request)

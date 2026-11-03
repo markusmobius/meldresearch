@@ -24,17 +24,18 @@ public sealed record SyncKeyFile(int Version, string Kdf, int Iterations, string
 public static partial class SyncCrypto
 {
     /// <summary>
-    /// The account's key file and (from the detail format on, OVERLEAF.md §13) its profile and project blobs. Blobs of the
-    /// earlier format (profile.bin, p/...) are deleted by the first client that uploads in the new format.
+    /// The account's key file and its profile and project blobs, named by research format (OVERLEAF.md §13): format 3 since
+    /// the detail review and the second fresh start. Blobs of earlier formats (profile.bin, p/..., profile2.bin, p2/...) are
+    /// ignored and deleted by the first client that uploads in the current format, so they cannot bring old research back.
     /// </summary>
-    public const string KeyBlob = "key.json", ProfileBlob = "profile2.bin";
+    public const string KeyBlob = "key.json", ProfileBlob = "profile3.bin";
     public const int Iterations = 600_000, MinPassphraseLength = 10, MaxPassphraseLength = 512;
     private const string Kdf = "pbkdf2-sha256";
     private static readonly byte[] Magic = "MRS1"u8.ToArray();
 
-    [GeneratedRegex("^(key\\.json|profile2?\\.bin|p2?/[0-9a-f]{32}\\.bin)$")]
+    [GeneratedRegex("^(key\\.json|profile[23]?\\.bin|p[23]?/[0-9a-f]{32}\\.bin)$")]
     private static partial Regex NamePattern();
-    [GeneratedRegex("^(profile\\.bin|p/[0-9a-f]{32}\\.bin)$")]
+    [GeneratedRegex("^(profile2?\\.bin|p2?/[0-9a-f]{32}\\.bin)$")]
     private static partial Regex LegacyPattern();
 
     /// <summary>A blob of the earlier research format, which the current format replaces.</summary>
@@ -131,7 +132,7 @@ public static partial class SyncCrypto
 
     /// <summary>The blob name of a project's bundle: an HMAC of its id under the data key, so names reveal nothing.</summary>
     public static string ProjectBlob(byte[] dataKey, string projectId) =>
-        "p2/" + Convert.ToHexStringLower(HMACSHA256.HashData(SubKey(dataKey, "names"), Encoding.UTF8.GetBytes(projectId)))[..32] + ".bin";
+        "p3/" + Convert.ToHexStringLower(HMACSHA256.HashData(SubKey(dataKey, "names"), Encoding.UTF8.GetBytes(projectId)))[..32] + ".bin";
 
     /// <summary>Compresses and encrypts a value for one blob of one account.</summary>
     public static byte[] Seal<T>(byte[] dataKey, Guid account, string blobName, T value)

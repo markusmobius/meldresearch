@@ -33,7 +33,7 @@ public sealed class ResearchSyncTests
     }
 
     private static string Json<T>(T value) => System.Text.Json.JsonSerializer.Serialize(value, ResearchJson.Options);
-    private static int ModelCalls(Remote remote) => remote.Calls + remote.Blurbs.Count + remote.Matches.Count + remote.Merges.Count + remote.Regroups.Count + remote.DetailSummaries.Count + remote.DetailMerges.Count;
+    private static int ModelCalls(Remote remote) => remote.Calls + remote.Blurbs.Count + remote.Matches.Count + remote.Merges.Count + remote.Regroups.Count + remote.DetailSummaries.Count + remote.DetailMerges.Count + remote.Reviews.Count;
 
     [Fact]
     public async Task NothingIsProcessedUntilThisComputerHasTheKeyAndOnlyCiphertextIsStored()
@@ -55,8 +55,8 @@ public sealed class ResearchSyncTests
         Assert.Equal(("ready", 1), (status.State, status.SyncedProjects));
         var names = box.Contents.Keys.Order(StringComparer.Ordinal).ToArray();
         Assert.Equal(3, names.Length);
-        Assert.Equal([SyncCrypto.KeyBlob, SyncCrypto.ProfileBlob], names.Where(name => !name.StartsWith("p2/")).Order(StringComparer.Ordinal));
-        Assert.Matches("^p2/[0-9a-f]{32}\\.bin$", Assert.Single(names, name => name.StartsWith("p2/")));
+        Assert.Equal([SyncCrypto.KeyBlob, SyncCrypto.ProfileBlob], names.Where(name => !name.StartsWith("p3/")).Order(StringComparer.Ordinal));
+        Assert.Matches("^p3/[0-9a-f]{32}\\.bin$", Assert.Single(names, name => name.StartsWith("p3/")));
         foreach (var content in box.Contents.Values)
         {
             string text = System.Text.Encoding.UTF8.GetString(content);
@@ -185,7 +185,7 @@ public sealed class ResearchSyncTests
         using var second = New(box, snapshot);
         await second.UnlockAsync(Passphrase);
         await Drain(second.Coordinator);
-        string oldProjectBlob = box.Contents.Keys.Single(name => name.StartsWith("p2/"));
+        string oldProjectBlob = box.Contents.Keys.Single(name => name.StartsWith("p3/"));
 
         // Forgotten passphrase on the first computer: its local research is kept and uploaded under a new key.
         await first.Coordinator.WithSyncAsync((sync, credential) => sync.StartOverAsync(credential, NewPassphrase, None), None);
@@ -257,11 +257,34 @@ public sealed class ResearchSyncTests
 
         await first.Coordinator.DecideProjectAsync(ProjectId, new(false, null), None);
         await Drain(first.Coordinator);
-        Assert.DoesNotContain(box.Contents.Keys, name => name.StartsWith("p2/"));
+        Assert.DoesNotContain(box.Contents.Keys, name => name.StartsWith("p3/"));
 
         await Drain(second.Coordinator, force: true);
         Assert.False(second.Store.State.Decisions!.Single().Included);
         Assert.All(second.Store.State.Projects, project => Assert.False(project.Enabled));
+    }
+
+    [Fact]
+    public async Task ResearchSyncedByAnEarlierFormatIsIgnoredAndDeleted()
+    {
+        var box = new BlobBox();
+        var snapshot = Files(("main.tex", MainDoc("Main text.")));
+        using var first = New(box, snapshot, Included());
+        await first.CreateAsync();
+        await Drain(first.Coordinator);
+        // Blobs left by the earlier detail format (and the one before it).
+        string old = "p2/" + new string('a', 32) + ".bin";
+        foreach (var name in new[] { "profile2.bin", old, "profile.bin", "p/" + new string('b', 32) + ".bin" })
+        {
+            Assert.True(SyncCrypto.IsBlobName(name) && SyncCrypto.IsLegacyBlob(name));
+            box.Put(name, [1, 2, 3], null);
+        }
+        Assert.False(SyncCrypto.IsLegacyBlob(SyncCrypto.ProfileBlob));
+
+        first.Store.State = first.Store.State with { Projects = [.. first.Store.State.Projects.Select(item => item with { Name = "Renamed" })] };
+        await Drain(first.Coordinator, force: true);
+        Assert.DoesNotContain(box.Contents.Keys, SyncCrypto.IsLegacyBlob);
+        Assert.Contains(SyncCrypto.ProfileBlob, box.Contents.Keys);
     }
 
     [Fact]

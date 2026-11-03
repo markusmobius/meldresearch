@@ -48,7 +48,7 @@ type Tab = 'details' | 'changelog' | 'projects';
 
 /**
  * About me → My projects, ported from Project Meld's overview: one card per research project with its title, a two-sentence
- * summary and its Overleaf projects. A card expands in place to its details (at most 25 sentences, each with its sources; a
+ * summary and its Overleaf projects. A card expands in place to its details (at most 30 sentences, each with its sources; a
  * source can be removed, which sends it to Private updates), its changelog (every source that updated it, newest first,
  * loaded while scrolling) and its projects (main paper, move, merge, skip). Stored on this computer only.
  */
@@ -146,10 +146,10 @@ export class PrivateProfile {
   }
   changelog(themeId: string | null): ChangelogView | null { return themeId ? this.changelogs().get(themeId) ?? null : null; }
   kindIcon(entry: ResearchChange): string {
-    return { overleaf: 'description', gmail: 'mail', removed: 'remove_circle_outline', user: 'person', merge: 'call_merge' }[entry.kind] ?? 'history';
+    return { overleaf: 'description', gmail: 'mail', removed: 'remove_circle_outline', user: 'person', merge: 'call_merge', review: 'fact_check' }[entry.kind] ?? 'history';
   }
   kindLabel(entry: ResearchChange): string {
-    return { overleaf: 'Overleaf', gmail: 'Email', removed: 'Source removed', user: 'Your change', merge: 'Merged' }[entry.kind] ?? 'Change';
+    return { overleaf: 'Overleaf', gmail: 'Email', removed: 'Source removed', user: 'Your change', merge: 'Merged', review: 'Review' }[entry.kind] ?? 'Change';
   }
 
   /** Loads the first page of a card's changelog (fresh), or the next page while the user scrolls. */
