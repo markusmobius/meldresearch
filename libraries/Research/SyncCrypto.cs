@@ -23,13 +23,22 @@ public sealed record SyncKeyFile(int Version, string Kdf, int Iterations, string
 /// </summary>
 public static partial class SyncCrypto
 {
-    public const string KeyBlob = "key.json", ProfileBlob = "profile.bin";
+    /// <summary>
+    /// The account's key file and (from the detail format on, OVERLEAF.md §13) its profile and project blobs. Blobs of the
+    /// earlier format (profile.bin, p/...) are deleted by the first client that uploads in the new format.
+    /// </summary>
+    public const string KeyBlob = "key.json", ProfileBlob = "profile2.bin";
     public const int Iterations = 600_000, MinPassphraseLength = 10, MaxPassphraseLength = 512;
     private const string Kdf = "pbkdf2-sha256";
     private static readonly byte[] Magic = "MRS1"u8.ToArray();
 
-    [GeneratedRegex("^(key\\.json|profile\\.bin|p/[0-9a-f]{32}\\.bin)$")]
+    [GeneratedRegex("^(key\\.json|profile2?\\.bin|p2?/[0-9a-f]{32}\\.bin)$")]
     private static partial Regex NamePattern();
+    [GeneratedRegex("^(profile\\.bin|p/[0-9a-f]{32}\\.bin)$")]
+    private static partial Regex LegacyPattern();
+
+    /// <summary>A blob of the earlier research format, which the current format replaces.</summary>
+    public static bool IsLegacyBlob(string? name) => name is not null && LegacyPattern().IsMatch(name);
 
     /// <summary>The only blob names a client may use inside its own account folder.</summary>
     public static bool IsBlobName(string? name) => name is not null && NamePattern().IsMatch(name);
@@ -122,7 +131,7 @@ public static partial class SyncCrypto
 
     /// <summary>The blob name of a project's bundle: an HMAC of its id under the data key, so names reveal nothing.</summary>
     public static string ProjectBlob(byte[] dataKey, string projectId) =>
-        "p/" + Convert.ToHexStringLower(HMACSHA256.HashData(SubKey(dataKey, "names"), Encoding.UTF8.GetBytes(projectId)))[..32] + ".bin";
+        "p2/" + Convert.ToHexStringLower(HMACSHA256.HashData(SubKey(dataKey, "names"), Encoding.UTF8.GetBytes(projectId)))[..32] + ".bin";
 
     /// <summary>Compresses and encrypts a value for one blob of one account.</summary>
     public static byte[] Seal<T>(byte[] dataKey, Guid account, string blobName, T value)

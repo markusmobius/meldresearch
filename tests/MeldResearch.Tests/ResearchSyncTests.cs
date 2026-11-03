@@ -33,13 +33,13 @@ public sealed class ResearchSyncTests
     }
 
     private static string Json<T>(T value) => System.Text.Json.JsonSerializer.Serialize(value, ResearchJson.Options);
-    private static int ModelCalls(Remote remote) => remote.Calls + remote.Blurbs.Count + remote.Matches.Count + remote.Merges.Count + remote.Regroups.Count;
+    private static int ModelCalls(Remote remote) => remote.Calls + remote.Blurbs.Count + remote.Matches.Count + remote.Merges.Count + remote.Regroups.Count + remote.DetailSummaries.Count + remote.DetailMerges.Count;
 
     [Fact]
     public async Task NothingIsProcessedUntilThisComputerHasTheKeyAndOnlyCiphertextIsStored()
     {
         var box = new BlobBox();
-        using var first = New(box, Files(("main.tex", "Main text about scooping."), ("a.tex", "Section A.")), Included());
+        using var first = New(box, Files(("main.tex", MainDoc("Main text about scooping.")), ("a.tex", "Section A.")), Included());
         await Drain(first.Coordinator);
         Assert.Equal(0, first.Remote.Calls);
         Assert.Equal(0, first.Source.Reads);
@@ -50,13 +50,13 @@ public sealed class ResearchSyncTests
         Assert.Matches("^([0-9A-Z]{4}-){7}[0-9A-Z]{4}$", key.RecoveryKey);
         await Drain(first.Coordinator);
 
-        Assert.Equal(2, first.Remote.Calls);
+        Assert.Equal(1, first.Remote.Calls);
         var status = await first.SyncAsync();
         Assert.Equal(("ready", 1), (status.State, status.SyncedProjects));
         var names = box.Contents.Keys.Order(StringComparer.Ordinal).ToArray();
         Assert.Equal(3, names.Length);
-        Assert.Equal([SyncCrypto.KeyBlob, SyncCrypto.ProfileBlob], names.Where(name => !name.StartsWith("p/")).Order(StringComparer.Ordinal));
-        Assert.Matches("^p/[0-9a-f]{32}\\.bin$", Assert.Single(names, name => name.StartsWith("p/")));
+        Assert.Equal([SyncCrypto.KeyBlob, SyncCrypto.ProfileBlob], names.Where(name => !name.StartsWith("p2/")).Order(StringComparer.Ordinal));
+        Assert.Matches("^p2/[0-9a-f]{32}\\.bin$", Assert.Single(names, name => name.StartsWith("p2/")));
         foreach (var content in box.Contents.Values)
         {
             string text = System.Text.Encoding.UTF8.GetString(content);
@@ -73,7 +73,7 @@ public sealed class ResearchSyncTests
     public async Task ASecondComputerContinuesFromSyncedWorkAndProcessesOnlyTheDelta()
     {
         var box = new BlobBox();
-        var original = Files(("main.tex", "Main text."), ("a.tex", "Section A."));
+        var original = Files(("main.tex", MainDoc("Main text.")), ("a.tex", "Section A."));
         using var first = New(box, original, Included());
         await first.CreateAsync();
         await Drain(first.Coordinator);
@@ -101,10 +101,10 @@ public sealed class ResearchSyncTests
         Assert.Equal(0, second.Remote.Calls);
 
         // Overleaf changes: the second computer processes only the changed file and syncs it back.
-        var changed = Files(("main.tex", "Main text, now with a second experiment."), ("a.tex", "Section A."));
+        var changed = Files(("main.tex", MainDoc("Main text, now with a second experiment.")), ("a.tex", "Section A."));
         second.Source.Snapshot = changed;
         await Drain(second.Coordinator, force: true);
-        Assert.Equal(["main.tex"], second.Remote.Requests.Select(request => request.File.Path));
+        Assert.Equal(["main.tex"], Assert.Single(second.Remote.DetailRequests).Documents.Select(document => document.Path));
 
         // The first computer adopts that work: its own check of the same content needs no model call.
         first.Source.Snapshot = changed;
@@ -119,7 +119,7 @@ public sealed class ResearchSyncTests
     public async Task TheRecoveryKeyUnlocksAndAPassphraseChangeKeepsOtherComputersSyncing()
     {
         var box = new BlobBox();
-        var snapshot = Files(("main.tex", "Main text."));
+        var snapshot = Files(("main.tex", MainDoc("Main text.")));
         using var first = New(box, snapshot, Included());
         var key = await first.CreateAsync();
         await Drain(first.Coordinator);
@@ -147,7 +147,7 @@ public sealed class ResearchSyncTests
     public async Task AnyUnlockedComputerCanShowTheRecoveryKeyAgain()
     {
         var box = new BlobBox();
-        var snapshot = Files(("main.tex", "Main text."));
+        var snapshot = Files(("main.tex", MainDoc("Main text.")));
         using var first = New(box, snapshot, Included());
         var created = await first.CreateAsync();
         Task<SyncKeyResponse> Show(Computer computer) =>
@@ -178,14 +178,14 @@ public sealed class ResearchSyncTests
     public async Task StartingOverReplacesTheSyncedCopyAndLocksOtherComputersUntilTheNewPassphrase()
     {
         var box = new BlobBox();
-        var snapshot = Files(("main.tex", "Main text."));
+        var snapshot = Files(("main.tex", MainDoc("Main text.")));
         using var first = New(box, snapshot, Included());
         await first.CreateAsync();
         await Drain(first.Coordinator);
         using var second = New(box, snapshot);
         await second.UnlockAsync(Passphrase);
         await Drain(second.Coordinator);
-        string oldProjectBlob = box.Contents.Keys.Single(name => name.StartsWith("p/"));
+        string oldProjectBlob = box.Contents.Keys.Single(name => name.StartsWith("p2/"));
 
         // Forgotten passphrase on the first computer: its local research is kept and uploaded under a new key.
         await first.Coordinator.WithSyncAsync((sync, credential) => sync.StartOverAsync(credential, NewPassphrase, None), None);
@@ -212,7 +212,7 @@ public sealed class ResearchSyncTests
     public async Task StartingOverOnAnEmptyComputerKeepsAnotherComputersResearchCardsWithoutModelCalls()
     {
         var box = new BlobBox();
-        var snapshot = Files(("main.tex", "Main text."));
+        var snapshot = Files(("main.tex", MainDoc("Main text.")));
         using var first = New(box, snapshot, Included());
         await first.CreateAsync();
         await Drain(first.Coordinator);
@@ -246,7 +246,7 @@ public sealed class ResearchSyncTests
     public async Task ExcludingAProjectDeletesItsSyncedCopyAndStopsItOnOtherComputers()
     {
         var box = new BlobBox();
-        var snapshot = Files(("main.tex", "Main text."));
+        var snapshot = Files(("main.tex", MainDoc("Main text.")));
         using var first = New(box, snapshot, Included());
         await first.CreateAsync();
         await Drain(first.Coordinator);
@@ -257,7 +257,7 @@ public sealed class ResearchSyncTests
 
         await first.Coordinator.DecideProjectAsync(ProjectId, new(false, null), None);
         await Drain(first.Coordinator);
-        Assert.DoesNotContain(box.Contents.Keys, name => name.StartsWith("p/"));
+        Assert.DoesNotContain(box.Contents.Keys, name => name.StartsWith("p2/"));
 
         await Drain(second.Coordinator, force: true);
         Assert.False(second.Store.State.Decisions!.Single().Included);
@@ -269,7 +269,7 @@ public sealed class ResearchSyncTests
     {
         var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
         var remote = new Remote();
-        using var coordinator = new ResearchCoordinator(store, remote, new Source(Files(("main.tex", "Main text."))),
+        using var coordinator = new ResearchCoordinator(store, remote, new Source(Files(("main.tex", MainDoc("Main text.")))),
             new(new Uri("https://meld.example.invalid"), false, 300), NullLogger<ResearchCoordinator>.Instance, TimeProvider.System);
         await Drain(coordinator);
         Assert.Equal(1, remote.Calls);

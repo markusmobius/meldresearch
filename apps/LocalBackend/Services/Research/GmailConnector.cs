@@ -153,8 +153,13 @@ internal sealed class GmailConnector(IResearchStore store, IResearchRemote remot
         {
             if (current.Credential?.Account.Id != credential.Account.Id) throw new ResearchFailure(409, "research_state_changed", "The Meld account changed.");
             var tombstone = new GmailAccountState(credential.Account.Id, account.Address, null, account.ConsentVersion, now, Removed: true, Status: "removed");
+            // The account's email leaves every project's details.
+            var themes = (current.Themes ?? []).Select(theme => theme.AccountId == credential.Account.Id && theme.Details is { Count: > 0 } details
+                ? theme with { Details = DetailPlan.Without(details, source => source.Kind == DetailSource.Gmail &&
+                    string.Equals(source.Container, account.Address, StringComparison.OrdinalIgnoreCase)).Details } : theme).ToArray();
             return current with
             {
+                Themes = themes,
                 GmailAccounts = [.. Others(current, credential.Account.Id, account.Address), tombstone],
                 GmailThreads = [.. (current.GmailThreads ?? []).Where(item => item.AccountId != credential.Account.Id ||
                     !string.Equals(item.Address, account.Address, StringComparison.OrdinalIgnoreCase))],
@@ -264,8 +269,8 @@ internal sealed class GmailConnector(IResearchStore store, IResearchRemote remot
         new(item.Address, item.Status, item.Error, item.Threads, item.CheckedAt, item.ChangedAt,
             state?.GmailThreads?.Count(thread => thread.AccountId == item.AccountId &&
                 string.Equals(thread.Address, item.Address, StringComparison.OrdinalIgnoreCase)) ?? 0,
-            state?.Projects.Count(project => project.AccountId == item.AccountId && project.Source == ResearchSources.Gmail &&
-                string.Equals(project.Parent, item.Address, StringComparison.OrdinalIgnoreCase)) ?? 0,
+            state?.GmailThreads?.Where(thread => thread.AccountId == item.AccountId && thread.Status == GmailThreadRecord.Assigned && thread.CardId is not null &&
+                string.Equals(thread.Address, item.Address, StringComparison.OrdinalIgnoreCase)).Select(thread => thread.CardId).Distinct().Count() ?? 0,
             item.LastImportAt, item.Status == "connected" && item.LastImportAt is not null ? GmailImporter.NextImportAt(item) : null,
             importer?.Progress(item.Address), importer?.LastError(item.Address));
 

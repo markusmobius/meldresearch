@@ -127,7 +127,7 @@ public sealed class GmailImportTests
     }
 
     [Fact]
-    public async Task NewThreadsArePlacedOnResearchCardsOrLeftForTheUserAndRepliesAddBulletsToTheSameThread()
+    public async Task NewThreadsArePlacedOnProjectsWhoseDetailsTheirMessagesUpdateAndRepliesOnlyUpdateTheProject()
     {
         var mail = Setup();
         await Run(mail.Importer);
@@ -137,126 +137,106 @@ public sealed class GmailImportTests
         // The newsletter is not the user's work; the thread older than the import window is not read for analysis.
         Assert.Equal(["m11", "m12"], first.Messages.Select(message => message.Id));
         Assert.Equal((false, Card), (first.Known, first.Projects.Single().Id));
-        Assert.Equal("Social learning", first.Projects.Single().Title);
 
-        // Both research threads join the card's one email stream; the grant waits for the user; lunch is skipped.
+        // Threads on the project update its details: one detail step per thread, with the card's details as they are.
         var threads = mail.Store.State.GmailThreads!.ToDictionary(thread => thread.Id);
-        var stream = Assert.Single(mail.Store.State.Projects, project => project.Source == ResearchSources.Gmail);
-        Assert.Equal((GmailThreadRecord.Assigned, stream.ProjectId), (threads["t1"].Status, threads["t1"].StreamId));
-        Assert.Equal((GmailThreadRecord.Assigned, stream.ProjectId), (threads["t3"].Status, threads["t3"].StreamId));
+        Assert.Equal((GmailThreadRecord.Assigned, Card, "m12"), (threads["t1"].Status, threads["t1"].CardId, threads["t1"].FoldedMessageId));
+        Assert.Equal((GmailThreadRecord.Assigned, Card), (threads["t3"].Status, threads["t3"].CardId));
         Assert.Equal((GmailThreadRecord.Pending, "Grant renewal"), (threads["g1"].Status, threads["g1"].Suggested));
         Assert.Equal(GmailThreadRecord.Skipped, threads["t2"].Status);
         Assert.Equal(GmailThreadRecord.Skipped, threads["t0"].Status);
-        Assert.Equal((Address, GmailImporter.StreamName), (stream.Parent, stream.Name));
+        Assert.Equal(["Revision of the social learning paper", "Results for the social learning paper"],
+            mail.Remote.DetailRequests.Select(request => request.Subject));
+        Assert.All(mail.Remote.DetailRequests, request => Assert.Equal(DetailSource.Gmail, request.Kind));
+        Assert.Equal(2, mail.Remote.DetailRequests[1].Details.Count);
         var card = mail.Store.State.Themes!.Single(theme => theme.Id == Card);
-        Assert.Contains(stream.ProjectId, card.Members);
-        Assert.Contains(stream.ProjectId, card.Pinned!);
-        // One bullet per new message the stand-in cites; Updates happened when the mail was written.
-        Assert.Equal(["Bullet: We will rerun the simulations with 200 agents.", "Bullet: I will draft the response letter."],
-            threads["t1"].Bullets.Select(bullet => bullet.Text));
-        Assert.Equal(mail.Clock.UtcNow.AddDays(-19), threads["t1"].NewsAt);
-        Assert.Equal("Progress: Revision of the social learning paper", threads["t1"].Headline);
-
-        // After the import the stream is summarized once from both threads, so the card can include it.
-        var summary = Assert.Single(mail.Remote.StreamRequests);
-        Assert.Equal(["Results for the social learning paper", "Revision of the social learning paper"], summary.Threads.Select(thread => thread.Subject));
-        stream = mail.Store.State.Projects.Single(project => project.ProjectId == stream.ProjectId);
-        Assert.Equal((true, GmailImporter.StreamName), (stream.ImportComplete, stream.Profile!.Title));
-
-        // The feed: assigned threads with news on their card, and the thread waiting for a decision.
-        var feed = GmailImporter.Threads(mail.Store.State, Account.Id);
-        Assert.Equal(["t3", "g1", "t1"], feed.Select(thread => thread.Id));
-        Assert.Equal((Card, "Social learning"), (feed[0].CardId, feed[0].CardTitle));
-        Assert.Equal(GmailThreadRecord.Pending, feed[1].Status);
+        Assert.Equal(3, card.Details!.Count);
+        var source = card.Details[0].Citations.Single().Source;
+        Assert.Equal((DetailSource.Gmail, Address, "t1", "m11", "Revision of the social learning paper"), (source.Kind, source.Container, source.Item, source.Version, source.Label));
+        Assert.Equal(["Revision of the social learning paper", "Results for the social learning paper"],
+            mail.Store.State.Changelog!.Where(entry => entry.Kind == ChangelogEntry.Gmail).Select(entry => entry.Title));
+        // Email streams are gone: no Gmail members on cards.
+        Assert.DoesNotContain(mail.Store.State.Projects, project => project.Source == ResearchSources.Gmail);
+        // Private updates: only the thread waiting for a decision.
+        Assert.Equal(["g1"], GmailImporter.Threads(mail.Store.State, Account.Id).Select(thread => thread.Id));
 
         // Nothing changed: Import now lists the threads but reads none and makes no model call.
         int reads = mail.Google.ThreadReads;
         mail.Importer.Request(Address);
         await Run(mail.Importer);
-        Assert.Equal((4, 1, reads), (mail.Remote.EmailRequests.Count, mail.Remote.StreamRequests.Count, mail.Google.ThreadReads));
+        Assert.Equal((4, 2, reads), (mail.Remote.EmailRequests.Count, mail.Remote.DetailRequests.Count, mail.Google.ThreadReads));
 
-        // A reply: only the new message is analyzed, with the thread's bullets and project; it adds to the same thread.
+        // A reply: only the new message updates the project (no placement call), with earlier messages as background.
         mail.Clock.UtcNow += TimeSpan.FromMinutes(75);
         var revision = mail.Google.Mailbox[3];
         mail.Google.Mailbox[3] = revision with { HistoryId = "2", Messages = [.. revision.Messages, Mine(mail.Clock.UtcNow, "m14", 1, "The new introduction is drafted.")] };
         await Run(mail.Importer);
-        var reply = mail.Remote.EmailRequests[^1];
-        Assert.Equal(5, mail.Remote.EmailRequests.Count);
-        Assert.Equal(["m14"], reply.Messages.Select(message => message.Id));
-        Assert.Equal(["m11", "m12"], reply.Context.Select(message => message.Id));
-        Assert.Equal((true, Card, 0), (reply.Known, reply.Project?.Id, reply.Projects.Count));
-        Assert.Equal(2, reply.Bullets.Count);
+        Assert.Equal(4, mail.Remote.EmailRequests.Count);
+        var reply = mail.Remote.DetailRequests[^1];
+        Assert.Equal(["m14"], reply.Messages!.Select(message => message.Id));
+        Assert.Equal(["m11", "m12"], reply.Context!.Select(message => message.Id));
+        Assert.Equal(3, reply.Details.Count);
         var t1 = mail.Store.State.GmailThreads!.Single(thread => thread.Id == "t1");
-        Assert.Equal(3, t1.Bullets.Count);
-        Assert.Equal(("2", "m14"), (t1.HistoryId, t1.LastMessageId));
-        Assert.Equal(2, mail.Remote.StreamRequests.Count);
+        Assert.Equal(("2", "m14", "m14"), (t1.HistoryId, t1.LastMessageId, t1.FoldedMessageId));
+        Assert.Equal(4, mail.Store.State.Themes!.Single(theme => theme.Id == Card).Details!.Count);
     }
-
     [Fact]
-    public async Task TheUserDecidesWhereAWaitingThreadGoesAndNoProjectIsCreatedWithoutThem()
+    public async Task TheUserDecidesWhereAWaitingThreadGoesAndMovingAThreadMovesItsSources()
     {
         var mail = Setup();
         await Run(mail.Importer);
-        int cards = mail.Store.State.Themes!.Count;
-        Assert.Equal(1, cards);
+        Assert.Single(mail.Store.State.Themes!);
 
-        // A new project: a card of its own with an email stream named by the user.
+        // A new project: a card of its own with the user's name, whose details the thread's messages then fill.
         await mail.Importer.DecideAsync(new(Address, "g1", "new", Name: "Grant renewal 2027"), None);
         var grant = mail.Store.State.GmailThreads!.Single(thread => thread.Id == "g1");
-        var stream = mail.Store.State.Projects.Single(project => project.ProjectId == grant.StreamId);
-        Assert.Equal((GmailThreadRecord.Assigned, "Grant renewal 2027", false), (grant.Status, stream.Name, stream.ImportComplete));
-        var created = mail.Store.State.Themes!.Single(theme => theme.Members.Contains(stream.ProjectId));
-        Assert.NotEqual(Card, created.Id);
+        var created = mail.Store.State.Themes!.Single(theme => theme.Id == grant.CardId);
+        Assert.Equal(("Grant renewal 2027", (string?)null), (created.Name, grant.FoldedMessageId));
         await Run(mail.Importer);
-        Assert.True(mail.Store.State.Projects.Single(project => project.ProjectId == stream.ProjectId).ImportComplete);
+        created = mail.Store.State.Themes!.Single(theme => theme.Id == grant.CardId);
+        Assert.Equal("g11", Assert.Single(created.Details!).Citations.Single().Source.Version);
+        Assert.Equal("g11", mail.Store.State.GmailThreads!.Single(thread => thread.Id == "g1").FoldedMessageId);
 
-        // Moving a thread to another card; dismissing the last thread of a stream removes the stream from its card.
+        // Moving a thread to another project: its sources leave the old card and its messages update the new one.
+        int before = mail.Store.State.Themes!.Single(theme => theme.Id == Card).Details!.Count;
         await mail.Importer.DecideAsync(new(Address, "t3", "project", CardId: created.Id), None);
-        Assert.Equal(stream.ProjectId, mail.Store.State.GmailThreads!.Single(thread => thread.Id == "t3").StreamId);
+        Assert.Equal(before - 1, mail.Store.State.Themes!.Single(theme => theme.Id == Card).Details!.Count);
+        await Run(mail.Importer);
+        Assert.Equal(2, mail.Store.State.Themes!.Single(theme => theme.Id == created.Id).Details!.Count);
+
+        // Skipping a thread removes its sources too; errors for threads that are not waiting or projects that are gone.
         await mail.Importer.DecideAsync(new(Address, "t1", "dismiss"), None);
-        Assert.DoesNotContain(mail.Store.State.Projects, project => project.Name == GmailImporter.StreamName);
-        Assert.DoesNotContain(mail.Store.State.Themes!.SelectMany(theme => theme.Members), member => member.StartsWith("gmail-") && member != stream.ProjectId);
+        Assert.DoesNotContain(mail.Store.State.Themes!.Single(theme => theme.Id == Card).Details!,
+            detail => detail.Citations.Any(citation => citation.Source.Item == "t1"));
         Assert.Equal("gmail_thread_not_found", (await Assert.ThrowsAsync<ResearchFailure>(() =>
             mail.Importer.DecideAsync(new(Address, "t2", "project", CardId: Card), None))).Code);
         Assert.Equal("research_card_not_found", (await Assert.ThrowsAsync<ResearchFailure>(() =>
             mail.Importer.DecideAsync(new(Address, "t3", "project", CardId: new string('f', 32)), None))).Code);
-
-        // A dismissed thread is not read again, even when new mail arrives.
-        int calls = mail.Remote.EmailRequests.Count, reads = mail.Google.ThreadReads;
-        mail.Google.Mailbox[3] = mail.Google.Mailbox[3] with { HistoryId = "2", Messages = [.. mail.Google.Mailbox[3].Messages, Mine(mail.Clock.UtcNow, "m14", 0, "More.")] };
-        mail.Importer.Request(Address);
-        await Run(mail.Importer);
-        Assert.Equal((calls, reads), (mail.Remote.EmailRequests.Count, mail.Google.ThreadReads));
-        Assert.Equal("2", mail.Store.State.GmailThreads!.Single(thread => thread.Id == "t1").HistoryId);
     }
-
     [Fact]
     public async Task SkippedThreadsBecomeSkippedProjectsGroupedGenerouslyAndNewMailOfThemIsSkippedToo()
     {
         var mail = Setup();
         await Run(mail.Importer);
-        // Skipping the waiting grant thread makes it a skipped project of its own (nothing to compare with yet).
+        // Skipping the waiting grant thread makes it a skipped project of its own (nothing to compare with yet), filled from its mail.
         await mail.Importer.DecideAsync(new(Address, "g1", "dismiss"), None);
         await Run(mail.Importer);
         var grant = mail.Store.State.GmailThreads!.Single(thread => thread.Id == "g1");
-        var skipped = mail.Store.State.Themes!.Single(theme => theme.Members.Contains(grant.StreamId!));
-        Assert.Equal((GmailThreadRecord.Assigned, true, true), (grant.Status, skipped.Skipped, skipped.SkipGrouped));
-        Assert.Equal("Grant renewal", mail.Store.State.Projects.Single(project => project.ProjectId == grant.StreamId).Name);
-        var feed = GmailImporter.Threads(mail.Store.State, Account.Id);
-        Assert.True(feed.Single(thread => thread.Id == "g1").Skipped);
-        Assert.DoesNotContain(feed, thread => thread.Status == GmailThreadRecord.Pending);
-        // The skipped card is described from its email once summarized.
+        var skipped = mail.Store.State.Themes!.Single(theme => theme.Id == grant.CardId);
+        Assert.Equal((GmailThreadRecord.Assigned, true, true, "Grant renewal"), (grant.Status, skipped.Skipped, skipped.SkipGrouped, skipped.Name));
+        Assert.Single(skipped.Details!);
+        var listed = GmailImporter.Threads(mail.Store.State, Account.Id);
+        Assert.True(listed.Single(thread => thread.Id == "g1").Skipped);
+        Assert.DoesNotContain(listed, thread => thread.Status == GmailThreadRecord.Pending);
         mail.Store.State = mail.Store.State with { Themes = [.. mail.Store.State.Themes!.Select(theme => theme.Id == skipped.Id
-            ? theme with { Profile = new("Grant renewal", "Tanya's grant renewal.", [], ["grant"]) } : theme)] };
+            ? theme with { Profile = new("Grant renewal", "Tanya's grant renewal.", [], []) } : theme)] };
 
         // Skipping another thread groups it generously with the skipped card (no confirmation).
         mail.Remote.Match = request => request.Loose ? request.Candidates[0].Id : null;
         await mail.Importer.DecideAsync(new(Address, "t3", "dismiss"), None);
         await Run(mail.Importer);
-        var match = mail.Remote.Matches[^1];
-        Assert.True(match.Loose);
-        Assert.Equal([skipped.Id], match.Candidates.Select(candidate => candidate.Id));
-        Assert.Equal(grant.StreamId, mail.Store.State.GmailThreads!.Single(thread => thread.Id == "t3").StreamId);
+        Assert.True(mail.Remote.Matches[^1].Loose);
+        Assert.Equal(skipped.Id, mail.Store.State.GmailThreads!.Single(thread => thread.Id == "t3").CardId);
 
         // New mail: skipped projects are offered as not the user's own; a thread placed there is skipped as well.
         mail.Remote.EmailStep = request => request.Subject.StartsWith("Grant budget, part 2", StringComparison.Ordinal)
@@ -272,17 +252,18 @@ public sealed class GmailImportTests
         Assert.Equal(("Grant budget, part 2", skipped.Id), (request.Subject, request.NotMine!.Single().Id));
         Assert.DoesNotContain(request.Projects, project => project.Id == skipped.Id);
         Assert.Equal(reads + 1, mail.Google.ThreadReads);
-        Assert.Equal(grant.StreamId, mail.Store.State.GmailThreads!.Single(thread => thread.Id == "g2").StreamId);
+        Assert.Equal(skipped.Id, mail.Store.State.GmailThreads!.Single(thread => thread.Id == "g2").CardId);
         Assert.True(GmailImporter.Threads(mail.Store.State, Account.Id).Single(thread => thread.Id == "g2").Skipped);
 
-        // Unskipping a thread brings it back to Private updates.
+        // Unskipping a thread brings it back to Private updates, and its sources leave the skipped project.
         await mail.Importer.DecideAsync(new(Address, "t3", "unskip"), None);
         var back = mail.Store.State.GmailThreads!.Single(thread => thread.Id == "t3");
-        Assert.Equal((GmailThreadRecord.Pending, (string?)null), (back.Status, back.StreamId));
+        Assert.Equal((GmailThreadRecord.Pending, (string?)null), (back.Status, back.CardId));
+        Assert.DoesNotContain(mail.Store.State.Themes!.Single(theme => theme.Id == skipped.Id).Details!,
+            detail => detail.Citations.Any(citation => citation.Source.Item == "t3"));
         Assert.Equal("gmail_thread_not_skipped", (await Assert.ThrowsAsync<ResearchFailure>(() =>
             mail.Importer.DecideAsync(new(Address, "t1", "unskip"), None))).Code);
     }
-
     [Fact]
     public async Task AnEarlierWorkstreamAnalysisIsReplacedOnceAndTheMailImportedAgain()
     {
@@ -366,16 +347,15 @@ public sealed class GmailImportTests
         Assert.Null(a.Store.State.GmailAccounts!.Single().LeaseBy);
         Assert.All(box.Contents.Values, content => Assert.DoesNotContain("simulations", Encoding.UTF8.GetString(content)));
 
-        // A second computer pulls the recorded threads and the email stream: the import is not repeated.
-        var b = Computer(new(1, Credential, null, null, [], [], GmailVersion: GmailImporter.Version));
+        // A second computer pulls the recorded threads and the card's details: the import is not repeated.
+        var b = Computer(new(1, Credential, null, null, [], [], GmailVersion: GmailImporter.Version, ResetEpoch: ResearchCoordinator.ResetEpoch));
         using var second = b.Coordinator;
         await second.WithSyncAsync(async (sync, credential) => { await sync.UnlockAsync(credential, new("correct horse battery", null), None); return true; }, None);
         await Drain(second);
-        Assert.Equal((0, 0), (b.Remote.EmailRequests.Count, b.Google.ThreadReads));
+        Assert.Equal((0, 0, 0), (b.Remote.EmailRequests.Count, b.Remote.DetailRequests.Count(request => request.Kind == DetailSource.Gmail), b.Google.ThreadReads));
         Assert.Equal(5, b.Store.State.GmailThreads!.Count);
-        var stream = Assert.Single(b.Store.State.Projects, project => project.Source == ResearchSources.Gmail);
-        Assert.Contains(b.Store.State.Themes!, theme => theme.Members.Contains(stream.ProjectId));
-        Assert.Equal(2, b.Store.State.GmailThreads!.Single(thread => thread.Id == "t1").Bullets.Count);
+        var card = b.Store.State.Themes!.Single(theme => theme.Members.Contains(ProjectId));
+        Assert.Contains(card.Details!, detail => detail.Citations.Any(citation => citation.Source.Item == "t1"));
 
         // While the second computer holds the lease (Gmail stopped answering mid-import), the first one waits.
         b.Google.Unavailable = true;
@@ -388,17 +368,17 @@ public sealed class GmailImportTests
         Assert.True(a.Importer.Progress(Address)!.Waiting);
         Assert.Equal(4, a.Remote.EmailRequests.Count);
     }
-
     private const string Card = "0123456789abcdef0123456789abcdef";
 
     private sealed record Mail(GmailImporter Importer, MemoryStore Store, Remote Remote, GmailTests.FakeGoogle Google, TestClock Clock);
 
     /// <summary>An included Overleaf project on a research card about the social learning paper.</summary>
     private static LocalResearchState Initial(DateTimeOffset now) =>
-        new(1, Credential, null, null, [Included() with { Profile = new("Social learning", "A paper on social learning.", [], ["learning"]), ImportComplete = true }], [],
+        new(1, Credential, null, null, [Included() with { ImportComplete = true }], [],
             Themes: [new ResearchTheme(Account.Id, Card, [ProjectId], new("Social learning", "A paper on how people learn from each other's choices.", [], ["learning"]),
                 null, now)],
-            GmailVersion: GmailImporter.Version);
+            GmailVersion: GmailImporter.Version, ResetEpoch: ResearchCoordinator.ResetEpoch,
+            Decisions: [new ProjectDecision(Account.Id, ProjectId, true, now)]);
 
     private static Mail Setup(Func<LocalResearchState, LocalResearchState>? change = null)
     {

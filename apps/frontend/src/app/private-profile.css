@@ -1,74 +1,114 @@
 :host { display: block; }
-.private-profile { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; margin-bottom: 16px; }
-.profile-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
-.profile-head h2 { display: flex; align-items: center; gap: 8px; font-size: 18px; margin: 0; }
-.profile-head h2 mat-icon { color: #084d42; }
-.profile-note { color: #64748b; font-size: 12px; }
-/* One card per research line: title, its Overleaf projects, the one-paragraph description and topics. */
-/* Two or three cards per row on desktop, one on narrow screens. */
-.project-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 12px; align-items: start; }
-.profile-card { display: flex; flex-direction: column; align-items: stretch; gap: 6px; width: 100%; min-width: 0; padding: 16px 18px;
-  border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff; color: inherit; font: inherit; text-align: left; cursor: pointer;
-  transition: border-color .15s, box-shadow .15s; }
-.profile-card:hover { border-color: #0a6655; box-shadow: 0 2px 8px rgba(8, 77, 66, .12); }
-.profile-card:focus-visible { outline: 2px solid #0a6655; outline-offset: 2px; }
-.card-head { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
-.card-title { font-size: 16px; font-weight: 600; color: #0f172a; line-height: 1.35; }
-.card-source { display: flex; align-items: center; gap: 4px; color: #64748b; font-size: 12px; font-weight: 400; overflow-wrap: anywhere; }
-.card-source mat-icon { width: 14px; height: 14px; font-size: 14px; flex: none; }
-/* The card's 4-5 sentence description (written by Foundry from the whole card); the dialog shows everything. */
-.card-description { font-size: 13.5px; line-height: 1.55; color: #334155; }
-.card-edited { color: #64748b; font-size: 12px; }
-.topic.more { background: #f1f5f9; color: #475569; }
-.topics { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
-.topic { font-size: 11.5px; padding: 2px 8px; border-radius: 999px; background: #ecfdf5; color: #166534; }
-.recent-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px;
-  background: #eff6ff; color: #1d4ed8; font-size: 12px; font-weight: 500; white-space: nowrap; }
-.recent-badge mat-icon, .progress-note mat-icon { font-size: 16px; width: 16px; height: 16px; }
-.progress-note { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: #084d42; }
-.profile-card mat-progress-bar { width: 100%; }
-.empty { margin: 8px 0 0; grid-column: 1 / -1; }
-/* Dialog */
-.details-title { display: flex; flex-direction: column; gap: 4px; line-height: 1.3; }
-.details-content { padding-top: 0; }
-.details-tabs { --mat-tab-header-label-text-tracking: 0; }
-.description { font-size: 14px; line-height: 1.6; color: #334155; margin: 14px 0 8px; }
-.contributions { margin: 8px 0; padding-left: 20px; font-size: 13.5px; line-height: 1.55; color: #334155; }
-.contributions li { margin: 4px 0; }
-.members-title { margin: 18px 0 6px; font-size: 13px; font-weight: 600; color: #084d42; }
-.members { list-style: none; margin: 0; padding: 0; font-size: 13px; }
-.members li { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid #e2e8f0; }
-.member-name { color: #334155; overflow-wrap: anywhere; }
-.move { display: inline-flex; align-items: center; gap: 6px; color: #64748b; font-size: 12px; }
-.move select { max-width: 260px; height: 30px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; color: #1e293b; font: inherit; font-size: 12.5px; }
+.muted { color: #64748b; }
 .alert { margin: 8px 0 0; color: #b42318; font-size: 13px; }
-.updates { list-style: none; padding: 0; margin: 12px 0 8px; font-size: 13.5px; line-height: 1.55; }
-.updates li { display: flex; flex-direction: column; gap: 2px; padding: 10px 0; border-top: 1px solid #e2e8f0; }
-.updates li:first-child { border-top: 0; }
-.update-date { color: #64748b; font-size: 12px; }
-.update-summary { color: #334155; }
-.merge-card { display: flex; margin-top: 12px; }
-/* A member from another source than Overleaf (a Gmail workstream) and its Gmail address. */
-.member-source { display: inline-flex; align-items: center; gap: 3px; margin-left: 8px; padding: 1px 8px; border-radius: 10px;
-  background: #fef2f2; color: #b42336; font-size: 11.5px; font-weight: 600; vertical-align: middle; }
-.member-source mat-icon { font-size: 13px; width: 13px; height: 13px; }
-.main-paper { display: inline-flex; align-items: center; gap: 3px; margin-left: 8px; padding: 1px 8px; border-radius: 10px; background: #fef3c7; color: #92400e; font-size: 11.5px; font-weight: 600; }
+.empty { margin: 8px 0 0; font-size: 0.85rem; }
+
+/* Section heads, as in Project Meld's About me. */
+.about-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; }
+.about-head h2 { margin: 0; font-size: 1.05rem; font-weight: 800; letter-spacing: 0; text-transform: uppercase; color: #334155; }
+.about-note { display: inline-flex; align-items: center; gap: 4px; font-size: 0.78rem; color: #64748b; }
+.about-note mat-icon { font-size: 15px; width: 15px; height: 15px; flex-shrink: 0; color: #94a3b8; }
+
+/* One card per research project (Project Meld's project-card): title and date, the two-sentence summary, its projects. */
+.project-card { background: #ffffff; border: 1px solid #e2e8f0; border-left: 3px solid #0a6655; border-radius: 10px;
+  padding: 12px 14px; margin-bottom: 10px; transition: background .15s ease; }
+.project-summary-area { cursor: pointer; }
+.project-card:not(.expanded):hover { background: #f8fafc; }
+.project-head { display: flex; align-items: baseline; gap: 10px; }
+.project-head h3 { margin: 0 0 4px 0; font-size: 0.95rem; font-weight: 700; color: #1e293b; line-height: 1.3; min-width: 0; }
+.project-toggle { all: unset; cursor: pointer; overflow-wrap: anywhere; }
+.project-toggle:focus-visible { outline: 2px solid #0a6655; outline-offset: 2px; border-radius: 2px; }
+.project-date { margin-left: auto; font-size: 0.75rem; color: #94a3b8; white-space: nowrap; }
+.project-summary { margin: 0; font-size: 0.85rem; line-height: 1.45; color: #475569; }
+.project-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; font-size: 0.72rem; color: #94a3b8; }
+.project-with { display: inline-flex; align-items: center; gap: 3px; color: #64748b; font-weight: 600; overflow-wrap: anywhere; }
+.project-with mat-icon { font-size: 13px; width: 13px; height: 13px; flex: none; }
+.project-tag { background: #f1f5f9; border-radius: 4px; padding: 1px 6px; }
+.project-tag.updating { background: #ecfdf5; color: #084d42; }
+.project-updates { margin-left: auto; color: #64748b; }
+.progress-note { display: flex; align-items: center; gap: 6px; margin: 8px 0 4px; font-size: 0.78rem; color: #084d42; }
+.progress-note mat-icon { font-size: 16px; width: 16px; height: 16px; }
+
+/* The expanded card. */
+.project-details { margin-top: 10px; padding-top: 4px; border-top: 1px solid #f1f5f9; }
+.project-tabs { --mat-tab-header-label-text-tracking: 0; --mat-tab-header-label-text-size: 0.82rem; }
+.detail-list { list-style: none; margin: 10px 0 0; padding: 0; }
+.detail-list > li { border-left: 2px solid #b8ccc0; margin-bottom: 6px; }
+.detail-list > li.open { border-left-color: #0a6655; background: #f8fafc; border-radius: 0 6px 6px 0; }
+.detail-text { all: unset; box-sizing: border-box; display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 5px 8px 5px 12px;
+  cursor: pointer; font-size: 0.86rem; line-height: 1.5; color: #34433b; }
+.detail-text > span:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.detail-text:hover > span:first-child { color: #084d42; }
+.detail-text:focus-visible { outline: 2px solid #0a6655; outline-offset: -2px; border-radius: 4px; }
+.source-count { display: inline-flex; align-items: center; gap: 2px; flex: none; font-size: 0.72rem; color: #94a3b8; padding-top: 2px; }
+.source-count mat-icon { font-size: 14px; width: 14px; height: 14px; }
+.source-list { list-style: none; margin: 0; padding: 2px 8px 8px 12px; display: flex; flex-direction: column; gap: 8px; }
+.source-head { display: flex; align-items: center; gap: 8px; }
+.source-icon { flex: none; font-size: 16px; width: 16px; height: 16px; color: #0a6655; }
+.source-icon.mail, .change-source mat-icon.mail { color: #b42336; }
+.source-label { display: flex; flex-direction: column; flex: 1; min-width: 0; font-size: 0.78rem; line-height: 1.35; overflow-wrap: anywhere; }
+.source-label strong { color: #1e293b; font-weight: 600; }
+.remove-source { flex: none; height: 30px !important; font-size: 0.75rem !important; color: #b42318 !important; }
+.remove-source mat-icon { font-size: 16px; width: 16px; height: 16px; }
+.source-list blockquote { margin: 4px 0 0 24px; padding: 4px 10px; border-left: 2px solid #e2e8f0; color: #475569; font-size: 0.76rem;
+  line-height: 1.45; white-space: pre-line; overflow-wrap: anywhere; max-height: 9em; overflow: auto; }
+.hint { margin: 10px 0 0; font-size: 0.74rem; color: #94a3b8; }
+.hint a { color: #0a6655; }
+
+/* The changelog: every source that updated the project, newest first, loaded while scrolling. */
+.changelog { list-style: none; margin: 10px 0 0; padding: 0; }
+.change { display: flex; gap: 10px; padding: 8px 0; border-top: 1px solid #f1f5f9; }
+.change:first-child { border-top: 0; }
+.detail-date { flex: 0 0 78px; color: #94a3b8; font-size: 0.72rem; padding-top: 2px; }
+.change-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; color: #475569; }
+.change-source { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; overflow-wrap: anywhere; }
+.change-source mat-icon { font-size: 15px; width: 15px; height: 15px; color: #0a6655; flex: none; }
+.change-source strong { color: #1e293b; font-weight: 600; }
+.change-kind { font-size: 0.7rem; text-transform: uppercase; letter-spacing: .02em; color: #64748b; }
+.change-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.change-list li { display: flex; flex-wrap: wrap; gap: 0 6px; line-height: 1.45; }
+.op { flex: none; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; padding: 1px 5px; border-radius: 4px; align-self: flex-start; margin-top: 2px; }
+.op-add .op { background: #ecfdf5; color: #166534; }
+.op-revise .op { background: #eff6ff; color: #1d4ed8; }
+.op-remove .op { background: #fef2f2; color: #b42318; }
+.op-remove .change-text { text-decoration: line-through; color: #94a3b8; }
+.change-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.was { flex-basis: 100%; padding-left: 56px; font-size: 0.74rem; color: #94a3b8; }
+.no-change { font-size: 0.76rem; }
+.changelog-state { margin: 8px 0 0; text-align: center; font-size: 0.76rem; }
+
+/* The projects of a card. */
+.members { list-style: none; margin: 10px 0 0; padding: 0; font-size: 0.82rem; }
+.members li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 0; border-top: 1px solid #f1f5f9; }
+.members li:first-child { border-top: 0; }
+.member-name { flex: 1; min-width: 0; color: #334155; overflow-wrap: anywhere; }
+.main-paper { display: inline-flex; align-items: center; gap: 3px; padding: 1px 8px; border-radius: 10px; background: #fef3c7; color: #92400e; font-size: 0.72rem; font-weight: 600; }
 .main-paper mat-icon { font-size: 13px; width: 13px; height: 13px; }
-.make-main { margin-left: 4px; height: 28px !important; font-size: 12px !important; }
-.make-main mat-icon { font-size: 15px; width: 15px; height: 15px; }
-.grouping-reason { display: flex; align-items: flex-start; gap: 6px; margin: 0 0 8px; font-size: 12.5px; }
+.make-main, .move { height: 30px !important; font-size: 0.75rem !important; }
+.make-main mat-icon, .move mat-icon { font-size: 16px; width: 16px; height: 16px; }
+.grouping-reason { display: flex; align-items: flex-start; gap: 6px; margin: 8px 0 0; font-size: 0.78rem; }
 .grouping-reason mat-icon { flex: none; font-size: 16px; width: 16px; height: 16px; }
-.skipped-work { margin-top: 20px; padding: 18px 20px; border: 1px dashed #cbd5e1; border-radius: 12px; background: #f8fafc; }
-.skipped-work .profile-head h2 mat-icon { color: #64748b; }
-.skipped-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; margin-top: 12px; }
-.skipped-card { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid #e2e8f0; border-radius: 10px; background: #ffffff; }
+.card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.skip-card { color: #64748b !important; }
+
+/* About me → Skipped. */
+.skipped-work { margin-top: 24px; padding: 14px 16px; border: 1px dashed #cbd5e1; border-radius: 10px; background: #f8fafc; }
+.skipped-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 10px; }
+.skipped-card { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 10px; background: #ffffff; }
 .skipped-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
-.skipped-title { font-size: 0.95rem; color: #334155; }
-.skipped-description { margin: 4px 0 0; font-size: 0.82rem; line-height: 1.45; color: #64748b; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.skipped-title { font-size: 0.9rem; color: #334155; }
+.card-source { display: flex; align-items: center; gap: 4px; color: #64748b; font-size: 0.75rem; overflow-wrap: anywhere; }
+.card-source mat-icon { width: 14px; height: 14px; font-size: 14px; flex: none; }
+.skipped-description { margin: 2px 0 0; font-size: 0.8rem; line-height: 1.45; color: #64748b; }
 .skipped-threads { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .skipped-threads li { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: #475569; }
 .skipped-thread-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .thread-mail { flex: none; font-size: 15px; width: 15px; height: 15px; color: #b42336; }
 .unskip-thread, .unskip-card { flex: none; height: 28px !important; font-size: 12px !important; }
 .unskip-card mat-icon { font-size: 16px; width: 16px; height: 16px; }
-.skip-card { margin-top: 14px; color: #64748b !important; }
+
+@media (max-width: 600px) {
+  .detail-date { flex-basis: 64px; }
+  .was { padding-left: 0; }
+  .source-list blockquote { margin-left: 0; }
+}

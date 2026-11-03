@@ -72,6 +72,21 @@ internal static class ResearchEndpoints
             await service.SkipThemeAsync(themeId, request.Skipped, ct);
             return TypedResults.NoContent();
         }).WithName("SkipResearchTheme").WithSummary("Skip a research card as not your own research, or bring it back.");
+        group.MapPost("/themes/{themeId}/sources/remove", async Task<NoContent> (
+            string themeId, RemoveSourceRequest request, ResearchCoordinator research, CancellationToken ct) =>
+        {
+            await research.RemoveSourceAsync(themeId, request.Key, ct);
+            return TypedResults.NoContent();
+        }).WithName("RemoveResearchSource").WithSummary("Remove a source from a research project; it goes to Private updates.");
+        group.MapGet("/themes/{themeId}/changelog", async Task<Ok<ChangelogPageResponse>> (
+            string themeId, DateTimeOffset? before, Guid? after, int? limit, ResearchCoordinator research, CancellationToken ct) =>
+            TypedResults.Ok(await research.ChangelogAsync(themeId, before, after, limit ?? 30, ct)))
+            .WithName("GetResearchChangelog").WithSummary("A page of a research project's changelog, newest first.");
+        group.MapPost("/files/decision", async Task<NoContent> (PendingFileDecisionRequest request, ResearchCoordinator research, CancellationToken ct) =>
+        {
+            await research.DecidePendingFileAsync(request, ct);
+            return TypedResults.NoContent();
+        }).WithName("DecidePendingFile").WithSummary("Add a removed file to another research project, or leave it out.");
         group.MapPost("/projects/{projectId}/summary", async Task<Accepted> (
             string projectId, IResearchCoordinator service, CancellationToken ct) =>
         {

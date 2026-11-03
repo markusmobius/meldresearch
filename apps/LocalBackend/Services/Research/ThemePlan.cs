@@ -4,38 +4,15 @@ using MeldResearch.Research;
 namespace MeldResearch.LocalBackend.Services.Research;
 
 /// <summary>
-/// Which research card work is due. A project joins a card once its first import has finished and it has no queued files.
-/// A card is described from its anchor, its main paper, and again whenever the anchor or its paper or summary changes; the
-/// other members are its materials. Excluded or forgotten projects leave their card, and empty cards disappear. Projects
-/// already on a card are never moved automatically.
+/// Research card (project) work that is due. A card holds the details of one piece of research (OVERLEAF.md §1, §11): its
+/// Overleaf projects (members) and the email threads assigned to it feed one list of details. A card's title and two-sentence
+/// summary are rewritten from its details once its members' ingest cycles have finished; a new card is then matched
+/// (strictly) against the others, and cards are compared once more whenever the set changed. Excluded projects leave their
+/// card with their sources, and empty cards disappear. Projects on a card are never moved automatically.
 /// </summary>
 internal static class ThemePlan
 {
-    /// <summary>The card analysis in use: cards grouped under an earlier, looser rule are rebuilt once.</summary>
-    public const int Version = 2;
-
     public static string Fingerprint(ProjectProfile profile) => ResearchEvidence.Hash(JsonSerializer.Serialize(profile, ResearchJson.Options));
-
-    /// <summary>
-    /// The member a card is described from: the one the user chose; otherwise, among its Overleaf projects (or, on a card
-    /// made only of email, its email streams), one with a paper abstract, then one with a paper title, the most recently
-    /// edited first, then the most developed summary.
-    /// </summary>
-    public static MonitoredProject? AnchorOf(LocalResearchState state, ResearchTheme theme)
-    {
-        var members = theme.Members.Select(id => state.Projects.FirstOrDefault(project => project.AccountId == theme.AccountId && project.ProjectId == id))
-            .OfType<MonitoredProject>().Where(project => project.Profile is not null).ToArray();
-        if (theme.Anchor is { } chosen && members.FirstOrDefault(member => member.ProjectId == chosen) is { } picked) return picked;
-        var papers = members.Where(member => member.IsOverleaf).ToArray();
-        return (papers.Length != 0 ? papers : members)
-            .OrderByDescending(member => member.Paper?.Abstract is not null).ThenByDescending(member => member.Paper?.Title is not null)
-            .ThenByDescending(member => member.Baseline?.SourceUpdatedAt ?? member.LastSuccessAt ?? DateTimeOffset.MinValue)
-            .ThenByDescending(member => member.Processed?.Count ?? 0).ThenBy(member => member.ProjectId, StringComparer.Ordinal).FirstOrDefault();
-    }
-
-    /// <summary>What a card's description depends on: its anchor's summary and, when it has an abstract, its paper.</summary>
-    public static string AnchorPrint(MonitoredProject anchor) =>
-        Fingerprint(anchor.Profile!) + "|" + (anchor.Paper is { Abstract: not null } paper ? ResearchEvidence.Hash(paper.Title + "\n" + paper.Abstract) : "");
 
     public static IReadOnlyList<ResearchTheme> Themes(LocalResearchState state, Guid account) =>
         (state.Themes ?? []).Where(theme => theme.AccountId == account).ToArray();
@@ -44,93 +21,93 @@ internal static class ThemePlan
     public static IReadOnlyList<ResearchTheme> Active(LocalResearchState state, Guid account) =>
         [.. Themes(state, account).Where(theme => theme.Skipped != true)];
 
-    /// <summary>Members of skipped cards: their Overleaf projects pause and their Updates leave the feed.</summary>
+    /// <summary>Members of skipped cards: their Overleaf projects pause and their changes leave the feed.</summary>
     public static IReadOnlySet<string> SkippedMembers(LocalResearchState state, Guid account) =>
         Themes(state, account).Where(theme => theme.Skipped == true).SelectMany(theme => theme.Members).ToHashSet(StringComparer.Ordinal);
 
+    /// <summary>The card an Overleaf project is on.</summary>
+    public static ResearchTheme? CardOf(LocalResearchState state, Guid account, string projectId) =>
+        Themes(state, account).FirstOrDefault(theme => theme.Members.Contains(projectId));
+
     /// <summary>A skipped card not yet compared (loosely) with the other skipped cards.</summary>
     public static ResearchTheme? SkipUngrouped(LocalResearchState state, Guid account) =>
-        Themes(state, account).FirstOrDefault(theme => theme.Skipped == true && theme.SkipGrouped != true && theme.Profile is not null);
+        Themes(state, account).FirstOrDefault(theme => theme.Skipped == true && theme.SkipGrouped != true && theme.Profile is not null &&
+            theme.SummaryFor == DetailPlan.Fingerprint(theme.Details));
 
-    /// <summary>A project with a summary that the user has not excluded.</summary>
+    /// <summary>
+    /// The member whose paper titles the card: the user's choice, else an Overleaf member with an abstract (then a title),
+    /// most recently edited first.
+    /// </summary>
+    public static MonitoredProject? AnchorOf(LocalResearchState state, ResearchTheme theme)
+    {
+        var members = theme.Members.Select(id => state.Projects.FirstOrDefault(project => project.AccountId == theme.AccountId && project.ProjectId == id))
+            .OfType<MonitoredProject>().ToArray();
+        if (theme.Anchor is { } chosen && members.FirstOrDefault(member => member.ProjectId == chosen) is { } picked) return picked;
+        return members.OrderByDescending(member => member.Paper?.Abstract is not null).ThenByDescending(member => member.Paper?.Title is not null)
+            .ThenByDescending(member => member.Baseline?.SourceUpdatedAt ?? member.LastSuccessAt ?? DateTimeOffset.MinValue)
+            .ThenBy(member => member.ProjectId, StringComparer.Ordinal).FirstOrDefault();
+    }
+
+    /// <summary>An included Overleaf project the user has not excluded.</summary>
     public static bool Member(LocalResearchState state, Guid account, MonitoredProject project) =>
-        project.AccountId == account && project.Profile is not null &&
+        project.AccountId == account && project.IsOverleaf && project.Enabled &&
         state.Decisions?.Any(decision => decision.AccountId == account && decision.ProjectId == project.ProjectId && !decision.Included) != true;
 
-    public static bool Settled(MonitoredProject project) => project.ImportComplete && project.Pending is null && project.Profile is not null;
+    public static bool Settled(MonitoredProject project) => project.ImportComplete && project.Pending is null;
 
-    /// <summary>The account's cards without departed members and without empty cards; null when nothing changes.</summary>
-    public static IReadOnlyList<ResearchTheme>? Cleaned(LocalResearchState state, Guid account)
+    /// <summary>Email threads assigned to a card whose new messages are not folded yet.</summary>
+    public static bool FoldPending(LocalResearchState state, ResearchTheme theme) =>
+        (state.GmailThreads ?? []).Any(thread => thread.AccountId == theme.AccountId && thread.CardId == theme.Id &&
+            thread.Status == GmailThreadRecord.Assigned && thread.FoldedMessageId != thread.LastMessageId);
+
+    /// <summary>
+    /// The account's cards without departed members (whose sources leave the details) and without cards that are empty (no
+    /// members, no email threads, no details); null when nothing changes.
+    /// </summary>
+    public static LocalResearchState? Cleaned(LocalResearchState state, Guid account)
     {
         var members = state.Projects.Where(project => Member(state, account, project)).Select(project => project.ProjectId).ToHashSet(StringComparer.Ordinal);
+        var threads = (state.GmailThreads ?? []).Where(thread => thread.AccountId == account && thread.CardId is not null &&
+            thread.Status == GmailThreadRecord.Assigned).Select(thread => thread.CardId!).ToHashSet(StringComparer.Ordinal);
         bool changed = false;
         var themes = new List<ResearchTheme>();
+        var log = state.Changelog;
         foreach (var theme in state.Themes ?? [])
         {
             if (theme.AccountId != account) { themes.Add(theme); continue; }
-            var kept = theme.Members.Where(members.Contains).Distinct(StringComparer.Ordinal).ToArray();
-            if (kept.Length == theme.Members.Count) { themes.Add(theme); continue; }
-            changed = true;
-            if (kept.Length != 0) themes.Add(theme with { Members = kept });
-        }
-        return changed ? themes : null;
-    }
-
-    /// <summary>The next settled project that is not on a card yet, oldest import first.</summary>
-    public static MonitoredProject? Unplaced(LocalResearchState state, Guid account)
-    {
-        var placed = Themes(state, account).SelectMany(theme => theme.Members).ToHashSet(StringComparer.Ordinal);
-        return state.Projects.Where(project => Member(state, account, project) && Settled(project) && !placed.Contains(project.ProjectId))
-            .OrderBy(project => project.LastSuccessAt ?? DateTimeOffset.MaxValue).FirstOrDefault();
-    }
-
-    /// <summary>An Overleaf project whose processed revision's title and abstract have not been read yet.</summary>
-    public static bool PaperDue(LocalResearchState state, Guid account) =>
-        state.Projects.Any(project => project.AccountId == account && project.IsOverleaf && project.Pending is null &&
-            project.Baseline is { } baseline && project.PaperFor != Papers.ReadFor(baseline.Revision));
-
-    /// <summary>A card whose description no longer matches its settled anchor.</summary>
-    public static (ResearchTheme Theme, MonitoredProject Anchor)? Stale(LocalResearchState state, Guid account)
-    {
-        foreach (var theme in Themes(state, account))
-        {
-            if (AnchorOf(state, theme) is not { } anchor || !Settled(anchor)) continue;
-            if (theme.Profile is not null && Matches(theme, anchor)) continue;
-            return (theme, anchor);
-        }
-        return null;
-    }
-
-    public static bool Matches(ResearchTheme theme, MonitoredProject? anchor) =>
-        anchor?.Profile is not null && theme.MergedFrom is { Count: 1 } merged &&
-        merged.TryGetValue(anchor.ProjectId, out var print) && print == AnchorPrint(anchor);
-
-    /// <summary>
-    /// The one-time rebuild for cards grouped under the earlier rule: each card keeps its anchor and the members the user
-    /// placed there; the others are placed again (strictly), and every card is described again from its anchor.
-    /// </summary>
-    public static LocalResearchState Rebuild(LocalResearchState state, Guid account) =>
-        state with
-        {
-            Themes = [.. (state.Themes ?? []).Select(theme =>
+            var departed = theme.Members.Where(member => !members.Contains(member)).ToHashSet(StringComparer.Ordinal);
+            var card = theme;
+            if (departed.Count != 0)
             {
-                if (theme.AccountId != account) return theme;
-                string? anchor = AnchorOf(state, theme)?.ProjectId;
-                var kept = theme.Members.Where(member => member == anchor || theme.Pinned?.Contains(member) == true).ToArray();
-                if (kept.Length == 0) kept = [theme.Members[0]];
-                return theme with { Members = kept, Pinned = theme.Pinned?.Where(kept.Contains).ToArray(), MergedFrom = null, Reason = null };
-            })],
-            ThemesRegroupedFor = null, ThemesVersion = Version
-        };
+                changed = true;
+                var (details, changes) = DetailPlan.Without(theme.Details ?? [], source => source.Kind == DetailSource.Overleaf && departed.Contains(source.Container));
+                card = theme with { Members = [.. theme.Members.Where(members.Contains)], Pinned = theme.Pinned?.Where(members.Contains).ToArray(), Details = details };
+                if (changes.Count != 0)
+                    log = DetailPlan.Log(log, new(Guid.NewGuid(), account, theme.Id, DateTimeOffset.UtcNow, ChangelogEntry.Removed,
+                        "Project removed from this card", null, [.. departed], changes, null, DateTimeOffset.UtcNow));
+            }
+            // An empty card goes, unless the user named it or a file is waiting to be added to it.
+            if (card.Members.Count == 0 && !threads.Contains(card.Id) && (card.Details?.Count ?? 0) == 0 && card.Name is null &&
+                state.PendingFiles?.Any(file => file.TargetCardId == card.Id) != true) { changed = true; continue; }
+            themes.Add(card);
+        }
+        return changed ? state with { Themes = themes, Changelog = log } : null;
+    }
+
+    /// <summary>A card whose details changed since its summary was written, once its members' cycles and email folds finished.</summary>
+    public static ResearchTheme? SummaryDue(LocalResearchState state, Guid account) =>
+        Themes(state, account).FirstOrDefault(theme => theme.Details is { Count: > 0 } details && theme.SummaryFor != DetailPlan.Fingerprint(details) &&
+            theme.Members.All(member => state.Projects.FirstOrDefault(project => project.AccountId == account && project.ProjectId == member) is not { } project ||
+                Settled(project)) && !FoldPending(state, theme));
+
+    /// <summary>A new card, summarized, waiting to be compared (strictly) with the other cards.</summary>
+    public static ResearchTheme? MatchDue(LocalResearchState state, Guid account) =>
+        Active(state, account).FirstOrDefault(theme => theme.MatchPending == true && theme.Profile is not null &&
+            theme.SummaryFor == DetailPlan.Fingerprint(theme.Details));
 
     public static bool HasWork(LocalResearchState state, Guid account) =>
-        Cleaned(state, account) is not null || state.ThemesVersion < Version || PaperDue(state, account) || Unplaced(state, account) is not null || RegroupDue(state, account) ||
-        Stale(state, account) is not null || BlurbDue(state, account) is not null || SkipUngrouped(state, account) is not null;
-
-    /// <summary>A card whose 4-5 sentence description was made from an earlier version of its summary (or not yet at all).</summary>
-    public static ResearchTheme? BlurbDue(LocalResearchState state, Guid account) =>
-        Stale(state, account) is not null ? null
-        : Themes(state, account).FirstOrDefault(theme => theme.Profile is not null && theme.BlurbFor != Fingerprint(theme.Profile));
+        Cleaned(state, account) is not null || SummaryDue(state, account) is not null || MatchDue(state, account) is not null ||
+        RegroupDue(state, account) || SkipUngrouped(state, account) is not null;
 
     /// <summary>The account's cards and their members, independent of order; regrouping runs again only when it changes.</summary>
     public static string Signature(LocalResearchState state, Guid account) => ResearchEvidence.Hash(string.Join("|",
@@ -138,43 +115,15 @@ internal static class ThemePlan
             .Order(StringComparer.Ordinal)));
 
     /// <summary>
-    /// The cards should be compared once more: they changed since the last regrouping, every card has a summary, nothing waits
-    /// to be placed, and no project is still on its first import (one that keeps failing does not hold regrouping back).
+    /// The cards should be compared once more: they changed since the last regrouping, every card is summarized, none waits
+    /// for its first match, and no project is in an ingest cycle.
     /// </summary>
     public static bool RegroupDue(LocalResearchState state, Guid account)
     {
         var themes = Active(state, account);
-        if (themes.Count < 2 || themes.Any(theme => theme.Profile is null) || Unplaced(state, account) is not null) return false;
-        if (state.Projects.Any(project => project.AccountId == account && project.Enabled && !project.ImportComplete && project.FailureCount < 3))
-            return false;
+        if (themes.Count < 2 || themes.Any(theme => theme.Profile is null || theme.MatchPending == true) || SummaryDue(state, account) is not null) return false;
+        if (state.Projects.Any(project => Member(state, account, project) && !Settled(project) && project.FailureCount < 3)) return false;
         return state.ThemesRegroupedFor != Signature(state, account);
-    }
-
-    /// <summary>
-    /// Combines each group of cards into its largest card. Members the user placed by hand stay where they are (their card
-    /// remains), so automatic regrouping never undoes a manual choice.
-    /// </summary>
-    public static LocalResearchState ApplyGroups(LocalResearchState state, Guid account, IReadOnlyList<ThemeGroup> groups)
-    {
-        var themes = (state.Themes ?? []).ToList();
-        foreach (var group in groups)
-        {
-            var cards = themes.Where(theme => theme.AccountId == account && group.CardIds.Contains(theme.Id)).ToList();
-            if (cards.Count < 2) continue;
-            var target = cards.OrderByDescending(theme => theme.Members.Count).ThenBy(theme => theme.CreatedAt).First();
-            var moved = new List<string>();
-            foreach (var source in cards.Where(theme => theme != target))
-            {
-                var pinned = source.Pinned ?? [];
-                moved.AddRange(source.Members.Where(member => !pinned.Contains(member)));
-                var kept = source.Members.Where(pinned.Contains).ToArray();
-                int index = themes.IndexOf(source);
-                if (kept.Length == 0) themes.RemoveAt(index);
-                else themes[index] = source with { Members = kept };
-            }
-            if (moved.Count != 0) themes[themes.IndexOf(target)] = target with { Members = [.. target.Members, .. moved], Reason = group.Explanation };
-        }
-        return state with { Themes = themes };
     }
 
     /// <summary>
@@ -186,21 +135,17 @@ internal static class ThemePlan
     {
         var themes = (state.Themes ?? []).Select(theme => theme.AccountId == account && theme.Members.Contains(projectId)
                 ? theme with { Members = theme.Members.Where(member => member != projectId).ToArray(),
-                    Pinned = theme.Pinned?.Where(member => member != projectId).ToArray() } : theme)
-            .Where(theme => theme.AccountId != account || theme.Members.Count != 0).ToList();
+                    Pinned = theme.Pinned?.Where(member => member != projectId).ToArray() } : theme).ToList();
         int index = themeId is null ? -1 : themes.FindIndex(theme => theme.AccountId == account && theme.Id == themeId);
         if (index >= 0)
             themes[index] = themes[index] with { Members = [.. themes[index].Members, projectId],
                 Pinned = pin ? [.. themes[index].Pinned ?? [], projectId] : themes[index].Pinned, Reason = reason ?? themes[index].Reason };
-        else themes.Add(new ResearchTheme(account, Guid.NewGuid().ToString("N"), [projectId], null, null, now, pin ? [projectId] : null));
+        else themes.Add(NewCard(account, [projectId], now, pin, matchPending: !pin, skipped: state.SkippedProjects?.Contains(projectId) == true));
         return state with { Themes = themes };
     }
 
-    /// <summary>The user combines one card into another: every member moves and is pinned there.</summary>
-    public static LocalResearchState MergeCards(LocalResearchState state, Guid account, string sourceId, string targetId, DateTimeOffset now)
-    {
-        var source = Themes(state, account).First(theme => theme.Id == sourceId);
-        foreach (var member in source.Members) state = Place(state, account, member, targetId, now, pin: true);
-        return state;
-    }
+    public static ResearchTheme NewCard(Guid account, IReadOnlyList<string> members, DateTimeOffset now, bool pin = false, bool matchPending = false,
+        bool skipped = false, string? name = null) =>
+        new(account, Guid.NewGuid().ToString("N"), members, null, null, now, pin ? members : null, Details: [],
+            MatchPending: matchPending && !skipped ? true : null, Skipped: skipped ? true : null, SkipGrouped: skipped && !matchPending ? true : null, Name: name);
 }

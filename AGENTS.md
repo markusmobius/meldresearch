@@ -35,13 +35,13 @@ instruction file. Start with the [README](README.md) for setup and release detai
   revokes it at Google; leaving revokes all.
 - Gmail import ([GmailImporter](apps/LocalBackend/Services/Research/GmailImporter.cs),
   called from the coordinator's cycle): only threads whose `historyId` changed
-  are read, and only their new messages are analyzed (`/api/research/email-step`,
-  verbatim line citations). Each thread is one record whose bullet list grows;
-  new threads are placed on a research card (its per-account email stream),
-  skipped, or left for the user in Private updates. Never create a project
-  without the user's choice. Unchanged mail must make zero model calls. Commit
-  each thread atomically; with sync, push the lease before reading mail and
-  stop if another computer holds it.
+  are read, and a new thread is placed once (`/api/research/email-step`): on a
+  research card, skipped, or left for the user in Private updates. An assigned
+  thread is a source of its card: only its messages after `FoldedMessageId` go to
+  a `gmail` detail step (verbatim line citations). Never create a project without
+  the user's choice. Unchanged mail must make zero model calls. Commit each thread
+  atomically; with sync, push the lease before reading mail and stop if another
+  computer holds it.
 - All model decisions and embeddings use configured Azure AI Foundry.
   Deterministic source hashing is appropriate; canned model responses or local
   novelty heuristics are not substitutes for real inference.
@@ -58,44 +58,48 @@ instruction file. Start with the [README](README.md) for setup and release detai
 | [Research library](libraries/Research) | Shared contracts, evidence validation, content revisions and state reduction. |
 | [Overleaf extension](browser/overleaf) / [native host](apps/BrowserHost) | Read-only access through the user's normal signed-in Chrome/Edge session. |
 
-- Research card members are source-generic
-  ([ResearchSources](libraries/Research/ResearchSources.cs)): Overleaf projects
-  (24-hex ids, `Source` null) and email streams (`gmail-` + 32 hex, `Source`
-  "gmail", `Parent` = Gmail address; one per account and card, pinned, profile
-  summarized from its threads' bullets). Only Overleaf projects are
-  swept and processed file by file; other members join, move between and leave
-  cards like projects. Workstreams sync via `WorkstreamRef` in the profile bundle;
-  email evidence is `ResearchCitation.Email`. New optional fields are omitted from
-  JSON when empty so Overleaf data and sync fingerprints stay unchanged. Gmail
-  plan and decisions: thread-level bullets, card-first placement, Private updates
-  for the rest, threads the user wrote in, 30-day first import, Overleaf stays
+- Research card members are Overleaf projects; email threads attach to cards
+  directly (`GmailThreadRecord.CardId`). The older `gmail-` workstream and
+  email-stream members are legacy: only read so old state loads, never created.
+  New optional fields are omitted from JSON when empty so sync fingerprints stay
+  unchanged. Gmail plan and decisions: card-first placement, Private updates for
+  the rest, threads the user wrote in, 30-day first import, Overleaf stays
   required, hourly jittered imports coordinated by a synced lease, Google
   testing mode first. The feed is Project Meld's column layout with Updates and
   Private updates only (no News/Share/Help/Ask).
-- Start processing work in [ResearchCoordinator](apps/LocalBackend/Services/Research/ResearchCoordinator.cs),
-  [ResearchEvidence](libraries/Research/ResearchEvidence.cs), and
+- Start processing work in [OVERLEAF.md](OVERLEAF.md) (the specification),
+  [ResearchCoordinator](apps/LocalBackend/Services/Research/ResearchCoordinator.cs),
+  [DetailPlan](apps/LocalBackend/Services/Research/DetailPlan.cs),
+  [LatexTree](libraries/Research/LatexTree.cs) and
   [FoundryService](apps/RemoteBackend/Services/FoundryService.cs).
 - Account linking, explicit processing consent and project selection are required
   before monitoring. Preserve account isolation and server-side authorization.
 - Compare supported source content, not ZIP order/timestamps. Unchanged supported
   content must make **zero inference calls**, including after a restart.
-- Projects are summarized file by file into a ~5,000-character JSON profile (one
-  summary-of-summary request if over target, accepted as is up to 12,000),
-  earliest edited first (Overleaf history via the connector). The initial import
-  builds the baseline and produces no Updates; daily checks (and Check now) fold in
-  changed files, and meaningful summary changes become cited Updates. The pending
-  manifest, order and per-file processed hashes are the persistent queue: commit per
-  file, resume after restart, never reprocess an unchanged hash or identical copy.
-  Include/resume is processed first. Project summaries (one paragraph from the main
+- A research card (About me) is a) a two-sentence summary, b) at most 25
+  one-sentence details, each with sources (an Overleaf document at a hash, a Gmail
+  thread up to a message), and c) a changelog of the sources that updated it
+  (OVERLEAF.md §1). Overleaf is read as include trees: roots whose tree changed
+  within the one 183-day window (`ResearchCoordinator.RecentDays`, also the
+  include/exclude window) are folded oldest first, in parts of at most 60,000
+  characters, one detail step per part; a) is rewritten only at the end of a cycle
+  that changed b). Later cycles send only changed documents; deleted documents lose
+  their sources without a model call. `PendingTrees`, `Partial` and `Processed` are
+  the persistent queue: commit per part, resume after restart, never resend an
+  unchanged hash. The feed's Updates are changelog entries that changed details.
+  A source the user removes leaves every detail of the card and waits in Private
+  updates (`PendingFile` or a pending thread). Include/resume is processed first.
+  Project summaries (one paragraph from the main
   `.tex`) are sent only on the user's per-project Summarize click, recent projects
   only, and never resent while the main file's hash is unchanged. Research cards
   ([ThemePlan](apps/LocalBackend/Services/Research/ThemePlan.cs)) group settled
   projects by Foundry decision (strictly "same paper or same core question"),
   regroup all cards once per card-set change when imports are idle, and never move a
-  pinned (hand-placed) project. A card is described from its anchor (main paper:
-  `\title` + abstract read locally by [Papers](libraries/Research/PaperContracts.cs),
-  or the user's choice), never by blending members; other members, including email
-  streams, are materials. Re-describe only when the anchor's paper or summary changes.
+  pinned (hand-placed) project. A card's title is its anchor's (main paper:
+  `\title` read locally by [Papers](libraries/Research/PaperContracts.cs), or the
+  user's choice) and the abstract is context for every step. Combining cards merges
+  their details in one call (`/detail-merge`); moving a project strips its sources
+  from the old card and reads its trees into the new one.
   Skipped cards (not the user's own research) live in About me → Skipped: out of the
   feed, Overleaf members paused, grouped loosely without confirmation, new email of
   them skipped too; Bring back / Unskip undo it. Keep them out of normal matching
@@ -135,8 +139,8 @@ instruction file. Start with the [README](README.md) for setup and release detai
   `/api/sign-in/redeem`. Keep the redirect loopback-only, codes single-use and
   short-lived, and the verifier on the local machine; do not reintroduce an
   approval code step or accept other redirect targets.
-- Commit each file step (summary, processed hash, Updates) atomically. Failed processing must not
-  advance the stored revision. Pause, deletion, cancellation and account changes
+- Commit each detail step (details, folded hashes, changelog) atomically. Failed
+  processing must not advance the stored revision or folded hashes. Pause, deletion, cancellation and account changes
   must not allow an in-flight result to restore removed data.
 - Keep the existing minimal API/service patterns, antiforgery and strict
   Host/Origin checks. The remote service deliberately uses
@@ -249,7 +253,7 @@ Use .NET 10, Node 24/npm and PowerShell 7. Run from this repository's root, e.g.
   restore the removed application Playwright approach. Use the normal browser
   and connector; never execute downloaded TeX.
 - Current Chrome identity: `pejcljoimoeklelcfbfddnkimlkjgfhe`; extension version
-  `0.6.3`, native protocol `2`. Identity derives from the public manifest key,
+  `0.6.4`, native protocol `2`. Identity derives from the public manifest key,
   not a secret signing key. Update related identity/handshake checks together;
   compatible extension releases need not have identical version numbers.
 - Bump the connector manifest version whenever extension files change: installed

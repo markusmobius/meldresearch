@@ -45,6 +45,19 @@
 .thread-bullets li.news { color: #1e293b; }
 .thread-bullets .thread-earlier { list-style: none; margin-left: -18px; font-size: 0.72rem; color: #64748b; }
 .thread-card { border-left-color: #b42336; background: #fbf4f5; }
+/* An Update: what one source (Overleaf documents or an email thread) changed in a research project's details. */
+.change-bullets { list-style: none; margin: 0; padding: 0; font-size: 0.8rem; line-height: 1.45; color: #1e293b; }
+.change-bullets li { margin: 3px 0; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.change-bullets .thread-earlier { font-size: 0.72rem; color: #64748b; }
+.op { display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 4px; font-size: 0.66rem; font-weight: 700; text-transform: uppercase; vertical-align: 1px; }
+.op-add .op { background: #ecfdf5; color: #166534; }
+.op-revise .op { background: #eff6ff; color: #1d4ed8; }
+.op-remove .op { background: #fef2f2; color: #b42318; }
+li.op-remove { color: #94a3b8; }
+.change-detail { list-style: none; margin: 8px 0 12px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.change-detail li { line-height: 1.5; }
+.change-detail .was { display: block; margin-top: 2px; font-size: 0.85em; color: #94a3b8; }
+.file-path { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.85rem; }
 .pending-card { border-left-color: var(--column-accent); background: #fdf8ec; }
 .feed-address { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #64748b; }
 .thread-suggestion { margin: 6px 0 0; font-size: 0.75rem; color: #64748b; }
@@ -84,3 +97,4 @@ a.processing-strip:hover { background: #e4f1ed; }
 @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
 .feed-source { font-size: 14px; width: 14px; height: 14px; vertical-align: -3px; margin-right: 3px; color: #b42336; }
 .evidence-mail { font-size: 16px; width: 16px; height: 16px; vertical-align: text-bottom; color: #b42336; }
+.change-card .feed-source:not(.mail), .update-detail .evidence-mail:not(.mail), .file-card .feed-source { color: #0a6655; }

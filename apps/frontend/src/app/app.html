@@ -19,7 +19,7 @@
 } @else {
 <div class="app-layout" [attr.inert]="lock.locked() ? '' : null" [attr.aria-hidden]="lock.locked() ? 'true' : null">
   <app-meld-toolbar [page]="view()" [accountName]="research()?.account?.name ?? null" [setupComplete]="setupKnown() && setupComplete()"
-    [dummy]="!!status()?.dummy" [updateCount]="research()?.totalUpdates ?? 0"></app-meld-toolbar>
+    [dummy]="!!status()?.dummy" [updateCount]="research()?.totalChanges ?? 0"></app-meld-toolbar>
 
   <mat-sidenav-container class="sidenav-container">
     <mat-sidenav-content class="content-area" [class.feed-content]="view() === 'home'">

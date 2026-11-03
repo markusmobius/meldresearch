@@ -246,14 +246,17 @@ internal sealed class ResearchSync(IResearchStore store, IResearchRemote remote,
                 (item.Pending is null || item.LastSyncedAt is not { } synced || now - synced >= CheckpointEvery)).ToArray();
             var profile = SyncBundles.Profile(state, account, now);
             bool profileChanged = SyncBundles.Fingerprint(profile) != state.Sync!.ProfileSyncedFor;
-            var removed = excluded.Select(id => SyncCrypto.ProjectBlob(dataKey, id)).Where(_remote.ContainsKey).ToArray();
+            // Blobs of the earlier research format are replaced by this one (OVERLEAF.md §13) and deleted.
+            var removed = excluded.Select(id => SyncCrypto.ProjectBlob(dataKey, id)).Concat(_remote.Keys.Where(SyncCrypto.IsLegacyBlob))
+                .Where(_remote.ContainsKey).Distinct().ToArray();
             var names = projects.Select(item => SyncCrypto.ProjectBlob(dataKey, item.ProjectId))
                 .Concat(profileChanged ? [SyncCrypto.ProfileBlob] : []).Concat(removed).Distinct().ToArray();
             if (names.Length == 0) return;
             await CheckKeyAsync(credential, state, ct);
-            // The fresh listing decides which excluded projects still have a blob to delete.
+            // The fresh listing decides which excluded projects (and earlier-format blobs) still have a blob to delete.
             var stale = removed.Where(name => !_remote.ContainsKey(name)).ToHashSet(StringComparer.Ordinal);
-            removed = [.. removed.Where(_remote.ContainsKey)];
+            removed = [.. removed.Where(_remote.ContainsKey).Concat(_remote.Keys.Where(SyncCrypto.IsLegacyBlob)).Distinct()];
+            names = [.. names.Concat(removed).Distinct()];
             names = [.. names.Where(name => !stale.Contains(name))];
             if (names.Length == 0) return;
             var links = new Dictionary<string, string>(StringComparer.Ordinal);

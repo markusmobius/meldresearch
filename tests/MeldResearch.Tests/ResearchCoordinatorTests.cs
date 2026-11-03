@@ -19,6 +19,8 @@ public sealed class ResearchCoordinatorTests
             ResearchEvidence.TextExtensions.Contains(Path.GetExtension(file.Path)) ? file.Text : null)).ToArray();
         return new(ProjectId, "Synthetic research", ResearchEvidence.Revision(items), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(-1), items);
     }
+    /// <summary>A compilable main document (a root) with the given text, including a.tex when the project has one.</summary>
+    internal static string MainDoc(string text) => "\\documentclass{article}\n\\begin{document}\n" + text + "\n\\input{a}\n\\end{document}";
     internal static MonitoredProject Included(string id = ProjectId) =>
         new(Account.Id, id, "Synthetic", true, ResearchEvidence.ConsentVersion, null, null, [], [], null, null, null, null, null, 0, 0);
     private static ResearchCoordinator Coordinator(IResearchStore store, IResearchRemote remote, IOverleafEvidenceSource source) =>
@@ -27,31 +29,6 @@ public sealed class ResearchCoordinatorTests
     internal static async Task Drain(ResearchCoordinator coordinator, bool force = false)
     {
         for (int cycle = 0; cycle < 50 && await coordinator.RunCycleAsync(force && cycle == 0, CancellationToken.None); cycle++) { }
-    }
-
-    [Fact]
-    public async Task InitialImportFoldsFilesOneAtATimeOldestFirstWithoutUpdates()
-    {
-        var source = new Source(Files(("main.tex", "Main text."), ("a.tex", "Section A."), ("b.tex", "Section B."), ("refs.bib", "@book{x}")))
-        {
-            EditTimes = new Dictionary<string, DateTimeOffset> { ["a.tex"] = DateTimeOffset.UtcNow.AddDays(-1), ["b.tex"] = DateTimeOffset.UtcNow.AddDays(-3) }
-        };
-        var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
-        var remote = new Remote();
-        using var coordinator = Coordinator(store, remote, source);
-        await Drain(coordinator);
-        // No history for main.tex means it is older than the history: it comes first, then by edit time.
-        Assert.Equal(["main.tex", "b.tex", "a.tex"], remote.Requests.Select(request => request.File.Path));
-        Assert.All(remote.Requests, request => Assert.True(request.Initial && request.File.PreviousText is null));
-        Assert.Null(remote.Requests[0].Profile);
-        Assert.NotNull(remote.Requests[1].Profile);
-        var project = Assert.Single(store.State.Projects);
-        Assert.True(project.ImportComplete);
-        Assert.Empty(project.Updates);
-        Assert.Null(project.Pending);
-        Assert.Equal(source.Snapshot.Revision, project.Baseline!.Revision);
-        Assert.Equal(1, project.UnprocessedFiles);
-        Assert.Equal("ready", (await coordinator.StatusAsync(CancellationToken.None)).Projects[0].Phase);
     }
 
     [Fact]
@@ -82,124 +59,6 @@ public sealed class ResearchCoordinatorTests
     }
 
     [Fact]
-    public async Task TheQueueResumesAfterARestartWithoutRedoingFinishedFiles()
-    {
-        var source = new Source(Files(("a.tex", "A."), ("b.tex", "B."), ("c.tex", "C.")));
-        var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
-        var remote = new Remote();
-        using (var first = Coordinator(store, remote, source))
-        {
-            Assert.True(await first.RunCycleAsync(false, CancellationToken.None, maxSteps: 1));
-            var status = await first.StatusAsync(CancellationToken.None);
-            Assert.Equal((1, 3), (status.Projects[0].FilesDone, status.Projects[0].FilesTotal));
-            Assert.Equal(("import", 1, 3), (status.Processing!.Kind, status.Processing.FilesDone, status.Processing.FilesTotal));
-        }
-        using var restarted = Coordinator(store, remote, source);
-        await Drain(restarted);
-        Assert.Equal(["a.tex", "b.tex", "c.tex"], remote.Requests.Select(request => request.File.Path));
-        Assert.Equal(1, source.Reads);
-        Assert.True(store.State.Projects[0].ImportComplete);
-    }
-
-    [Fact]
-    public async Task UnchangedContentMakesZeroModelCallsAndUnchangedMetadataIsNotEvenDownloaded()
-    {
-        var source = new Source(Files(("main.tex", "Main text.")));
-        var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
-        var remote = new Remote();
-        using var coordinator = Coordinator(store, remote, source);
-        await Drain(coordinator);
-        int calls = remote.Requests.Count;
-
-        await Drain(coordinator, force: true);
-        Assert.Equal(calls, remote.Requests.Count);
-        Assert.Equal(2, source.Reads);
-        Assert.Contains("No model calls", store.State.Projects[0].Explanation);
-
-        // The daily check is not due yet; once due, unchanged Overleaf metadata needs no download either.
-        await Drain(coordinator);
-        Assert.Equal(2, source.Reads);
-        store.State = store.State with { Projects = [store.State.Projects[0] with { LastSweepAt = DateTimeOffset.UtcNow.AddDays(-2) }] };
-        await Drain(coordinator);
-        Assert.Equal(2, source.Reads);
-        Assert.True(store.State.Projects[0].LastSweepAt > DateTimeOffset.UtcNow.AddMinutes(-1));
-        Assert.Equal(calls, remote.Requests.Count);
-    }
-
-    [Fact]
-    public async Task ChangedAndDeletedFilesBecomeGroundedUpdatesAgainstThePreviousText()
-    {
-        var source = new Source(Files(("main.tex", "The pilot has 40 participants."), ("old.tex", "An old claim.")));
-        var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
-        var remote = new Remote
-        {
-            Step = request => request.Initial ? Remote.Summary(request, []) : request.File.CurrentText is { } current
-                ? Remote.Summary(request, [new("Pilot doubled", "The pilot grew to 80.", [new(request.File.Path, "80 participants", EvidenceVersion.Current)])])
-                : Remote.Summary(request, [new("Claim removed", "The old claim was dropped.", [new(request.File.Path, "old claim", EvidenceVersion.Previous)])])
-        };
-        using var coordinator = Coordinator(store, remote, source);
-        await Drain(coordinator);
-        source.Snapshot = Files(("main.tex", "The pilot has 80 participants."));
-        await Drain(coordinator, force: true);
-
-        var delta = remote.Requests.Where(request => !request.Initial).ToArray();
-        Assert.Equal(["main.tex", "old.tex"], delta.Select(request => request.File.Path));
-        Assert.Equal(("The pilot has 40 participants.", "The pilot has 80 participants."), (delta[0].File.PreviousText, delta[0].File.CurrentText));
-        Assert.Null(delta[1].File.CurrentText);
-        var updates = store.State.Projects[0].Updates;
-        Assert.Equal([ResearchUpdateKind.Change, ResearchUpdateKind.Removal], updates.Select(update => update.Kind));
-        Assert.Equal("80 participants", updates[0].Evidence[0].Quote);
-        Assert.Equal(store.State.Projects[0].Baseline!.Revision, updates[0].Revision);
-    }
-
-    [Fact]
-    public async Task IdenticalCopiesInOtherFoldersAreNotProcessedAgain()
-    {
-        var source = new Source(Files(("main.tex", "The paper."), ("submission/main.tex", "The paper."), ("camera/main.tex", "The paper.")));
-        var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
-        var remote = new Remote();
-        using var coordinator = Coordinator(store, remote, source);
-        await Drain(coordinator);
-        Assert.Single(remote.Requests);
-        Assert.Equal(3, store.State.Projects[0].Processed!.Count);
-    }
-
-    [Fact]
-    public async Task ModelFailureKeepsProgressBacksOffAndAManualCheckRetries()
-    {
-        var source = new Source(Files(("main.tex", "Main text.")));
-        var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
-        var remote = new Remote { Failure = new(502, "synthetic_model_failure", "Synthetic model failure.") };
-        using var coordinator = Coordinator(store, remote, source);
-        await Drain(coordinator);
-        var project = store.State.Projects[0];
-        Assert.Equal("synthetic_model_failure", project.ErrorCode);
-        Assert.True(project.NextAttemptAt > DateTimeOffset.UtcNow);
-        Assert.Empty(project.Processed ?? new Dictionary<string, string>());
-        Assert.NotNull(project.Pending);
-        int calls = remote.Calls;
-        await Drain(coordinator);
-        Assert.Equal(calls, remote.Calls);
-
-        remote.Failure = null;
-        await Drain(coordinator, force: true);
-        Assert.True(store.State.Projects[0].ImportComplete);
-        Assert.Null(store.State.Projects[0].ErrorCode);
-    }
-
-    [Fact]
-    public async Task AccountChangeDuringAStepDiscardsTheResult()
-    {
-        var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
-        var remote = new Remote();
-        remote.During = _ => store.State = store.State with { Credential = null };
-        using var coordinator = Coordinator(store, remote, new Source(Files(("main.tex", "Main text."))));
-        await coordinator.RunCycleAsync(false, CancellationToken.None);
-        Assert.Null(store.State.Projects[0].Profile);
-        Assert.Empty(store.State.Projects[0].Processed ?? new Dictionary<string, string>());
-    }
-
-    [Fact]
     public async Task OnlyExplicitlyConsentedProjectsAreRead()
     {
         var source = new Source(Files(("main.tex", "Synthetic evidence.")));
@@ -224,49 +83,6 @@ public sealed class ResearchCoordinatorTests
         await Drain(coordinator);
         Assert.Equal(1, source.Reads);
         Assert.True(store.State.Projects[0].ImportComplete);
-    }
-
-    [Fact]
-    public async Task ExcludingAnotherProjectDoesNotInterruptTheProjectBeingProcessed()
-    {
-        var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
-        ResearchCoordinator? coordinator = null;
-        var remote = new Remote();
-        remote.During = _ => coordinator!.DecideProjectAsync("1123456789abcdef01234567", new(false, null), CancellationToken.None).GetAwaiter().GetResult();
-        using (coordinator = Coordinator(store, remote, new Source(Files(("main.tex", "Synthetic research.")))))
-            await Drain(coordinator);
-        Assert.True(store.State.Projects[0].ImportComplete);
-        Assert.Null(store.State.Projects[0].Error);
-    }
-
-    [Fact]
-    public async Task PausingTheProjectBeingProcessedStopsOnlyItWithoutRecordingAnError()
-    {
-        var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
-        ResearchCoordinator? coordinator = null;
-        var remote = new Remote();
-        remote.During = _ => coordinator!.SetMonitoringAsync(ProjectId, new(false, null), CancellationToken.None).GetAwaiter().GetResult();
-        using (coordinator = Coordinator(store, remote, new Source(Files(("main.tex", "Synthetic research.")))))
-            await Drain(coordinator);
-        var project = Assert.Single(store.State.Projects);
-        Assert.False(project.Enabled);
-        Assert.Null(project.Profile);
-        Assert.Null(project.Error);
-    }
-
-    [Fact]
-    public async Task ProjectsFromTheEarlierPipelineAreReimportedAndTheirOldSnapshotIsDropped()
-    {
-        var legacy = Included() with { Snapshot = ResearchTests.Snapshot("Legacy text."), Summary = "Old summary.", Updates = [] };
-        var store = new MemoryStore(new(1, Credential, null, null, [legacy], []));
-        var remote = new Remote();
-        using var coordinator = Coordinator(store, remote, new Source(Files(("main.tex", "Legacy text."))));
-        await Drain(coordinator);
-        var project = store.State.Projects[0];
-        Assert.Null(project.Snapshot);
-        Assert.Null(project.Summary);
-        Assert.True(project.ImportComplete);
-        Assert.True(Assert.Single(remote.Requests).Initial);
     }
 
     [Fact]
@@ -433,56 +249,6 @@ public sealed class ResearchCoordinatorTests
     }
 
     [Fact]
-    public async Task TheOneTimeResetErasesResearchChoicesAndOpenAlexButKeepsSignIn()
-    {
-        var researcher = new ResearcherState(Account.Id, 3, "ready", "Synthetic", [], null, [], DateTimeOffset.UtcNow, null, null);
-        var store = new MemoryStore(new(1, Credential, null, null, [Included() with { Profile = new("T", "D", ["C"], ["t"]) }], [],
-            [new(Account.Id, ProjectId, true, DateTimeOffset.UtcNow)], [researcher]));
-        store.Texts["abc"] = "Synthetic source text.";
-        using var coordinator = Coordinator(store, new Remote(), new Source(Files(("main.tex", "Synthetic."))));
-        Assert.True(await coordinator.ResetIfDueAsync(CancellationToken.None));
-        Assert.Empty(store.State.Projects);
-        Assert.Empty(store.State.Decisions!);
-        Assert.Empty(store.State.Researchers!);
-        Assert.Empty(store.Texts);
-        Assert.Equal(Credential, store.State.Credential);
-        Assert.Equal(ResearchCoordinator.ResetEpoch, store.State.ResetEpoch);
-
-        // Applied once: work done after the reset survives later starts.
-        store.State = store.State with { Projects = [Included()] };
-        Assert.False(await coordinator.ResetIfDueAsync(CancellationToken.None));
-        Assert.Single(store.State.Projects);
-    }
-
-    [Fact]
-    public async Task ANewlyIncludedProjectIsReadAndProcessedBeforeOlderQueuedWork()
-    {
-        const string second = "1123456789abcdef01234567";
-        var source = new MultiSource(
-            Files(("a1.tex", "A one."), ("a2.tex", "A two."), ("a3.tex", "A three.")),
-            Files(("b1.tex", "B one.")) with { ProjectId = second, ProjectName = "Second" });
-        var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
-        ResearchCoordinator? coordinator = null;
-        var remote = new Remote();
-        bool included = false;
-        remote.During = request =>
-        {
-            if (included || request.File.Path != "a1.tex") return;
-            included = true;
-            coordinator!.DecideProjectAsync(second, new(true, ResearchEvidence.ConsentVersion), CancellationToken.None).GetAwaiter().GetResult();
-        };
-        using (coordinator = Coordinator(store, remote, source))
-        {
-            // The first cycle stops after the step in flight instead of continuing with a2 and a3.
-            Assert.True(await coordinator.RunCycleAsync(false, CancellationToken.None));
-            Assert.Equal(["a1.tex"], remote.Requests.Select(request => request.File.Path));
-            await Drain(coordinator);
-        }
-        Assert.Equal(["a1.tex", "b1.tex", "a2.tex", "a3.tex"], remote.Requests.Select(request => request.File.Path));
-        Assert.All(store.State.Projects, project => Assert.True(project.ImportComplete));
-    }
-
-    [Fact]
     public async Task SummarizeSendsOnlyTheMainTexOfARecentProjectAndReusesItWhileUnchanged()
     {
         var source = new Source(Files(("sections/intro.tex", "Intro text."),
@@ -551,221 +317,6 @@ public sealed class ResearchCoordinatorTests
     private static MonitoredProject IncludedAs(string id, string name) => Included(id) with { Name = name };
 
     [Fact]
-    public async Task DifferentProjectsAreProcessedInParallelWhileEachKeepsItsFileOrder()
-    {
-        var store = new MemoryStore(new(1, Credential, null, null, [IncludedAs(ProjectId, "news-slant"), IncludedAs(SecondId, "news-slant-slides")], []));
-        var remote = new Remote();
-        using var coordinator = Coordinator(store, remote, TwoProjects());
-        Assert.True(await coordinator.RunCycleAsync(false, CancellationToken.None, maxSteps: 1));
-        // One round folds in the first file of both projects.
-        Assert.Equal(["a1.tex", "b1.tex"], remote.Requests.Select(request => request.File.Path).Order());
-        await Drain(coordinator);
-        Assert.Equal(["a1.tex", "a2.tex"], remote.Requests.Where(request => request.ProjectId == ProjectId).Select(request => request.File.Path));
-        Assert.All(store.State.Projects, project => Assert.True(project.ImportComplete));
-
-        using var serial = new ResearchCoordinator(new MemoryStore(new(1, Credential, null, null, [IncludedAs(ProjectId, "news-slant"), IncludedAs(SecondId, "news-slant-slides")], [])),
-            new Remote(), TwoProjects(), new(new Uri("https://meld.example.invalid"), false, 300, ParallelProjects: 1),
-            NullLogger<ResearchCoordinator>.Instance, TimeProvider.System);
-        Assert.True(await serial.RunCycleAsync(false, CancellationToken.None, maxSteps: 1));
-        Assert.Single((await serial.StatusAsync(CancellationToken.None)).Projects, project => project.FilesDone == 1);
-    }
-
-    [Fact]
-    public async Task TheFirstImportedProjectGetsItsOwnCardWithoutAGroupingCall()
-    {
-        var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
-        var remote = new Remote();
-        using var coordinator = Coordinator(store, remote, new Source(Files(("main.tex", "Synthetic research."))));
-        await Drain(coordinator);
-        var theme = Assert.Single(store.State.Themes!);
-        Assert.Equal([ProjectId], theme.Members);
-        Assert.Equal(store.State.Projects[0].Profile, theme.Profile);
-        Assert.Empty(remote.Matches);
-        Assert.Empty(remote.Merges);
-        var status = Assert.Single((await coordinator.StatusAsync(CancellationToken.None)).Themes!);
-        Assert.False(status.Updating);
-        // The card gets one 4-5 sentence description from its whole summary, made again only when that summary changes.
-        Assert.Equal(theme.Profile, Assert.Single(remote.Blurbs).Profile);
-        Assert.Equal("Four or five sentences about " + theme.Profile!.Title + ".", status.Blurb);
-        await Drain(coordinator, force: true);
-        Assert.Single(remote.Blurbs);
-    }
-
-    [Fact]
-    public async Task AProjectOfTheSameResearchJoinsThatCardWhichIsDescribedFromItsMainProject()
-    {
-        var store = new MemoryStore(new(1, Credential, null, null, [IncludedAs(ProjectId, "news-slant"), IncludedAs(SecondId, "news-slant-slides")], []));
-        var remote = new Remote { Match = request => request.Candidates[0].Id };
-        using var coordinator = Coordinator(store, remote, TwoProjects());
-        await Drain(coordinator);
-        var theme = Assert.Single(store.State.Themes!);
-        // Both import in parallel; whichever finishes first starts the card and the other is matched to it.
-        Assert.Equal([ProjectId, SecondId], theme.Members.Order());
-        Assert.Single(remote.Matches);
-        // Members are not blended: without a paper abstract, the card is its main project's own summary.
-        Assert.Empty(remote.Merges);
-        var anchor = ThemePlan.AnchorOf(store.State, theme)!;
-        Assert.Equal(anchor.Profile, theme.Profile);
-        Assert.Equal(anchor.ProjectId, (await coordinator.StatusAsync(CancellationToken.None)).Themes!.Single().AnchorId);
-        Assert.Equal("Synthetic decision.", theme.Reason);
-
-        // Nothing changed: no further grouping calls.
-        await Drain(coordinator, force: true);
-        Assert.Single(remote.Matches);
-        Assert.Empty(remote.Cards);
-    }
-
-    [Fact]
-    public async Task AnUnrelatedProjectStartsItsOwnCard()
-    {
-        var store = new MemoryStore(new(1, Credential, null, null, [IncludedAs(ProjectId, "news-slant"), IncludedAs(SecondId, "news-slant-slides")], []));
-        var remote = new Remote();
-        using var coordinator = Coordinator(store, remote, TwoProjects());
-        await Drain(coordinator);
-        Assert.Equal(2, store.State.Themes!.Count);
-        Assert.Single(remote.Matches);
-        Assert.Empty(remote.Merges);
-    }
-
-    [Fact]
-    public async Task ExcludingAMemberRemovesItFromItsCardAndMovingSplitsAProjectOut()
-    {
-        var store = new MemoryStore(new(1, Credential, null, null, [IncludedAs(ProjectId, "news-slant"), IncludedAs(SecondId, "news-slant-slides")], []));
-        var remote = new Remote { Match = request => request.Candidates[0].Id };
-        using var coordinator = Coordinator(store, remote, TwoProjects());
-        await Drain(coordinator);
-        string themeId = store.State.Themes![0].Id;
-
-        await coordinator.MoveToThemeAsync(SecondId, null, CancellationToken.None);
-        await Drain(coordinator);
-        Assert.Equal(2, store.State.Themes!.Count);
-        Assert.Equal([ProjectId], store.State.Themes.Single(theme => theme.Id == themeId).Members);
-        // A single remaining member is the card's summary again, without a model call.
-        Assert.Equal(store.State.Projects.Single(project => project.ProjectId == ProjectId).Profile, store.State.Themes.Single(theme => theme.Id == themeId).Profile);
-
-        await coordinator.MoveToThemeAsync(SecondId, themeId, CancellationToken.None);
-        await Drain(coordinator);
-        Assert.Single(store.State.Themes!);
-
-        await coordinator.DecideProjectAsync(SecondId, new(false, null), CancellationToken.None);
-        await Drain(coordinator);
-        Assert.Equal([ProjectId], Assert.Single(store.State.Themes!).Members);
-        Assert.Empty(remote.Merges);
-        Assert.Equal("invalid_theme_move", (await Assert.ThrowsAsync<ResearchFailure>(() =>
-            coordinator.MoveToThemeAsync(ProjectId, "not-a-card", CancellationToken.None))).Code);
-    }
-
-    [Fact]
-    public async Task RegroupingCombinesSeparateCardsOfOneProgrammeOnceAndNeverMovesPinnedProjects()
-    {
-        var store = new MemoryStore(new(1, Credential, null, null, [IncludedAs(ProjectId, "scooping-academia"), IncludedAs(SecondId, "scooping-drugs")], []));
-        var remote = new Remote { Regroup = request => [new([.. request.Cards.Select(card => card.Id)], "Same scooping programme.")] };
-        using var coordinator = Coordinator(store, remote, TwoProjects());
-        await Drain(coordinator);
-        // Placed separately (the matcher said no), then combined by the regrouping pass and summarized once.
-        var theme = Assert.Single(store.State.Themes!);
-        Assert.Equal([ProjectId, SecondId], theme.Members.Order());
-        Assert.Single(remote.Regroups);
-        Assert.Equal(2, remote.Regroups[0].Cards.Count);
-        Assert.Equal("Same scooping programme.", theme.Reason);
-
-        // Unchanged cards are not compared again.
-        await Drain(coordinator, force: true);
-        Assert.Single(remote.Regroups);
-
-        // The user splits a project out: it is pinned, so regrouping (which still proposes combining) leaves it.
-        await coordinator.MoveToThemeAsync(SecondId, null, CancellationToken.None);
-        await Drain(coordinator);
-        Assert.Equal(2, store.State.Themes!.Count);
-        Assert.Equal(2, remote.Regroups.Count);
-        Assert.Contains(store.State.Themes, card => card.Members.SequenceEqual([SecondId]) && card.Pinned!.Contains(SecondId));
-
-        // A manual merge combines the cards again and pins the moved project.
-        var split = store.State.Themes.Single(card => card.Members.Contains(SecondId));
-        var other = store.State.Themes.Single(card => card != split);
-        await coordinator.MergeThemeIntoAsync(split.Id, other.Id, CancellationToken.None);
-        await Drain(coordinator);
-        var merged = Assert.Single(store.State.Themes!);
-        Assert.Equal(other.Id, merged.Id);
-        Assert.Contains(SecondId, merged.Pinned!);
-        Assert.Equal("invalid_theme_move", (await Assert.ThrowsAsync<ResearchFailure>(() =>
-            coordinator.MergeThemeIntoAsync(merged.Id, merged.Id, CancellationToken.None))).Code);
-    }
-
-    [Fact]
-    public async Task ServerOutagesAreShownAsRetryingUntilTheyPersist()
-    {
-        var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
-        var remote = new Remote { Failure = new ResearchFailure(503, "remote_unavailable", "The Meld Research remote service is unavailable.") };
-        using var coordinator = Coordinator(store, remote, new Source(Files(("main.tex", "Synthetic research."))));
-        await coordinator.RunCycleAsync(false, CancellationToken.None);
-        Assert.Equal("retrying", (await coordinator.StatusAsync(CancellationToken.None)).Projects[0].Phase);
-        Assert.Null(store.State.AccountError);
-        store.State = store.State with { Projects = [store.State.Projects[0] with { FailureCount = ResearchCoordinator.TransientFailuresShown }] };
-        Assert.Equal("error", (await coordinator.StatusAsync(CancellationToken.None)).Projects[0].Phase);
-        Assert.True(ResearchCoordinator.Transient("remote_gateway_error"));
-        Assert.False(ResearchCoordinator.Transient("ungrounded_research_analysis"));
-    }
-
-    [Fact]
-    public void ACardFollowsItsAnchorAndTheUsersChoiceOfMainPaper()
-    {
-        var profile = new ProjectProfile("T", "D", ["C"], ["t"]);
-        var paper = Included() with { Profile = profile, ImportComplete = true, Paper = new("main.tex", "h", "Paying for Information, Not Clicks", "We build a marketplace.") };
-        var slides = IncludedAs(SecondId, "slides") with { Profile = profile with { Title = "Changed" }, ImportComplete = true,
-            Pending = new ProjectManifest("r", DateTimeOffset.UtcNow, null, []) };
-        var theme = new ResearchTheme(Account.Id, Guid.NewGuid().ToString("N"), [SecondId, ProjectId], profile,
-            new Dictionary<string, string> { [ProjectId] = ThemePlan.AnchorPrint(paper) }, DateTimeOffset.UtcNow);
-        var state = new LocalResearchState(1, Credential, null, null, [paper, slides], [], Themes: [theme]);
-        // The member with a paper abstract is the anchor; a change elsewhere on the card does not describe it again.
-        Assert.Equal(ProjectId, ThemePlan.AnchorOf(state, theme)!.ProjectId);
-        Assert.Null(ThemePlan.Stale(state, Account.Id));
-        Assert.Null(ThemePlan.Stale(state with { Projects = [paper, slides with { Pending = null }] }, Account.Id));
-        Assert.NotNull(ThemePlan.Stale(state with { Projects = [paper with { Paper = paper.Paper! with { Abstract = "Revised." } }, slides] }, Account.Id));
-        // The user's choice wins.
-        var chosen = state with { Projects = [paper, slides with { Pending = null }], Themes = [theme with { Anchor = SecondId }] };
-        Assert.Equal(SecondId, ThemePlan.AnchorOf(chosen, chosen.Themes![0])!.ProjectId);
-        Assert.NotNull(ThemePlan.Stale(chosen, Account.Id));
-    }
-
-    [Fact]
-    public async Task ASkippedCardLeavesTheProfileAndFeedPausesItsProjectsAndIsGroupedGenerouslyUntilBroughtBack()
-    {
-        var store = new MemoryStore(new(1, Credential, null, null, [IncludedAs(ProjectId, "daughter-thesis"), IncludedAs(SecondId, "daughter-slides")], []));
-        var source = TwoProjects();
-        var remote = new Remote();
-        using var coordinator = Coordinator(store, remote, source);
-        await Drain(coordinator);
-        Assert.Equal(2, store.State.Themes!.Count);
-        var first = store.State.Themes[0];
-        var second = store.State.Themes[1];
-
-        await coordinator.SkipThemeAsync(first.Id, true, CancellationToken.None);
-        var status = await coordinator.StatusAsync(CancellationToken.None);
-        Assert.True(status.Themes!.Single(theme => theme.Id == first.Id).Skipped);
-        // Skipping the second card too: it is grouped with the first generously, without asking.
-        remote.Match = request => request.Loose ? request.Candidates[0].Id : null;
-        await coordinator.SkipThemeAsync(second.Id, true, CancellationToken.None);
-        await Drain(coordinator);
-        var skipped = Assert.Single(store.State.Themes!);
-        Assert.Equal(true, skipped.Skipped);
-        Assert.Equal([ProjectId, SecondId], skipped.Members.Order());
-        Assert.True(remote.Matches[^1].Loose);
-
-        // Its projects pause: a forced check reads neither of them.
-        int reads = source.Reads;
-        await Drain(coordinator, force: true);
-        Assert.Equal(reads, source.Reads);
-        Assert.Empty((await coordinator.StatusAsync(CancellationToken.None)).Updates);
-
-        // Brought back, it is part of the profile again and its projects are read again.
-        await coordinator.SkipThemeAsync(skipped.Id, false, CancellationToken.None);
-        await Drain(coordinator, force: true);
-        Assert.Null(store.State.Themes!.Single().Skipped);
-        Assert.True(source.Reads > reads);
-    }
-
-    [Fact]
     public void ThePapersTitleAndAbstractAreReadFromTheMainDocument()
     {
         var paper = Papers.Read([
@@ -787,46 +338,7 @@ public sealed class ResearchCoordinatorTests
         Assert.Equal(("paper/slant.tex", "slant: Article-Level Slant, see the site", "We measure slant."), (memo.Path, memo.Title, memo.Abstract));
     }
 
-    [Fact]
-    public async Task ACardIsDescribedFromItsMainPapersAbstractAndCardsAreRebuiltOnceStrictly()
-    {
-        string main = "\\documentclass{article}\\title{Paying for Information, Not Clicks}\\begin{document}\\begin{abstract}A publisher content marketplace " +
-            "pays news publishers for the information AI answers use.\\end{abstract}\\end{document}";
-        var store = new MemoryStore(new(1, Credential, null, null, [IncludedAs(ProjectId, "pcm-manuscript"), IncludedAs(SecondId, "legonews")], []));
-        var remote = new Remote { Match = request => request.Candidates[0].Id };
-        using var coordinator = Coordinator(store, remote, new MultiSource(
-            Files(("main.tex", main)) with { ProjectId = ProjectId, ProjectName = "pcm-manuscript" },
-            Files(("notes.tex", "Selective sampling of commentary.")) with { ProjectId = SecondId, ProjectName = "legonews" }));
-        await Drain(coordinator);
-        var theme = Assert.Single(store.State.Themes!);
-        Assert.Equal(new PaperInfo("main.tex", ResearchEvidence.Hash(main), "Paying for Information, Not Clicks",
-            "A publisher content marketplace pays news publishers for the information AI answers use."),
-            store.State.Projects.Single(project => project.ProjectId == ProjectId).Paper);
-        // Described once from the paper: its title, the condensed abstract (also the card's text), no blend of members.
-        var request = Assert.Single(remote.Cards);
-        Assert.Equal(("Paying for Information, Not Clicks", "A publisher content marketplace pays news publishers for the information AI answers use."),
-            (request.Title, request.Abstract));
-        Assert.Equal("Paying for Information, Not Clicks", theme.Profile!.Title);
-        Assert.Equal(theme.Profile.Description, theme.Blurb);
-        Assert.Empty(remote.Merges);
-        Assert.Empty(remote.Blurbs);
-
-        // An earlier card grouping both is rebuilt once: the anchor stays, the other member is placed again (strictly).
-        remote.Match = _ => null;
-        store.State = store.State with { ThemesVersion = 1 };
-        int matches = remote.Matches.Count;
-        await Drain(coordinator);
-        Assert.Equal(2, store.State.Themes!.Count);
-        Assert.Equal(matches + 1, remote.Matches.Count);
-        Assert.Contains(store.State.Themes, card => card.Members.SequenceEqual([ProjectId]));
-        Assert.Equal(ThemePlan.Version, store.State.ThemesVersion);
-        await Drain(coordinator, force: true);
-        Assert.Equal(matches + 1, remote.Matches.Count);
-        // The rebuild describes the paper's card once more; nothing further while nothing changes.
-        Assert.Equal(2, remote.Cards.Count);
-    }
-
-    private sealed class MultiSource(params ResearchSnapshot[] snapshots) : IOverleafEvidenceSource
+    internal sealed class MultiSource(params ResearchSnapshot[] snapshots) : IOverleafEvidenceSource
     {
         public bool Available => true;
         public OverleafProjectsSnapshot? Latest => null;
@@ -942,6 +454,41 @@ public sealed class ResearchCoordinatorTests
                 ["Combined."], ["combined"]), "chat"));
         }
         public Task<AccountPicture?> AccountPictureAsync(string token, CancellationToken ct) => Task.FromResult<AccountPicture?>(null);
+        public List<DetailStepRequest> DetailRequests { get; } = [];
+        /// <summary>The model's edits for a detail step; by default one detail per sent document, citing its first line.</summary>
+        public Func<DetailStepRequest, DetailStepResponse>? Detail { get; set; }
+        /// <summary>Runs while a detail step is in flight (for pausing or changing the account meanwhile).</summary>
+        public Action<DetailStepRequest>? DuringDetail { get; set; }
+        public Task<DetailStepResponse> DetailStepAsync(string token, DetailStepRequest request, CancellationToken ct)
+        {
+            lock (Requests) Calls++;
+            if (Failure is not null) throw Failure;
+            DuringDetail?.Invoke(request);
+            ct.ThrowIfCancellationRequested();
+            lock (DetailRequests) DetailRequests.Add(request);
+            return Task.FromResult((Detail ?? DefaultDetail)(request));
+        }
+        public static DetailStepResponse DefaultDetail(DetailStepRequest request) =>
+            new([.. request.Kind == DetailSource.Overleaf
+                ? request.Documents.Where(document => document.Text.Split('\n')[0].Trim().Length != 0).Select(document => new DetailOp(DetailRules.Add, null,
+                    "Detail from " + document.Path + " line " + document.FirstLine + ".", [new(document.Path, document.FirstLine, document.FirstLine,
+                        document.Text.Split('\n')[0].Trim())], []))
+                : request.Messages!.Select(message => new DetailOp(DetailRules.Add, null, "Email detail: " + message.Text.Split('\n')[0].Trim(),
+                    [new(message.Id, 1, 1, message.Text.Split('\n')[0].Trim())], []))], "Folded.", "chat");
+        public List<DetailSummaryRequest> DetailSummaries { get; } = [];
+        public Task<DetailSummaryResponse> SummarizeDetailsAsync(string token, DetailSummaryRequest request, CancellationToken ct)
+        {
+            lock (DetailSummaries) DetailSummaries.Add(request);
+            return Task.FromResult(new DetailSummaryResponse(request.PaperTitle ?? "Working title " + request.Details.Count,
+                "A project with " + request.Details.Count + " details. It is ongoing.", "chat"));
+        }
+        public List<DetailMergeRequest> DetailMerges { get; } = [];
+        public Task<DetailMergeResponse> MergeDetailsAsync(string token, DetailMergeRequest request, CancellationToken ct)
+        {
+            lock (DetailMerges) DetailMerges.Add(request);
+            return Task.FromResult(new DetailMergeResponse([.. request.Cards.SelectMany(card => card.Details)
+                .Select(detail => new DetailMerged(detail.Text, [detail.Id])).Take(DetailRules.MaxDetails)], "chat"));
+        }
         public List<CardSummaryRequest> Cards { get; } = [];
         public Task<ThemeMergeResponse> SummarizeCardAsync(string token, CardSummaryRequest request, CancellationToken ct)
         {

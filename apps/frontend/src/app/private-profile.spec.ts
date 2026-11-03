@@ -1,158 +1,190 @@
 import { TestBed } from '@angular/core/testing';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { PrivateProfile } from './private-profile';
-import { ResearchApi, ResearchProject, ResearchStatus, ResearchUpdate } from './research-api';
+import { ResearchApi, ResearchChange, ResearchDetail, ResearchProject, ResearchStatus } from './research-api';
 
-describe('Private profile', () => {
+describe('About me: my projects', () => {
   const paperId = '0123456789abcdef01234567', slidesId = '1123456789abcdef01234567', otherId = '2123456789abcdef01234567';
   const cardId = 'a'.repeat(32), otherCard = 'b'.repeat(32);
-  const project = (projectId: string, name: string, title: string, overrides: Partial<ResearchProject> = {}): ResearchProject => ({
+  const project = (projectId: string, name: string, overrides: Partial<ResearchProject> = {}): ResearchProject => ({
     projectId, name, enabled: true, consentRequired: false, revision: null, summary: null, factCount: 0, lastAttemptAt: null,
     lastSuccessAt: null, errorCode: null, error: null, explanation: null, unprocessedFiles: 0, phase: 'ready', filesDone: 0, filesTotal: 0,
-    lastSweepAt: null, nextSweepAt: null,
-    profile: { title, description: `A study of <img src=x> ${name}.`, contributions: ['A field experiment.'], topics: ['pricing', 'auctions', 'demand', 'learning', 'markets'] },
-    ...overrides,
+    lastSweepAt: null, nextSweepAt: null, profile: null, ...overrides,
   });
-  const day = 86400000;
-  const update = (id: string, projectId: string, daysAgo: number, title: string): ResearchUpdate => ({
-    id, projectId, projectName: projectId === slidesId ? 'news-slant-slides' : 'news-slant', kind: 'change', title, summary: 'The pilot grew to 80.',
-    observedAt: new Date(Date.now() - daysAgo * day).toISOString(), sourceUpdatedAt: new Date(Date.now() - daysAgo * day).toISOString(),
-    revision: 'r', previousRevision: null, previousSummary: null, evidence: [],
-  });
-  const api = { moveToTheme: vi.fn(), mergeTheme: vi.fn(), setThemeAnchor: vi.fn(), skipTheme: vi.fn(), decideGmailThread: vi.fn() };
-  const status = (projects: ResearchProject[], themes: ResearchStatus['themes'], updates: ResearchUpdate[] = []): ResearchStatus => ({
+  const mainTex = { key: `overleaf:${paperId}/main.tex`, kind: 'overleaf' as const, label: 'main.tex', version: 'abc', at: '2026-09-01T12:00:00Z',
+    quote: 'We build a publisher content marketplace.', origin: 'news-slant' };
+  const email = { key: 'gmail:me@example.invalid/t1', kind: 'gmail' as const, label: 'Pilot results', version: 'm2', at: '2026-10-02T12:00:00Z',
+    quote: 'The pilot has 80 publishers.', origin: 'me@example.invalid' };
+  const details: ResearchDetail[] = [
+    { id: 'd1', text: 'The paper designs a publisher content marketplace (PCM).', sources: [mainTex, { ...mainTex, quote: 'A second cited line.' }] },
+    { id: 'd2', text: 'A pilot with 80 publishers is running.', sources: [email] },
+  ];
+  const api = {
+    moveToTheme: vi.fn(), mergeTheme: vi.fn(), setThemeAnchor: vi.fn(), skipTheme: vi.fn(), decideGmailThread: vi.fn(),
+    removeSource: vi.fn(), changelog: vi.fn(),
+  };
+  const status = (projects: ResearchProject[], themes: ResearchStatus['themes']): ResearchStatus => ({
     account: { id: 'a', name: 'R', email: 'r@example.invalid' }, credentialExpiresAt: null, pendingLink: null, accountError: null,
     busy: false, dummy: false, privacyUrl: '', consentVersion: 'v', pollSeconds: 300, pendingRevocations: 0,
-    projects, totalUpdates: updates.length, decisions: [], overleafProjects: null, researcher: null, processing: null, updates, themes,
+    projects, totalUpdates: 0, decisions: [], overleafProjects: null, researcher: null, processing: null, updates: [], themes,
   });
   const grouped = () => status(
-    [project(paperId, 'news-slant', 'Paper'), project(slidesId, 'news-slant-slides', 'Slides'), project(otherId, 'pricing', 'Pricing')],
-    [{ id: cardId, projectIds: [paperId, slidesId], updating: false,
-       profile: { title: 'Why outlets differ', description: 'One paragraph about news slant.', contributions: ['Selective sampling model.'], topics: ['media'] },
-       blurb: 'Four sentences about news slant.' },
-     { id: otherCard, projectIds: [otherId], updating: false, profile: null, blurb: null }],
-    [update('recent', slidesId, 5, 'Slides updated'), update('old', paperId, 200, 'Old change')]);
+    [project(paperId, 'news-slant'), project(slidesId, 'news-slant-slides'), project(otherId, 'pricing')],
+    [{ id: cardId, projectIds: [paperId, slidesId], updating: false, anchorId: paperId,
+       profile: { title: 'A publisher content marketplace', description: 'Two sentences about <img src=x> the PCM.', contributions: [], topics: [] }, details },
+     { id: otherCard, projectIds: [otherId], updating: false, profile: { title: 'Pricing', description: 'Pricing in two sentences.', contributions: [], topics: [] },
+       details: [{ id: 'p1', text: 'Prices fall.', sources: [{ ...mainTex, key: `overleaf:${otherId}/main.tex`, at: '2026-01-01T00:00:00Z', origin: 'pricing' }] }] }]);
+  const change = (id: string, at: string, overrides: Partial<ResearchChange> = {}): ResearchChange => ({
+    id, cardId, cardTitle: 'A publisher content marketplace', at, kind: 'overleaf', title: 'main.tex', projectName: 'news-slant', documents: ['main.tex'],
+    changes: [{ op: 'add', detailId: 'd1', before: null, after: 'The paper designs a PCM.' }], ...overrides,
+  });
   beforeEach(() => {
     vi.resetAllMocks();
-    api.moveToTheme.mockResolvedValue(undefined);
+    for (const call of [api.moveToTheme, api.mergeTheme, api.setThemeAnchor, api.skipTheme, api.decideGmailThread, api.removeSource]) call.mockResolvedValue(undefined);
     TestBed.configureTestingModule({ providers: [provideNoopAnimations(), { provide: ResearchApi, useValue: api }] });
   });
   afterEach(() => document.querySelectorAll('.cdk-overlay-container').forEach(node => node.remove()));
 
-  it('shows one card per research line with its projects, full description and topics', () => {
+  function render(value: ResearchStatus = grouped()) {
     const fixture = TestBed.createComponent(PrivateProfile);
-    fixture.componentRef.setInput('status', grouped());
+    fixture.componentRef.setInput('status', value);
     fixture.detectChanges();
-    const element: HTMLElement = fixture.nativeElement;
-    const cards = element.querySelectorAll<HTMLButtonElement>('.profile-card');
+    return fixture;
+  }
+  async function expand(fixture: ReturnType<typeof render>, index = 0) {
+    fixture.nativeElement.querySelectorAll('.project-toggle')[index].click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    return fixture.nativeElement.querySelectorAll('.project-card')[index] as HTMLElement;
+  }
+  async function selectTab(fixture: ReturnType<typeof render>, card: HTMLElement, index: number) {
+    card.querySelectorAll<HTMLElement>('[role="tab"]')[index].click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
+  it('shows each research project as a compact card: title, two-sentence summary, projects and how much it rests on', () => {
+    const element: HTMLElement = render().nativeElement;
+    const cards = element.querySelectorAll('.project-card');
     expect(cards).toHaveLength(2);
-    expect(cards[0].querySelector('.card-title')?.textContent).toBe('Why outlets differ');
-    expect(cards[0].querySelector('.card-source')?.textContent).toContain('news-slant · news-slant-slides');
-    expect(cards[0].querySelector('.card-description')?.textContent).toBe('Four sentences about news slant.');
-    expect(cards[0].querySelector('.contributions')).toBeNull();
-    expect(cards[0].querySelector('.recent-badge')?.textContent).toContain('1 update in the last 3 months');
-    // A card without a combined summary yet shows its project's own summary, with at most three topics.
-    expect(cards[1].querySelector('.card-title')?.textContent).toBe('Pricing');
-    expect([...cards[1].querySelectorAll('.topic')].map(topic => topic.textContent?.trim())).toEqual(['pricing', 'auctions', 'demand', '+2']);
+    expect(cards[0].querySelector('h3')?.textContent?.trim()).toBe('A publisher content marketplace');
+    expect(cards[0].querySelector('.project-summary')?.textContent).toBe('Two sentences about <img src=x> the PCM.');
+    expect(cards[0].querySelector('.project-with')?.textContent).toContain('news-slant · news-slant-slides');
+    expect(cards[0].querySelector('.project-updates')?.textContent).toMatch(/2 details\s+· 2 sources/);
+    expect(cards[0].querySelector('.project-date')?.textContent).toBe('Oct 2, 2026');
+    // Collapsed: no details, no long description blocks.
+    expect(element.querySelector('.project-details')).toBeNull();
     expect(element.querySelector('img')).toBeNull();
   });
 
-  it('orders cards by the most recent Overleaf edit of their projects', () => {
-    const fixture = TestBed.createComponent(PrivateProfile);
+  it('orders cards by their latest change: a source or an Overleaf edit of a project', () => {
     const value = grouped();
-    fixture.componentRef.setInput('status', { ...value, updates: [], overleafProjects: { fetchedAt: '', projects: [
-      { id: paperId, name: 'news-slant', updatedAt: '2026-01-01T12:00:00Z' }, { id: slidesId, name: 'news-slant-slides', updatedAt: '2026-02-01T12:00:00Z' },
-      { id: otherId, name: 'pricing', updatedAt: '2026-10-01T12:00:00Z' }] } });
-    fixture.detectChanges();
-    const cards = [...fixture.nativeElement.querySelectorAll('.profile-card')] as HTMLElement[];
-    expect(cards.map(card => card.querySelector('.card-title')?.textContent)).toEqual(['Pricing', 'Why outlets differ']);
-    expect(cards[1].querySelector('.card-edited')?.textContent).toContain('Feb 1, 2026');
+    const element: HTMLElement = render({ ...value, overleafProjects: { fetchedAt: '', projects: [
+      { id: otherId, name: 'pricing', updatedAt: '2026-10-20T12:00:00Z' }] } }).nativeElement;
+    expect([...element.querySelectorAll('.project-card h3')].map(title => title.textContent?.trim())).toEqual(['Pricing', 'A publisher content marketplace']);
   });
 
-  it('opens contributions, projects and recent updates, and moves a project to a card of its own', async () => {
-    const fixture = TestBed.createComponent(PrivateProfile);
-    fixture.componentRef.setInput('status', grouped());
+  it('expands a card in place to its details; a detail shows its sources, and a source can be removed', async () => {
+    const fixture = render();
     const changed = vi.fn();
     fixture.componentInstance.changed.subscribe(changed);
+    const card = await expand(fixture);
+    expect(card.querySelector('.project-toggle')?.getAttribute('aria-expanded')).toBe('true');
+    expect([...card.querySelectorAll('[role="tab"]')].map(tab => tab.textContent?.trim())).toEqual(['Details (2)', 'Changelog', 'Projects (2)']);
+    const items = card.querySelectorAll('.detail-list > li');
+    expect([...items].map(item => item.querySelector('.detail-text span')?.textContent)).toEqual(
+      ['The paper designs a publisher content marketplace (PCM).', 'A pilot with 80 publishers is running.']);
+    expect(card.querySelector('.source-list')).toBeNull();
+
+    items[0].querySelector<HTMLButtonElement>('.detail-text')!.click();
     fixture.detectChanges();
-    fixture.nativeElement.querySelector('.profile-card').click();
-    fixture.detectChanges();
-    await fixture.whenStable();
-    const dialog = document.querySelector('mat-dialog-container')!;
-    expect([...dialog.querySelectorAll('[role="tab"]')].map(tab => tab.textContent?.trim())).toEqual(['Details', 'Recent updates (1)']);
-    expect(dialog.querySelector('.contributions')?.textContent).toContain('Selective sampling model.');
-    expect([...dialog.querySelectorAll('.member-name')].map(name => name.textContent)).toEqual(['news-slant', 'news-slant-slides']);
-    const select = dialog.querySelectorAll<HTMLSelectElement>('.move select')[1];
-    expect([...select.options].map(option => option.textContent)).toEqual(['This card', 'A card of its own', 'Pricing']);
-    const merge = dialog.querySelector<HTMLSelectElement>('.merge-card select')!;
-    expect([...merge.options].map(option => option.textContent)).toEqual(['Choose a card…', 'Pricing']);
-    select.value = '';
-    select.dispatchEvent(new Event('change'));
-    await vi.waitFor(() => expect(api.moveToTheme).toHaveBeenCalledWith(slidesId, null));
+    const sources = card.querySelectorAll('.source-list > li');
+    // One source cited at two lines: listed once with both quotes.
+    expect(sources).toHaveLength(1);
+    expect(sources[0].querySelector('.source-label')?.textContent).toContain('main.tex');
+    expect(sources[0].querySelector('.source-label')?.textContent).toContain('news-slant');
+    expect([...sources[0].querySelectorAll('blockquote')].map(quote => quote.textContent)).toEqual(
+      ['We build a publisher content marketplace.', 'A second cited line.']);
+    sources[0].querySelector<HTMLButtonElement>('.remove-source')!.click();
+    await vi.waitFor(() => expect(api.removeSource).toHaveBeenCalledWith(cardId, mainTex.key));
     await vi.waitFor(() => expect(changed).toHaveBeenCalled());
+
+    // Another card closes this one.
+    await expand(fixture, 1);
+    expect(fixture.nativeElement.querySelectorAll('.project-details')).toHaveLength(1);
     fixture.destroy();
   });
 
-  it('shows a Gmail workstream on a card with its Gmail address, and moves it like a project', async () => {
-    const workstreamId = 'gmail-' + 'c'.repeat(32);
+  it('shows the changelog newest first and loads earlier entries on request', async () => {
+    const first = change('c1', '2026-10-02T12:00:00Z', { kind: 'gmail', title: 'Pilot results', projectName: null,
+      changes: [{ op: 'revise', detailId: 'd2', before: 'A pilot is planned.', after: 'A pilot with 80 publishers is running.' }] });
+    const second = change('c2', '2026-09-01T12:00:00Z', { changes: [] });
+    api.changelog.mockResolvedValueOnce({ entries: [first], more: true }).mockResolvedValueOnce({ entries: [second], more: false });
+    const fixture = render();
+    const card = await expand(fixture);
+    await selectTab(fixture, card, 1);
+    await vi.waitFor(() => { fixture.detectChanges(); expect(card.querySelectorAll('.change')).toHaveLength(1); });
+    expect(api.changelog).toHaveBeenCalledWith(cardId, null);
+    const entry = card.querySelector('.change')!;
+    expect(entry.querySelector('.change-kind')?.textContent).toBe('Email');
+    expect(entry.querySelector('.op-revise')?.textContent).toContain('A pilot with 80 publishers is running.');
+    expect(entry.querySelector('.was')?.textContent).toContain('Was: A pilot is planned.');
+
+    card.querySelector<HTMLButtonElement>('.changelog-state button')!.click();
+    await vi.waitFor(() => { fixture.detectChanges(); expect(card.querySelectorAll('.change')).toHaveLength(2); });
+    expect(api.changelog).toHaveBeenLastCalledWith(cardId, first);
+    expect(card.querySelectorAll('.change')[1].textContent).toContain('Read; no change to the details.');
+    expect(card.querySelector('.changelog-state')?.textContent).toContain("Beginning of this project's history.");
+    fixture.destroy();
+  });
+
+  it('lists the projects of a card with its main paper, and moves, re-anchors and merges', async () => {
     const value = grouped();
-    const workstream = project(workstreamId, 'Grant renewal', 'Grant renewal', { source: 'gmail', parent: 'markus@example.invalid' });
-    const fixture = TestBed.createComponent(PrivateProfile);
-    fixture.componentRef.setInput('status', { ...value, projects: [...value.projects, workstream],
-      themes: value.themes!.map(theme => theme.id === cardId ? { ...theme, projectIds: [...theme.projectIds, workstreamId] } : theme) });
+    const fixture = render({ ...value, themes: value.themes!.map(theme => theme.id === cardId ? { ...theme, reason: 'The slides present the same paper.' } : theme) });
+    const card = await expand(fixture);
+    await selectTab(fixture, card, 2);
+    const members = [...card.querySelectorAll('.members li')];
+    expect(members.map(member => member.querySelector('.member-name')?.textContent)).toEqual(['news-slant', 'news-slant-slides']);
+    expect(members[0].querySelector('.main-paper')?.textContent).toContain('Main paper');
+    expect(card.querySelector('.grouping-reason')?.textContent).toContain('Grouped because: The slides present the same paper.');
+
+    members[1].querySelector<HTMLButtonElement>('.make-main')!.click();
+    await vi.waitFor(() => expect(api.setThemeAnchor).toHaveBeenCalledWith(cardId, slidesId));
+    await vi.waitFor(() => expect(fixture.componentInstance.working()).toBe(''));
     fixture.detectChanges();
-    fixture.nativeElement.querySelector('.profile-card').click();
+
+    members[1].querySelector<HTMLButtonElement>('.move')!.click();
     fixture.detectChanges();
     await fixture.whenStable();
-    const dialog = document.querySelector('mat-dialog-container')!;
-    expect(dialog.querySelector('.members-title')?.textContent).toBe('On this card');
-    const members = [...dialog.querySelectorAll('.members li')];
-    expect(members[2].querySelector('.member-source')?.textContent).toContain('Gmail · markus@example.invalid');
-    expect(members[0].querySelector('.member-source')).toBeNull();
-    const select = members[2].querySelector<HTMLSelectElement>('.move select')!;
-    select.value = otherCard;
-    select.dispatchEvent(new Event('change'));
-    await vi.waitFor(() => expect(api.moveToTheme).toHaveBeenCalledWith(workstreamId, otherCard));
-    fixture.destroy();
-  });
-
-  it('marks the main paper a card is described from, lets the user choose another, and says why projects are grouped', async () => {
-    api.setThemeAnchor.mockResolvedValue(undefined);
-    const value = grouped();
-    const fixture = TestBed.createComponent(PrivateProfile);
-    fixture.componentRef.setInput('status', { ...value, themes: value.themes!.map(theme => theme.id === cardId
-      ? { ...theme, anchorId: slidesId, reason: 'The slides present the same paper.' } : theme) });
-    fixture.detectChanges();
-    // The main paper is named first on the card.
-    expect(fixture.nativeElement.querySelector('.card-source')?.textContent).toContain('news-slant-slides · news-slant');
-    fixture.nativeElement.querySelector('.profile-card').click();
+    const moves = [...document.querySelectorAll<HTMLButtonElement>('.mat-mdc-menu-item')];
+    expect(moves.map(item => item.textContent?.trim())).toEqual(['topicPricing', 'addA project of its own']);
+    moves[1].click();
+    await vi.waitFor(() => expect(api.moveToTheme).toHaveBeenCalledWith(slidesId, null));
+    await vi.waitFor(() => expect(fixture.componentInstance.working()).toBe(''));
     fixture.detectChanges();
     await fixture.whenStable();
-    const dialog = document.querySelector('mat-dialog-container')!;
-    expect(dialog.querySelector('.grouping-reason')?.textContent).toContain('Grouped because: The slides present the same paper.');
-    const members = [...dialog.querySelectorAll('.members li')];
-    expect(members[1].querySelector('.main-paper')?.textContent).toContain('Main paper');
-    expect(members[1].querySelector('.make-main')).toBeNull();
-    members[0].querySelector<HTMLButtonElement>('.make-main')!.click();
-    await vi.waitFor(() => expect(api.setThemeAnchor).toHaveBeenCalledWith(cardId, paperId));
+
+    [...card.querySelectorAll<HTMLButtonElement>('.card-actions button')].find(button => button.textContent?.includes('Merge into'))!.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const panel = [...document.querySelectorAll('.mat-mdc-menu-panel')].at(-1)!;
+    expect([...panel.querySelectorAll('.mat-mdc-menu-item')].map(item => item.textContent?.trim())).toEqual(['topicPricing']);
+    panel.querySelector<HTMLButtonElement>('.mat-mdc-menu-item')!.click();
+    await vi.waitFor(() => expect(api.mergeTheme).toHaveBeenCalledWith(cardId, otherCard));
     fixture.destroy();
   });
 
-  it('keeps skipped work in its own section, skips a card from its dialog and brings work back', async () => {
-    api.skipTheme.mockResolvedValue(undefined);
-    api.decideGmailThread.mockResolvedValue(undefined);
+  it('keeps skipped work in its own section, skips a card and brings work back', async () => {
     const value = grouped();
     const thread = (id: string, cardId: string | null) => ({ address: 'me@example.invalid', id, subject: 'Thesis draft', title: 'Daughter thesis draft ' + id,
-      status: 'assigned' as const, cardId, cardTitle: null, suggested: null, bullets: [], lastSentAt: '2026-10-01T00:00:00Z', newsAt: null, skipped: true });
-    const fixture = TestBed.createComponent(PrivateProfile);
-    fixture.componentRef.setInput('status', { ...value,
+      status: 'pending' as const, cardId, cardTitle: null, suggested: null, bullets: [], lastSentAt: '2026-10-01T00:00:00Z', newsAt: null, skipped: true });
+    const fixture = render({ ...value,
       themes: value.themes!.map(theme => theme.id === otherCard ? { ...theme, skipped: true } : theme),
-      gmail: { configured: true, windowDays: 30, consentVersion: 'v', accounts: [], lastError: null,
-        threads: [thread('t1', otherCard), thread('t2', null)] } });
-    fixture.detectChanges();
+      gmail: { configured: true, windowDays: 30, consentVersion: 'v', accounts: [], lastError: null, threads: [thread('t1', otherCard), thread('t2', null)] } });
     const element: HTMLElement = fixture.nativeElement;
-    // The skipped card is not among My projects but in Skipped, with its email threads; a thread still being grouped too.
-    expect([...element.querySelectorAll('.profile-card .card-title')].map(title => title.textContent)).toEqual(['Why outlets differ']);
+    expect([...element.querySelectorAll('.project-card h3')].map(title => title.textContent?.trim())).toEqual(['A publisher content marketplace']);
     const skipped = element.querySelector('.skipped-work')!;
     expect([...skipped.querySelectorAll('.skipped-title')].map(title => title.textContent?.trim())).toEqual(['Pricing', 'Being grouped…']);
     expect(skipped.textContent).toContain('Daughter thesis draft t1');
@@ -163,33 +195,17 @@ describe('Private profile', () => {
     await vi.waitFor(() => expect(api.decideGmailThread).toHaveBeenCalledWith(expect.objectContaining({ id: 't2' }), 'unskip'));
     await vi.waitFor(() => expect(fixture.componentInstance.working()).toBe(''));
 
-    element.querySelector<HTMLButtonElement>('.profile-card')!.click();
-    fixture.detectChanges();
-    await fixture.whenStable();
-    document.querySelector<HTMLButtonElement>('mat-dialog-container .skip-card')!.click();
+    const card = await expand(fixture);
+    await selectTab(fixture, card, 2);
+    card.querySelector<HTMLButtonElement>('.skip-card')!.click();
     await vi.waitFor(() => expect(api.skipTheme).toHaveBeenCalledWith(cardId, true));
     fixture.destroy();
   });
 
-  it('merges a whole card into another card', async () => {
-    api.mergeTheme.mockResolvedValue(undefined);
-    const fixture = TestBed.createComponent(PrivateProfile);
-    fixture.componentRef.setInput('status', grouped());
-    fixture.detectChanges();
-    fixture.nativeElement.querySelector('.profile-card').click();
-    fixture.detectChanges();
-    await fixture.whenStable();
-    const merge = document.querySelector<HTMLSelectElement>('mat-dialog-container .merge-card select')!;
-    merge.value = otherCard;
-    merge.dispatchEvent(new Event('change'));
-    await vi.waitFor(() => expect(api.mergeTheme).toHaveBeenCalledWith(cardId, otherCard));
-    fixture.destroy();
-  });
-
-  it('shows import progress for a project that is not on a card yet', () => {
-    const fixture = TestBed.createComponent(PrivateProfile);
-    fixture.componentRef.setInput('status', status([project(paperId, 'news-slant', 'Paper', { profile: null, phase: 'importing', filesDone: 12, filesTotal: 95 })], []));
-    fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('.progress-note')?.textContent).toContain('12 of 95 files');
+  it('shows reading progress for a project that has no card yet', () => {
+    const element: HTMLElement = render(status([project(paperId, 'news-slant', { phase: 'importing', filesDone: 12, filesTotal: 95 })], [])).nativeElement;
+    expect(element.querySelector('.project-card h3')?.textContent?.trim()).toBe('news-slant');
+    expect(element.querySelector('.progress-note')?.textContent).toContain('Reading news-slant: 12 of 95 files');
+    expect(element.querySelector('.project-summary')?.textContent).toContain('appears once this project has been read');
   });
 });

@@ -52,6 +52,12 @@ internal interface IResearchRemote
     Task<ThemeMergeResponse> MergeThemeAsync(string token, ThemeMergeRequest request, CancellationToken ct);
     Task<ThemeRegroupResponse> RegroupThemesAsync(string token, ThemeRegroupRequest request, CancellationToken ct);
     Task<CardBlurbResponse> DescribeCardAsync(string token, CardBlurbRequest request, CancellationToken ct);
+    /// <summary>One update of a research project's details (OVERLEAF.md §7).</summary>
+    Task<DetailStepResponse> DetailStepAsync(string token, DetailStepRequest request, CancellationToken ct);
+    /// <summary>A research project's title and two-sentence summary from its details.</summary>
+    Task<DetailSummaryResponse> SummarizeDetailsAsync(string token, DetailSummaryRequest request, CancellationToken ct);
+    /// <summary>The details of research projects combined into one.</summary>
+    Task<DetailMergeResponse> MergeDetailsAsync(string token, DetailMergeRequest request, CancellationToken ct);
     /// <summary>A research card's summary from its main paper's title and abstract.</summary>
     Task<ThemeMergeResponse> SummarizeCardAsync(string token, CardSummaryRequest request, CancellationToken ct);
     Task<SyncListResponse> SyncListAsync(string token, CancellationToken ct);
@@ -169,6 +175,12 @@ internal sealed class ResearchRemote(ResearchOptions options, IHttpClientFactory
         catch (Exception error) when (error is HttpRequestException or OperationCanceledException) { return null; }
     }
 
+    public Task<DetailStepResponse> DetailStepAsync(string token, DetailStepRequest request, CancellationToken ct) =>
+        CallAsync<DetailStepResponse>("api/research/detail-step", HttpMethod.Post, request, token, ct);
+    public Task<DetailSummaryResponse> SummarizeDetailsAsync(string token, DetailSummaryRequest request, CancellationToken ct) =>
+        CallAsync<DetailSummaryResponse>("api/research/detail-summary", HttpMethod.Post, request, token, ct);
+    public Task<DetailMergeResponse> MergeDetailsAsync(string token, DetailMergeRequest request, CancellationToken ct) =>
+        CallAsync<DetailMergeResponse>("api/research/detail-merge", HttpMethod.Post, request, token, ct);
     public Task<ThemeMergeResponse> SummarizeCardAsync(string token, CardSummaryRequest request, CancellationToken ct) =>
         CallAsync<ThemeMergeResponse>("api/research/card-summary", HttpMethod.Post, request, token, ct);
     public Task<CardBlurbResponse> DescribeCardAsync(string token, CardBlurbRequest request, CancellationToken ct) =>

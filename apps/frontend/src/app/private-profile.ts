@@ -1,191 +1,214 @@
 import { DatePipe } from '@angular/common';
-import { Component, TemplateRef, computed, inject, input, output, signal } from '@angular/core';
+import { Component, Directive, ElementRef, OnDestroy, OnInit, computed, inject, input, output, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
-import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
+import { MatMenuModule } from '@angular/material/menu';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTabsModule } from '@angular/material/tabs';
 import { describeFailure } from './overleaf-api';
-import { GmailThread, ProjectProfile, ResearchApi, ResearchProject, ResearchStatus, ResearchUpdate, isOverleafProject } from './research-api';
+import {
+  DetailSource, GmailThread, ResearchApi, ResearchChange, ResearchDetail, ResearchProject, ResearchStatus,
+} from './research-api';
 
-/** One card: a research line with one or more Overleaf projects, or a project still being imported or grouped. */
-interface ProfileCard {
-  id: string; themeId: string | null; profile: ProfileOrNull; members: ReadonlyArray<ResearchProject>;
-  /** The member the card is described from (its main paper), and why its projects were grouped. */
-  anchorId?: string | null; reason?: string | null;
-  /** Skipped as not the user's own research; threads: the skipped email threads on it. */
-  skipped?: boolean; threads?: ReadonlyArray<GmailThread>;
-  recent: ReadonlyArray<ResearchUpdate>; updating: boolean; progress: ResearchProject | null;
-  /** The card's 4-5 sentence description; until it is written, the full description is shown. */
-  blurb: string | null;
-  /** The most recent Overleaf edit of any of the card's projects (or, failing that, its latest Update); orders the cards. */
-  lastEdited: number | null;
+/** Emits once when the element scrolls into view (the changelog's "earlier entries" marker). */
+@Directive({ selector: '[appInView]' })
+export class InView implements OnInit, OnDestroy {
+  readonly appInView = output<void>();
+  private readonly element = inject(ElementRef<HTMLElement>);
+  private observer: IntersectionObserver | null = null;
+  ngOnInit(): void {
+    if (typeof IntersectionObserver === 'undefined') return;
+    this.observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) { this.observer?.disconnect(); this.appInView.emit(); }
+    }, { rootMargin: '200px' });
+    this.observer.observe(this.element.nativeElement);
+  }
+  ngOnDestroy(): void { this.observer?.disconnect(); }
 }
-type ProfileOrNull = ProjectProfile | null;
 
-/** Updates shown with a card: those whose source changed in roughly the last three months. */
-export const RECENT_UPDATE_DAYS = 92;
+/** One research project: a card with its Overleaf projects, or a project still being read before it gets a card. */
+interface ProfileCard {
+  id: string; themeId: string | null; title: string;
+  /** The two-sentence summary, written from the details. */
+  summary: string | null; details: ReadonlyArray<ResearchDetail>; members: ReadonlyArray<ResearchProject>;
+  /** The member the card's title comes from (its main paper), and why its projects were grouped. */
+  anchorId: string | null; reason: string | null;
+  /** Skipped as not the user's own research; threads: the skipped email threads on it. */
+  skipped: boolean; threads: ReadonlyArray<GmailThread>;
+  updating: boolean; progress: ResearchProject | null;
+  /** The latest change of the research: a source's date or an Overleaf edit of a member; orders the cards. */
+  lastChanged: number | null;
+}
+
+/** A card's changelog as loaded so far (pages of 30, newest first). */
+interface ChangelogView { entries: ReadonlyArray<ResearchChange>; more: boolean; loading: boolean; error: string; }
+
 const BUSY = new Set(['importing', 'queued', 'waiting', 'checking']);
+type Tab = 'details' | 'changelog' | 'projects';
 
 /**
- * About me → Private profile: one card per line of research. Overleaf projects that belong together (a paper, its slides,
- * drafts, follow-ups) share a card with a combined summary. A card shows the title, its projects, the one-paragraph
- * description and topics; it opens the contributions, its projects (which can be moved between cards) and the Updates of
- * the last three months. Stored on this computer only.
+ * About me → My projects, ported from Project Meld's overview: one card per research project with its title, a two-sentence
+ * summary and its Overleaf projects. A card expands in place to its details (at most 25 sentences, each with its sources; a
+ * source can be removed, which sends it to Private updates), its changelog (every source that updated it, newest first,
+ * loaded while scrolling) and its projects (main paper, move, merge, skip). Stored on this computer only.
  */
 @Component({
   selector: 'app-private-profile',
-  imports: [DatePipe, MatButtonModule, MatDialogModule, MatIconModule, MatProgressBarModule, MatTabsModule],
+  imports: [DatePipe, InView, MatButtonModule, MatIconModule, MatMenuModule, MatProgressBarModule, MatTabsModule],
   templateUrl: './private-profile.html',
   styleUrl: './private-profile.css',
 })
 export class PrivateProfile {
-  /** Whether every member is an Overleaf project (cards may also hold Gmail workstreams). */
-  allOverleaf(members: ReadonlyArray<ResearchProject>): boolean { return members.every(isOverleafProject); }
   readonly status = input<ResearchStatus | null>(null);
   readonly changed = output<void>();
-  private readonly dialog = inject(MatDialog);
   private readonly api = inject(ResearchApi);
-  readonly selectedId = signal<string | null>(null);
-  readonly moving = signal(false);
-  readonly moveError = signal('');
+  readonly expandedId = signal<string | null>(null);
+  readonly tab = signal<Tab>('details');
+  /** The detail whose sources are shown (one at a time). */
+  readonly openDetail = signal<string | null>(null);
+  readonly changelogs = signal<ReadonlyMap<string, ChangelogView>>(new Map());
+  readonly working = signal('');
+  readonly error = signal('');
   /** The cards of the profile: the user's own research. */
   readonly cards = computed(() => this.allCards().filter(card => !card.skipped));
   /** Work skipped as not the user's own (About me → Skipped), grouped like projects. */
   readonly skippedCards = computed(() => this.allCards().filter(card => card.skipped));
   /** Skipped threads still being grouped with related skipped work. */
   readonly ungrouped = computed(() => (this.status()?.gmail?.threads ?? []).filter(thread => thread.skipped && !thread.cardId));
-  readonly working = signal('');
   private readonly allCards = computed<ReadonlyArray<ProfileCard>>(() => {
     const status = this.status();
     if (!status) return [];
-    const since = Date.now() - RECENT_UPDATE_DAYS * 86400000;
-    const shown = status.projects.filter(project => project.enabled || project.profile);
+    const shown = status.projects.filter(project => project.enabled);
     const byId = new Map(shown.map(project => [project.projectId, project] as const));
     const edited = new Map((status.overleafProjects?.projects ?? []).map(project => [project.id, project.updatedAt ? Date.parse(project.updatedAt) : NaN] as const));
-    const lastEdited = (ids: ReadonlyArray<string>): number | null => {
-      const times = ids.map(id => edited.get(id) ?? NaN).concat(status.updates.filter(update => ids.includes(update.projectId))
-        .map(update => Date.parse(update.sourceUpdatedAt ?? update.observedAt))).filter(time => Number.isFinite(time));
+    const latest = (ids: ReadonlyArray<string>, details: ReadonlyArray<ResearchDetail>): number | null => {
+      const times = [...ids.map(id => edited.get(id) ?? NaN),
+        ...details.flatMap(detail => detail.sources).map(source => source.at ? Date.parse(source.at) : NaN)].filter(Number.isFinite);
       return times.length ? Math.max(...times) : null;
     };
-    // Email threads on a card count as its Updates too: their newsworthy bullets, dated by the mail.
-    const threads = (cardId: string): ResearchUpdate[] => (status.gmail?.threads ?? [])
-      .filter(thread => thread.status === 'assigned' && thread.cardId === cardId && !!thread.newsAt && Date.parse(thread.newsAt) >= since)
-      .map(thread => ({ id: `thread:${thread.address}|${thread.id}`, projectId: '', projectName: 'Email', kind: 'change', title: thread.title,
-        summary: thread.bullets.filter(bullet => bullet.newsworthy).slice(-3).map(bullet => bullet.text).join(' '),
-        observedAt: thread.newsAt!, sourceUpdatedAt: thread.newsAt, revision: '', previousRevision: null, previousSummary: null,
-        evidence: thread.bullets.flatMap(bullet => bullet.evidence) }));
-    const recent = (ids: ReadonlyArray<string>, cardId?: string) => [...status.updates.filter(update => ids.includes(update.projectId) &&
-      update.kind !== 'initialImport' && Date.parse(update.sourceUpdatedAt ?? update.observedAt) >= since), ...(cardId ? threads(cardId) : [])]
-      .sort((a, b) => Date.parse(b.sourceUpdatedAt ?? b.observedAt) - Date.parse(a.sourceUpdatedAt ?? a.observedAt));
     const cards: ProfileCard[] = [];
     const placed = new Set<string>();
     for (const theme of status.themes ?? []) {
       const members = theme.projectIds.map(id => byId.get(id)).filter((project): project is ResearchProject => !!project);
-      if (!members.length) continue;
+      const details = theme.details ?? [];
+      const threads = (status.gmail?.threads ?? []).filter(thread => thread.skipped && thread.cardId === theme.id);
+      if (!members.length && !details.length && !threads.length) continue;
       members.forEach(member => placed.add(member.projectId));
-      cards.push({ id: theme.id, themeId: theme.id, profile: theme.profile ?? members[0].profile, members, recent: recent(theme.projectIds, theme.id),
-        updating: theme.updating, progress: members.find(member => BUSY.has(member.phase)) ?? null, lastEdited: lastEdited(theme.projectIds),
-        blurb: theme.blurb ?? null, anchorId: theme.anchorId ?? null, reason: theme.reason ?? null, skipped: !!theme.skipped,
-        threads: (status.gmail?.threads ?? []).filter(thread => thread.skipped && thread.cardId === theme.id) });
+      cards.push({
+        id: theme.id, themeId: theme.id, title: theme.profile?.title ?? members[0]?.name ?? 'Research project',
+        summary: theme.profile?.description || null, details, members, anchorId: theme.anchorId ?? null, reason: theme.reason ?? null,
+        skipped: !!theme.skipped, threads, updating: theme.updating, progress: members.find(member => BUSY.has(member.phase)) ?? null,
+        lastChanged: latest(theme.projectIds, details),
+      });
     }
-    // Projects still importing, or imported and about to be placed on a card.
+    // Projects still being read, before their first details give them a card.
     for (const project of shown.filter(item => !placed.has(item.projectId))) {
-      cards.push({ id: project.projectId, themeId: null, profile: project.profile, members: [project], recent: recent([project.projectId]),
-        updating: !!project.profile, progress: BUSY.has(project.phase) ? project : null, lastEdited: lastEdited([project.projectId]), blurb: null });
+      cards.push({
+        id: project.projectId, themeId: null, title: project.name, summary: null, details: [], members: [project], anchorId: null, reason: null,
+        skipped: false, threads: [], updating: false, progress: BUSY.has(project.phase) ? project : null, lastChanged: latest([project.projectId], []),
+      });
     }
-    // Most recently edited research first.
-    return cards.sort((a, b) => (b.lastEdited ?? 0) - (a.lastEdited ?? 0));
+    return cards.sort((a, b) => (b.lastChanged ?? 0) - (a.lastChanged ?? 0));
   });
-  /** The opened card, kept current while the dialog is open (status refreshes every few seconds). */
-  readonly selected = computed(() => this.cards().find(card => card.id === this.selectedId()) ?? null);
-  /** Cards a project can be moved to: every other card with a summary. */
-  readonly targets = computed(() => this.cards().filter(card => card.themeId && card.profile && card.id !== this.selectedId()));
+  /** Cards a project can be moved to, or a card merged into: every other card of the profile. */
+  readonly targets = computed(() => this.cards().filter(card => card.themeId && card.id !== this.expandedId()));
 
-  open(card: ProfileCard, details: TemplateRef<unknown>): void {
-    this.selectedId.set(card.id);
-    this.moveError.set('');
-    this.dialog.open(details, { width: '760px', maxWidth: '94vw', autoFocus: 'dialog', ariaLabel: card.profile?.title ?? card.members[0].name })
-      .afterClosed().subscribe(() => this.selectedId.set(null));
+  /** Opens a card in place (closing the one open before), or closes it. */
+  toggle(card: ProfileCard): void {
+    const opening = this.expandedId() !== card.id;
+    this.expandedId.set(opening ? card.id : null);
+    this.tab.set('details');
+    this.openDetail.set(null);
+    this.error.set('');
   }
+  selectTab(card: ProfileCard, index: number): void {
+    const tab: Tab = index === 1 ? 'changelog' : index === 2 ? 'projects' : 'details';
+    this.tab.set(tab);
+    if (tab === 'changelog' && card.themeId) void this.loadChangelog(card.themeId, true);
+  }
+  toggleDetail(detail: ResearchDetail): void { this.openDetail.update(open => open === detail.id ? null : detail.id); }
 
   /** The card's projects, its main paper first. */
   memberNames(card: ProfileCard): string {
     return [...card.members].sort((a, b) => Number(b.projectId === card.anchorId) - Number(a.projectId === card.anchorId))
       .map(member => member.name).join(' \u00b7 ');
   }
+  /** Distinct sources the card's details rest on. */
+  sourceCount(card: ProfileCard): number { return new Set(card.details.flatMap(detail => detail.sources.map(source => source.key))).size; }
+  /** Distinct sources of one detail (a document cited at two lines counts once). */
+  sources(detail: ResearchDetail): ReadonlyArray<DetailSource> {
+    const seen = new Map<string, DetailSource>();
+    for (const source of detail.sources) if (!seen.has(source.key)) seen.set(source.key, source);
+    return [...seen.values()];
+  }
+  quotes(detail: ResearchDetail, source: DetailSource): ReadonlyArray<string> {
+    return detail.sources.filter(item => item.key === source.key).map(item => item.quote).filter(quote => !!quote);
+  }
+  changelog(themeId: string | null): ChangelogView | null { return themeId ? this.changelogs().get(themeId) ?? null : null; }
+  kindIcon(entry: ResearchChange): string {
+    return { overleaf: 'description', gmail: 'mail', removed: 'remove_circle_outline', user: 'person', merge: 'call_merge' }[entry.kind] ?? 'history';
+  }
+  kindLabel(entry: ResearchChange): string {
+    return { overleaf: 'Overleaf', gmail: 'Email', removed: 'Source removed', user: 'Your change', merge: 'Merged' }[entry.kind] ?? 'Change';
+  }
 
+  /** Loads the first page of a card's changelog (fresh), or the next page while the user scrolls. */
+  async loadChangelog(themeId: string, fresh = false): Promise<void> {
+    const current = this.changelogs().get(themeId);
+    if (current?.loading || (!fresh && current && !current.more)) return;
+    const shown = fresh ? [] : current?.entries ?? [];
+    this.setLog(themeId, { entries: shown, more: current?.more ?? true, loading: true, error: '' });
+    try {
+      const page = await this.api.changelog(themeId, shown.at(-1) ?? null);
+      const ids = new Set(shown.map(entry => entry.id));
+      this.setLog(themeId, { entries: [...shown, ...page.entries.filter(entry => !ids.has(entry.id))], more: page.more, loading: false, error: '' });
+    } catch (error: unknown) {
+      this.setLog(themeId, { entries: shown, more: true, loading: false, error: describeFailure(error) });
+    }
+  }
+  private setLog(themeId: string, view: ChangelogView): void {
+    this.changelogs.update(map => new Map(map).set(themeId, view));
+  }
+
+  /** Removes a source from the whole research project; it waits in Private updates. */
+  async removeSource(card: ProfileCard, source: DetailSource): Promise<void> {
+    if (!card.themeId || this.working()) return;
+    await this.act(`source:${source.key}`, () => this.api.removeSource(card.themeId!, source.key));
+  }
   /** Skips a card as not the user's own research, or brings a skipped card back into the profile. */
   async skip(card: ProfileCard, skipped: boolean): Promise<void> {
-    if (!card.themeId || this.working()) return;
-    this.working.set(card.id);
-    this.moveError.set('');
-    try {
-      await this.api.skipTheme(card.themeId, skipped);
-      if (skipped) this.dialog.closeAll();
-      this.changed.emit();
-    } catch (error: unknown) { this.moveError.set(describeFailure(error)); }
-    finally { this.working.set(''); }
+    if (!card.themeId) return;
+    if (await this.act(card.id, () => this.api.skipTheme(card.themeId!, skipped)) && skipped) this.expandedId.set(null);
   }
-
   /** Brings one skipped email thread back to Private updates. */
   async unskip(thread: GmailThread): Promise<void> {
-    if (this.working()) return;
-    this.working.set(`${thread.address}|${thread.id}`);
-    this.moveError.set('');
-    try {
-      await this.api.decideGmailThread(thread, 'unskip');
-      this.changed.emit();
-    } catch (error: unknown) { this.moveError.set(describeFailure(error)); }
-    finally { this.working.set(''); }
+    await this.act(`${thread.address}|${thread.id}`, () => this.api.decideGmailThread(thread, 'unskip'));
   }
-
-  /** Makes a project the one the card is described from. */
+  /** Makes a project the card's main paper (its title comes from that paper). */
   async makeMain(card: ProfileCard, project: ResearchProject): Promise<void> {
-    if (!card.themeId || this.moving()) return;
-    this.moving.set(true);
-    this.moveError.set('');
-    try {
-      await this.api.setThemeAnchor(card.themeId, project.projectId);
-      this.changed.emit();
-    } catch (error: unknown) { this.moveError.set(describeFailure(error)); }
-    finally { this.moving.set(false); }
+    if (!card.themeId) return;
+    await this.act(card.id, () => this.api.setThemeAnchor(card.themeId!, project.projectId));
   }
-
-  /** Combines the whole card into another card ('keep' does nothing). */
-  async mergeInto(card: ProfileCard, event: Event): Promise<void> {
-    const select = event.target as HTMLSelectElement;
-    if (!card.themeId || select.value === 'keep') return;
-    this.moving.set(true);
-    this.moveError.set('');
-    try {
-      await this.api.mergeTheme(card.themeId, select.value);
-      this.dialog.closeAll();
-      this.changed.emit();
-    } catch (error: unknown) {
-      this.moveError.set(describeFailure(error));
-      select.value = 'keep';
-    } finally {
-      this.moving.set(false);
-    }
+  /** Combines the whole card into another card. */
+  async mergeInto(card: ProfileCard, target: ProfileCard): Promise<void> {
+    if (!card.themeId || !target.themeId) return;
+    if (await this.act(card.id, () => this.api.mergeTheme(card.themeId!, target.themeId!))) this.expandedId.set(target.id);
   }
-
-  /** Moves one Overleaf project to the chosen card ('' = a card of its own); the dialog closes as the cards change. */
-  async move(project: ResearchProject, event: Event): Promise<void> {
-    const select = event.target as HTMLSelectElement;
-    const target = select.value;
-    if (target === 'keep') return;
-    this.moving.set(true);
-    this.moveError.set('');
+  /** Moves one Overleaf project to another card, or to a card of its own (target null). */
+  async move(project: ResearchProject, target: ProfileCard | null): Promise<void> {
+    await this.act(project.projectId, () => this.api.moveToTheme(project.projectId, target?.themeId ?? null));
+  }
+  private async act(key: string, operation: () => Promise<void>): Promise<boolean> {
+    if (this.working()) return false;
+    this.working.set(key);
+    this.error.set('');
     try {
-      await this.api.moveToTheme(project.projectId, target || null);
-      this.dialog.closeAll();
+      await operation();
       this.changed.emit();
+      return true;
     } catch (error: unknown) {
-      this.moveError.set(describeFailure(error));
-      select.value = 'keep';
-    } finally {
-      this.moving.set(false);
-    }
+      this.error.set(describeFailure(error));
+      return false;
+    } finally { this.working.set(''); }
   }
 }

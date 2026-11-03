@@ -1,63 +1,191 @@
 <section class="private-profile" aria-labelledby="private-profile-heading">
-  <header class="profile-head">
-    <h2 id="private-profile-heading"><mat-icon>lock</mat-icon>My projects</h2>
-    <span class="profile-note">Built from your included Overleaf projects and email; related work shares a card. Stored only on this computer.</span>
-  </header>
-  <div class="project-list">
-    @for (card of cards(); track card.id) {
-      <button type="button" class="profile-card" (click)="open(card, details)"
-        [attr.aria-label]="(card.profile?.title ?? card.members[0].name) + ': open details' + (card.recent.length ? ' and ' + card.recent.length + ' recent updates' : '')">
-        <span class="card-head">
-          <span class="card-title">{{ card.profile?.title ?? card.members[0].name }}</span>
-          @if (card.recent.length) {
-            <span class="recent-badge"><mat-icon>update</mat-icon>{{ card.recent.length }} {{ card.recent.length === 1 ? 'update' : 'updates' }} in the last 3 months</span>
-          }
-        </span>
-        <span class="card-source"><mat-icon>description</mat-icon>{{ memberNames(card) }}</span>
-        @if (card.lastEdited) { <span class="card-edited">Edited {{ card.lastEdited | date:'mediumDate' }}</span> }
-        @if (card.profile; as profile) {
-          <span class="card-description">{{ card.blurb ?? profile.description }}</span>
-          @if (profile.topics.length) {
-            <span class="topics">@for (topic of profile.topics.slice(0, 3); track $index) { <span class="topic">{{ topic }}</span> }
-              @if (profile.topics.length > 3) { <span class="topic more">+{{ profile.topics.length - 3 }}</span> }</span>
-          }
-        }
-        @if (card.progress; as project) {
-          <span class="progress-note" role="status"><mat-icon>autorenew</mat-icon>
-            {{ project.phase === 'importing' ? 'Building the summary of ' + project.name + ': ' + project.filesDone + ' of ' + project.filesTotal + ' files'
-              : project.phase === 'queued' ? project.name + ' is queued for processing' : 'Reading ' + project.name + ' from Overleaf' }}</span>
-          @if (project.phase === 'importing' && project.filesTotal) {
-            <mat-progress-bar mode="determinate" [value]="100 * project.filesDone / project.filesTotal"></mat-progress-bar>
-          }
-        } @else if (card.updating) {
-          <span class="progress-note" role="status"><mat-icon>autorenew</mat-icon>{{ card.themeId ? 'Describing this research from its main paper...' : 'Finding related projects...' }}</span>
-        }
-      </button>
-    } @empty {
-      <p class="muted empty">Include Overleaf projects under <a href="/#account">Account &rarr; Overleaf &rarr; Projects</a> to build your private profile.</p>
-    }
+  <div class="about-head">
+    <h2 id="private-profile-heading">My projects</h2>
+    <span class="about-note"><mat-icon>lock</mat-icon>Built from your included Overleaf projects and email. Stored only on this computer.</span>
   </div>
+  @if (error() && !expandedId()) { <p class="alert" role="alert">{{ error() }}</p> }
+
+  @for (card of cards(); track card.id) {
+    <article class="project-card" [class.expanded]="expandedId() === card.id">
+      <div class="project-summary-area" (click)="toggle(card)">
+        <div class="project-head">
+          <h3><button type="button" class="project-toggle" [attr.aria-expanded]="expandedId() === card.id"
+            [attr.aria-controls]="'project-' + card.id">{{ card.title }}</button></h3>
+          @if (card.lastChanged) { <span class="project-date" title="Latest change">{{ card.lastChanged | date:'MMM d, y' }}</span> }
+        </div>
+        @if (card.summary) {
+          <p class="project-summary">{{ card.summary }}</p>
+        } @else if (card.details.length) {
+          <p class="project-summary muted">Writing the summary&hellip;</p>
+        } @else {
+          <p class="project-summary muted">The summary appears once this project has been read.</p>
+        }
+        <div class="project-meta">
+          <span class="project-with"><mat-icon>description</mat-icon>{{ memberNames(card) || 'Email' }}</span>
+          @if (card.updating && !card.progress) { <span class="project-tag updating">Updating&hellip;</span> }
+          @if (card.details.length) {
+            <span class="project-updates">{{ card.details.length }} {{ card.details.length === 1 ? 'detail' : 'details' }}
+              &middot; {{ sourceCount(card) }} {{ sourceCount(card) === 1 ? 'source' : 'sources' }}</span>
+          }
+        </div>
+      </div>
+      @if (card.progress; as project) {
+        <p class="progress-note" role="status"><mat-icon>autorenew</mat-icon>
+          {{ project.phase === 'importing' ? 'Reading ' + project.name + ': ' + project.filesDone + ' of ' + project.filesTotal + ' files'
+            : project.phase === 'queued' ? project.name + ' is queued' : 'Checking ' + project.name + ' in Overleaf' }}</p>
+        @if (project.phase === 'importing' && project.filesTotal) {
+          <mat-progress-bar mode="determinate" [value]="100 * project.filesDone / project.filesTotal"></mat-progress-bar>
+        }
+      }
+
+      @if (expandedId() === card.id) {
+        <div class="project-details" [id]="'project-' + card.id">
+          @if (card.themeId) {
+            <mat-tab-group class="project-tabs" animationDuration="0ms" [mat-stretch-tabs]="false" [disablePagination]="true"
+              (selectedIndexChange)="selectTab(card, $event)">
+              <mat-tab [label]="'Details (' + card.details.length + ')'">
+                @if (card.details.length) {
+                  <ul class="detail-list">
+                    @for (detail of card.details; track detail.id) {
+                      <li [class.open]="openDetail() === detail.id">
+                        <button type="button" class="detail-text" (click)="toggleDetail(detail)" [attr.aria-expanded]="openDetail() === detail.id"
+                          [attr.aria-label]="detail.text + ' (' + sources(detail).length + ' sources)'">
+                          <span>{{ detail.text }}</span>
+                          <span class="source-count" aria-hidden="true"><mat-icon>source</mat-icon>{{ sources(detail).length }}</span>
+                        </button>
+                        @if (openDetail() === detail.id) {
+                          <ul class="source-list">
+                            @for (source of sources(detail); track source.key) {
+                              <li>
+                                <div class="source-head">
+                                  <mat-icon class="source-icon" [class.mail]="source.kind === 'gmail'">{{ source.kind === 'gmail' ? 'mail' : 'description' }}</mat-icon>
+                                  <span class="source-label">
+                                    <strong>{{ source.label }}</strong>
+                                    <span class="muted">{{ source.origin }}@if (source.at) { &middot; {{ source.at | date:'MMM d, y' }} }</span>
+                                  </span>
+                                  <button mat-button type="button" class="remove-source" [disabled]="!!working()" (click)="removeSource(card, source)"
+                                    [attr.aria-label]="'Remove ' + source.label + ' from this project'"
+                                    title="Remove this source from the project; it goes to Private updates"><mat-icon>remove_circle_outline</mat-icon>Remove</button>
+                                </div>
+                                @for (quote of quotes(detail, source); track $index) { <blockquote>{{ quote }}</blockquote> }
+                              </li>
+                            }
+                          </ul>
+                        }
+                      </li>
+                    }
+                  </ul>
+                  <p class="hint">Select a detail to see its sources. Removing a source takes it off every detail of this project and puts it in
+                    <a href="/#feed">Private updates</a>, where you can add it to another project.</p>
+                } @else {
+                  <p class="muted empty">No details yet.</p>
+                }
+              </mat-tab>
+              <mat-tab label="Changelog">
+                <ng-template matTabContent>
+                  @if (changelog(card.themeId); as log) {
+                    <ol class="changelog" aria-label="Changelog, newest first">
+                      @for (entry of log.entries; track entry.id) {
+                        <li class="change">
+                          <span class="detail-date">{{ entry.at | date:'MMM d, y' }}</span>
+                          <div class="change-body">
+                            <span class="change-source"><mat-icon [class.mail]="entry.kind === 'gmail'">{{ kindIcon(entry) }}</mat-icon>
+                              <span class="change-kind">{{ kindLabel(entry) }}</span><strong [title]="entry.documents.join(', ')">{{ entry.title }}</strong>
+                              @if (entry.projectName) { <span class="muted">&middot; {{ entry.projectName }}</span> }</span>
+                            @if (entry.changes.length) {
+                              <ul class="change-list">
+                                @for (change of entry.changes; track $index) {
+                                  <li [class]="'op-' + change.op">
+                                    <span class="op">{{ change.op === 'add' ? 'Added' : change.op === 'remove' ? 'Removed' : 'Revised' }}</span>
+                                    <span class="change-text">{{ change.op === 'remove' ? change.before : change.after }}</span>
+                                    @if (change.op === 'revise' && change.before && change.before !== change.after) {
+                                      <span class="was">Was: {{ change.before }}</span>
+                                    }
+                                  </li>
+                                }
+                              </ul>
+                            } @else {
+                              <span class="muted no-change">Read; no change to the details.</span>
+                            }
+                          </div>
+                        </li>
+                      } @empty {
+                        @if (!log.loading && !log.error) { <li class="muted empty">No changes recorded yet.</li> }
+                      }
+                    </ol>
+                    @if (log.error) { <p class="alert" role="alert">{{ log.error }}</p> }
+                    @if (log.loading) {
+                      <p class="muted changelog-state" role="status">Loading&hellip;</p>
+                    } @else if (log.more) {
+                      <div class="changelog-state" (appInView)="loadChangelog(card.themeId)">
+                        <button mat-button type="button" (click)="loadChangelog(card.themeId)">Show earlier changes</button>
+                      </div>
+                    } @else if (log.entries.length) {
+                      <p class="muted changelog-state">Beginning of this project's history.</p>
+                    }
+                  }
+                </ng-template>
+              </mat-tab>
+              <mat-tab [label]="'Projects (' + card.members.length + ')'">
+                <ul class="members">
+                  @for (member of card.members; track member.projectId) {
+                    <li>
+                      <span class="member-name">{{ member.name }}</span>
+                      @if (member.projectId === card.anchorId) {
+                        <span class="main-paper" title="The card's title comes from this project's paper"><mat-icon>star</mat-icon>Main paper</span>
+                      } @else if (card.members.length > 1) {
+                        <button mat-button type="button" class="make-main" [disabled]="!!working()" (click)="makeMain(card, member)"
+                          [attr.aria-label]="'Make ' + member.name + ' the main paper'"><mat-icon>star_outline</mat-icon>Make main paper</button>
+                      }
+                      <button mat-button type="button" class="move" [disabled]="!!working()" [matMenuTriggerFor]="moveMenu"
+                        [matMenuTriggerData]="{ member: member, card: card }" [attr.aria-label]="'Move ' + member.name + ' to another project'">
+                        <mat-icon>drive_file_move</mat-icon>Move</button>
+                    </li>
+                  } @empty {
+                    <li class="muted">This project is built from email only.</li>
+                  }
+                </ul>
+                @if (card.reason && card.members.length > 1) { <p class="muted grouping-reason"><mat-icon>link</mat-icon>Grouped because: {{ card.reason }}</p> }
+                <div class="card-actions">
+                  @if (targets().length) {
+                    <button mat-stroked-button type="button" [disabled]="!!working()" [matMenuTriggerFor]="mergeMenu" [matMenuTriggerData]="{ card: card }">
+                      <mat-icon>call_merge</mat-icon>Merge into&hellip;</button>
+                  }
+                  <button mat-stroked-button type="button" class="skip-card" [disabled]="!!working()" (click)="skip(card, true)">
+                    <mat-icon>visibility_off</mat-icon>Skip &mdash; not my research</button>
+                </div>
+              </mat-tab>
+            </mat-tab-group>
+          } @else {
+            <p class="muted empty">Details appear here once this project has been read.</p>
+          }
+          @if (error()) { <p class="alert" role="alert">{{ error() }}</p> }
+        </div>
+      }
+    </article>
+  } @empty {
+    <p class="muted empty">Include Overleaf projects under <a href="/#account">Account &rarr; Overleaf &rarr; Projects</a> to build your private profile.</p>
+  }
 </section>
 
 @if (skippedCards().length || ungrouped().length) {
   <section class="skipped-work" aria-labelledby="skipped-heading">
-    <header class="profile-head">
-      <h2 id="skipped-heading"><mat-icon>visibility_off</mat-icon>Skipped</h2>
-      <span class="profile-note">Work that is not your own research (for example helping someone). It stays out of your profile
-        and feed, and new email about it is skipped too. Bring anything back at any time.</span>
-    </header>
-    @if (moveError() && !selected()) { <p class="alert" role="alert">{{ moveError() }}</p> }
+    <div class="about-head">
+      <h2 id="skipped-heading">Skipped</h2>
+      <span class="about-note"><mat-icon>visibility_off</mat-icon>Work that is not your own research (for example helping someone). It stays out
+        of your profile and feed, and new email about it is skipped too. Bring anything back at any time.</span>
+    </div>
     <div class="skipped-list">
       @for (card of skippedCards(); track card.id) {
         <article class="skipped-card">
           <div class="skipped-head">
-            <strong class="skipped-title">{{ card.profile?.title ?? card.members[0].name }}</strong>
+            <strong class="skipped-title">{{ card.title }}</strong>
             <button mat-button type="button" class="unskip-card" [disabled]="!!working()" (click)="skip(card, false)"
-              [attr.aria-label]="'Bring ' + (card.profile?.title ?? card.members[0].name) + ' back to my projects'"><mat-icon>undo</mat-icon>Bring back</button>
+              [attr.aria-label]="'Bring ' + card.title + ' back to my projects'"><mat-icon>undo</mat-icon>Bring back</button>
           </div>
-          <span class="card-source"><mat-icon>description</mat-icon>{{ memberNames(card) }}</span>
-          @if (card.profile) { <p class="skipped-description">{{ card.blurb ?? card.profile.description }}</p> }
-          @if (card.threads?.length) {
+          @if (card.members.length) { <span class="card-source"><mat-icon>description</mat-icon>{{ memberNames(card) }}</span> }
+          @if (card.summary) { <p class="skipped-description">{{ card.summary }}</p> }
+          @if (card.threads.length) {
             <ul class="skipped-threads">
               @for (thread of card.threads; track thread.address + thread.id) {
                 <li><mat-icon class="thread-mail">mail</mat-icon><span class="skipped-thread-title" [title]="thread.subject">{{ thread.title }}</span>
@@ -82,75 +210,21 @@
   </section>
 }
 
-<ng-template #details>
-  @if (selected(); as card) {
-    <h2 mat-dialog-title class="details-title">{{ card.profile?.title ?? card.members[0].name }}
-      <span class="card-source"><mat-icon>description</mat-icon>{{ memberNames(card) }}</span></h2>
-    <mat-dialog-content class="details-content">
-      <mat-tab-group class="details-tabs" animationDuration="0ms" mat-stretch-tabs [disablePagination]="true">
-        <mat-tab label="Details">
-          @if (card.profile; as profile) {
-            <p class="description">{{ profile.description }}</p>
-            @if (profile.contributions.length) {
-              <ul class="contributions">@for (item of profile.contributions; track $index) { <li>{{ item }}</li> }</ul>
-            }
-            @if (profile.topics.length) {
-              <div class="topics">@for (topic of profile.topics; track $index) { <span class="topic">{{ topic }}</span> }</div>
-            }
-          } @else {
-            <p class="description muted">The summary appears once the first import of this project finishes.</p>
-          }
-          @if (card.themeId) {
-            <h3 class="members-title">{{ allOverleaf(card.members) ? 'Overleaf projects on this card' : 'On this card' }}</h3>
-            @if (card.reason && card.members.length > 1) { <p class="muted grouping-reason"><mat-icon>link</mat-icon>Grouped because: {{ card.reason }}</p> }
-            <ul class="members">
-              @for (member of card.members; track member.projectId) {
-                <li><span class="member-name">{{ member.name }}</span>
-                  @if (member.projectId === card.anchorId) {
-                    <span class="main-paper" title="This card is described from this project"><mat-icon>star</mat-icon>Main paper</span>
-                  } @else if (card.members.length > 1 && member.source !== 'gmail' && member.profile && (member.phase === 'ready' || member.phase === 'error')) {
-                    <button mat-button type="button" class="make-main" [disabled]="moving()" (click)="makeMain(card, member)"
-                      [attr.aria-label]="'Describe this card from ' + member.name"><mat-icon>star_outline</mat-icon>Make main paper</button>
-                  }
-                  @if (member.source === 'gmail') {
-                    <span class="member-source" [title]="'From Gmail: ' + (member.parent ?? '')"><mat-icon>mail</mat-icon>Gmail{{ member.parent ? ' · ' + member.parent : '' }}</span>
-                  }
-                  @if (member.phase === 'ready' || member.phase === 'error') {
-                    <label class="move">Move to
-                      <select (change)="move(member, $event)" [disabled]="moving()" [attr.aria-label]="'Move ' + member.name + ' to another card'">
-                        <option value="keep" selected>This card</option>
-                        @if (card.members.length > 1) { <option value="">A card of its own</option> }
-                        @for (target of targets(); track target.id) { <option [value]="target.themeId">{{ target.profile?.title }}</option> }
-                      </select></label>
-                  }
-                </li>
-              }
-            </ul>
-            @if (targets().length) {
-              <label class="move merge-card">Merge this card into
-                <select (change)="mergeInto(card, $event)" [disabled]="moving()" aria-label="Merge this card into another card">
-                  <option value="keep" selected>Choose a card&hellip;</option>
-                  @for (target of targets(); track target.id) { <option [value]="target.themeId">{{ target.profile?.title }}</option> }
-                </select></label>
-            }
-            @if (moveError()) { <p class="alert" role="alert">{{ moveError() }}</p> }
-            <button mat-stroked-button type="button" class="skip-card" [disabled]="!!working()" (click)="skip(card, true)">
-              <mat-icon>visibility_off</mat-icon>Skip &mdash; not my research</button>
-          }
-        </mat-tab>
-        @if (card.recent.length) {
-          <mat-tab [label]="'Recent updates (' + card.recent.length + ')'">
-            <ul class="updates">
-              @for (update of card.recent; track update.id) {
-                <li><span class="update-date">{{ (update.sourceUpdatedAt ?? update.observedAt) | date:'mediumDate' }}
-                    @if (card.members.length > 1) { &middot; {{ update.projectName }} }</span>
-                  <strong>{{ update.title }}</strong><span class="update-summary">{{ update.summary }}</span></li>
-              }
-            </ul>
-          </mat-tab>
-        }
-      </mat-tab-group>
-    </mat-dialog-content>
-    <mat-dialog-actions align="end"><button mat-button mat-dialog-close>Close</button></mat-dialog-actions>
-  }
-</ng-template>
+<mat-menu #moveMenu="matMenu">
+  <ng-template matMenuContent let-member="member" let-card="card">
+    @for (target of targets(); track target.id) {
+      <button mat-menu-item (click)="move(member, target)"><mat-icon>topic</mat-icon><span>{{ target.title }}</span></button>
+    }
+    @if (card.members.length > 1) {
+      <button mat-menu-item (click)="move(member, null)"><mat-icon>add</mat-icon><span>A project of its own</span></button>
+    }
+  </ng-template>
+</mat-menu>
+
+<mat-menu #mergeMenu="matMenu">
+  <ng-template matMenuContent let-card="card">
+    @for (target of targets(); track target.id) {
+      <button mat-menu-item (click)="mergeInto(card, target)"><mat-icon>topic</mat-icon><span>{{ target.title }}</span></button>
+    }
+  </ng-template>
+</mat-menu>

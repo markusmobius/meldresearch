@@ -35,12 +35,12 @@ public sealed class ResearchArchiveTests
             new ResearchArchive(store, coordinator, Updates, TimeProvider.System, NullLogger<ResearchArchive>.Instance));
     }
 
-    private static int ModelCalls(Remote remote) => remote.Calls + remote.Blurbs.Count + remote.Matches.Count + remote.Merges.Count + remote.Regroups.Count;
+    private static int ModelCalls(Remote remote) => remote.Calls + remote.Blurbs.Count + remote.Matches.Count + remote.Merges.Count + remote.Regroups.Count + remote.DetailSummaries.Count + remote.DetailMerges.Count;
 
     [Fact]
     public async Task TheExportIsReadableJsonAndRestoresOnAFreshComputerWithoutModelCalls()
     {
-        var snapshot = Files(("main.tex", "Main text about scooping."), ("a.tex", "Section A: Müller & <Schäfer>."));
+        var snapshot = Files(("main.tex", MainDoc("Main text about scooping.")), ("a.tex", "Section A: Müller & <Schäfer>."));
         using var first = New(Credential, snapshot, null, Included());
         await Drain(first.Coordinator);
         var export = await first.Archive.ExportAsync(None);
@@ -75,17 +75,18 @@ public sealed class ResearchArchiveTests
         Assert.Contains("No model calls", fresh.Store.State.Projects.Single().Explanation);
 
         // A changed file is processed against the imported text.
-        fresh.Source.Snapshot = Files(("main.tex", "Main text about scooping, now with a field experiment."), ("a.tex", "Section A: Müller & <Schäfer>."));
+        fresh.Source.Snapshot = Files(("main.tex", MainDoc("Main text about scooping, now with a field experiment.")), ("a.tex", "Section A: Müller & <Schäfer>."));
         await Drain(fresh.Coordinator, force: true);
-        var step = Assert.Single(fresh.Remote.Requests);
-        Assert.Equal(("main.tex", "Main text about scooping."), (step.File.Path, step.File.PreviousText));
+        var step = Assert.Single(fresh.Remote.DetailRequests);
+        Assert.Equal(["main.tex"], step.Documents.Select(document => document.Path));
+        Assert.Contains("field experiment", Assert.Single(step.Documents).Text);
     }
 
     [Fact]
     public async Task DownloadsArePreparedOneAtATimeAndStayAvailableForFiveMinutes()
     {
         var clock = new TestClock(DateTimeOffset.UtcNow);
-        using var computer = New(Credential, Files(("main.tex", "Main text.")), null, Included());
+        using var computer = New(Credential, Files(("main.tex", MainDoc("Main text."))), null, Included());
         await Drain(computer.Coordinator);
         var archive = new ResearchArchive(computer.Store, computer.Coordinator, Updates, clock, NullLogger<ResearchArchive>.Instance);
         Assert.Null(archive.CurrentExport(Account.Id));
@@ -138,7 +139,7 @@ public sealed class ResearchArchiveTests
     [Fact]
     public async Task AnImportIsUploadedByEncryptedSync()
     {
-        var snapshot = Files(("main.tex", "Main text."));
+        var snapshot = Files(("main.tex", MainDoc("Main text.")));
         using var first = New(Credential, snapshot, null, Included());
         await Drain(first.Coordinator);
         var zip = (await first.Archive.ExportAsync(None)).Zip;
@@ -147,11 +148,11 @@ public sealed class ResearchArchiveTests
         using var fresh = New(Credential, snapshot, box);
         await fresh.Coordinator.WithSyncAsync((sync, credential) => sync.CreateAsync(credential, "correct horse battery", None), None);
         await Drain(fresh.Coordinator);
-        Assert.DoesNotContain(box.Contents.Keys, key => key.StartsWith("p/"));
+        Assert.DoesNotContain(box.Contents.Keys, key => key.StartsWith("p2/"));
 
         await fresh.Archive.ImportAsync(new MemoryStream(zip), None);
         await Drain(fresh.Coordinator);
-        Assert.Single(box.Contents.Keys, key => key.StartsWith("p/"));
+        Assert.Single(box.Contents.Keys, key => key.StartsWith("p2/"));
         Assert.Equal(0, ModelCalls(fresh.Remote));
         Assert.Equal(1, (await fresh.Coordinator.StatusAsync(None)).Sync!.SyncedProjects);
     }
@@ -159,7 +160,7 @@ public sealed class ResearchArchiveTests
     [Fact]
     public async Task ImportKeepsLocalWorkThatGotFurtherAndNewerChoices()
     {
-        var snapshot = Files(("main.tex", "Main text."), ("a.tex", "A."));
+        var snapshot = Files(("main.tex", MainDoc("Main text.")), ("a.tex", "A."));
         using var first = New(Credential, snapshot, null, Included());
         Assert.True(await first.Coordinator.RunCycleAsync(false, None, maxSteps: 1));
         var partial = (await first.Archive.ExportAsync(None)).Zip;
@@ -176,7 +177,7 @@ public sealed class ResearchArchiveTests
     [Fact]
     public async Task ChangedOrForeignFilesAreRejectedWithoutChangingAnything()
     {
-        var snapshot = Files(("main.tex", "Main text."));
+        var snapshot = Files(("main.tex", MainDoc("Main text.")));
         using var first = New(Credential, snapshot, null, Included());
         await Drain(first.Coordinator);
         var zip = (await first.Archive.ExportAsync(None)).Zip;
@@ -195,7 +196,7 @@ public sealed class ResearchArchiveTests
     public async Task LeavingADevelopmentCopyDeletesTheAccountAndErasesLocalResearchWithoutUninstalling()
     {
         var box = new BlobBox();
-        using var computer = New(Credential, Files(("main.tex", "Main text.")), box, Included());
+        using var computer = New(Credential, Files(("main.tex", MainDoc("Main text."))), box, Included());
         await computer.Coordinator.WithSyncAsync((sync, credential) => sync.CreateAsync(credential, "correct horse battery", None), None);
         await Drain(computer.Coordinator);
         Assert.NotEmpty(computer.Store.Texts);

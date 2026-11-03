@@ -12,7 +12,10 @@ internal sealed record ProjectBundle(int Version, string ProjectId, string Name,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Source = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Parent = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PaperInfo? Paper = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? PaperFor = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? PaperFor = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<PendingTree>? PendingTrees = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, string>? Partial = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? ExcludedDocs = null);
 
 /// <summary>A research card member that is not an Overleaf project (a Gmail workstream), so other computers can add it.</summary>
 internal sealed record WorkstreamRef(string Id, string Source, string? Parent, string Name);
@@ -24,7 +27,10 @@ internal sealed record ProfileBundle(int Version, IReadOnlyList<ProjectDecision>
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<WorkstreamRef>? Workstreams = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<GmailAccountState>? GmailAccounts = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<GmailThreadRecord>? GmailThreads = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ThemesVersion = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ThemesVersion = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<ChangelogEntry>? Changelog = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<PendingFile>? PendingFiles = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? SkippedProjects = null);
 
 /// <summary>
 /// Builds and applies sync bundles. Fingerprints ignore texts (determined by the hashes) and save times, so they change only
@@ -34,10 +40,14 @@ internal static class SyncBundles
 {
     private static readonly DateTimeOffset Unsaved = DateTimeOffset.UnixEpoch;
 
+    /// <summary>Synced changelog entries per account: the most recent ones (the full history stays on each computer).</summary>
+    public const int MaxSyncedChangelog = 2000;
+
     public static ProjectBundle Project(MonitoredProject project, IReadOnlyDictionary<string, string> texts, DateTimeOffset now) =>
-        new(1, project.ProjectId, project.Name, project.Profile, project.Processed, project.Baseline, project.Pending, project.PendingOrder,
+        new(2, project.ProjectId, project.Name, project.Profile, project.Processed, project.Baseline, project.Pending, project.PendingOrder,
             project.PendingSince, project.ImportComplete, project.LastSweepAt, project.LastSuccessAt, project.Updates, texts, now,
-            project.IsOverleaf ? null : project.Source, project.IsOverleaf ? null : project.Parent, project.Paper, project.PaperFor);
+            project.IsOverleaf ? null : project.Source, project.IsOverleaf ? null : project.Parent, project.Paper, project.PaperFor,
+            project.PendingTrees, project.Partial, project.ExcludedDocs);
 
     public static string Fingerprint(MonitoredProject project) => Fingerprint(Project(project, new Dictionary<string, string>(), Unsaved));
 
@@ -55,7 +65,8 @@ internal static class SyncBundles
         (project.Processed?.Values ?? []).Concat(new[] { project.Baseline, project.Pending }.Where(manifest => manifest is not null)
             .SelectMany(manifest => manifest!.Files.Where(file => file.Analyzed).Select(file => file.Sha256))).ToHashSet(StringComparer.Ordinal);
 
-    public static bool HasResearch(MonitoredProject project) => project.Profile is not null || project.Pending is not null;
+    public static bool HasResearch(MonitoredProject project) => project.Profile is not null || project.Pending is not null ||
+        project.Baseline is not null || project.Processed is { Count: > 0 } || project.PendingTrees is { Count: > 0 };
 
     public static ProfileBundle Profile(LocalResearchState state, Guid account, DateTimeOffset now) =>
         new(1, [.. (state.Decisions ?? []).Where(item => item.AccountId == account).OrderBy(item => item.ProjectId, StringComparer.Ordinal)],
@@ -64,7 +75,13 @@ internal static class SyncBundles
             [.. ThemePlan.Themes(state, account).OrderBy(item => item.Id, StringComparer.Ordinal)], state.ThemesRegroupedFor,
             [.. (state.Summaries ?? []).Where(item => item.AccountId == account).OrderBy(item => item.ProjectId, StringComparer.Ordinal)],
             state.Researchers?.FirstOrDefault(item => item.AccountId == account), now, Workstreams(state, account), GmailAccounts(state, account),
-            GmailThreads(state, account), state.ThemesVersion == 0 ? null : state.ThemesVersion);
+            GmailThreads(state, account), state.ThemesVersion == 0 ? null : state.ThemesVersion,
+            NullIfEmpty([.. (state.Changelog ?? []).Where(entry => entry.AccountId == account).OrderByDescending(entry => entry.RecordedAt)
+                .Take(MaxSyncedChangelog).OrderBy(entry => entry.Id)]),
+            NullIfEmpty([.. (state.PendingFiles ?? []).Where(file => file.AccountId == account).OrderBy(file => file.ProjectId).ThenBy(file => file.Path)]),
+            state.SkippedProjects is { Count: > 0 } skipped ? [.. skipped.Order(StringComparer.Ordinal)] : null);
+
+    private static IReadOnlyList<T>? NullIfEmpty<T>(IReadOnlyList<T> items) => items.Count == 0 ? null : items;
 
     private static IReadOnlyList<GmailThreadRecord>? GmailThreads(LocalResearchState state, Guid account)
     {
@@ -201,6 +218,14 @@ internal static class SyncBundles
             GmailAccounts = MergeGmail(state.GmailAccounts, bundle.GmailAccounts, account),
             GmailThreads = MergeThreads(state.GmailThreads, bundle.GmailThreads, account),
             ThemesVersion = Math.Max(state.ThemesVersion, bundle.ThemesVersion ?? 0),
+            // Changelog entries from both computers; the same entry once (the one recorded last).
+            Changelog = bundle.Changelog is null ? state.Changelog : [.. (state.Changelog ?? []).Concat(bundle.Changelog.Where(entry => entry.AccountId == account))
+                .GroupBy(entry => entry.Id).Select(group => group.MaxBy(entry => entry.RecordedAt)!)],
+            PendingFiles = bundle.PendingFiles is null && localChanged ? state.PendingFiles
+                : [.. (state.PendingFiles ?? []).Where(file => file.AccountId != account), .. (localChanged ? (state.PendingFiles ?? []).Where(file => file.AccountId == account) : [])
+                    .Concat(bundle.PendingFiles ?? []).GroupBy(file => (file.ProjectId, file.Path)).Select(group => group.MaxBy(file => file.RemovedAt)!)],
+            SkippedProjects = bundle.SkippedProjects is null ? state.SkippedProjects
+                : [.. (state.SkippedProjects ?? []).Concat(bundle.SkippedProjects).Distinct(StringComparer.Ordinal)],
             Sync = etag is null ? state.Sync : state.Sync! with { ProfileETag = etag, ProfileSyncedFor = Fingerprint(bundle) }
         };
     }
@@ -231,7 +256,8 @@ internal static class SyncBundles
             PendingOrder = bundle.PendingOrder, PendingSince = bundle.PendingSince, ImportComplete = bundle.ImportComplete,
             LastSweepAt = bundle.LastSweepAt, LastSuccessAt = bundle.LastSuccessAt, Updates = bundle.Updates,
             Snapshot = null, Summary = null, Facts = [], ErrorCode = null, Error = null, FailureCount = 0, NextAttemptAt = null,
-            SyncedFor = null, Paper = bundle.Paper, PaperFor = bundle.PaperFor
+            SyncedFor = null, Paper = bundle.Paper, PaperFor = bundle.PaperFor, PendingTrees = bundle.PendingTrees, Partial = bundle.Partial,
+            ExcludedDocs = bundle.ExcludedDocs
         };
         return state with { Projects = projects };
     }
@@ -254,7 +280,8 @@ internal static class SyncBundles
                 LastSweepAt = bundle.LastSweepAt, LastSuccessAt = bundle.LastSuccessAt, Updates = bundle.Updates,
                 Snapshot = null, Summary = null, Facts = [], ErrorCode = null, Error = null, FailureCount = 0, NextAttemptAt = null,
                 SyncETag = etag, SyncedFor = Fingerprint(bundle), LastSyncedAt = bundle.SavedAt,
-                Source = local.Source ?? bundle.Source, Parent = local.Parent ?? bundle.Parent, Paper = bundle.Paper, PaperFor = bundle.PaperFor
+                Source = local.Source ?? bundle.Source, Parent = local.Parent ?? bundle.Parent, Paper = bundle.Paper, PaperFor = bundle.PaperFor,
+                PendingTrees = bundle.PendingTrees, Partial = bundle.Partial, ExcludedDocs = bundle.ExcludedDocs
             };
         return state with { Projects = [.. state.Projects.Select(item => item == local ? adopted : item)] };
     }

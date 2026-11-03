@@ -9,19 +9,20 @@ import { MatInputModule } from '@angular/material/input';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { describeFailure } from './overleaf-api';
-import { GmailThread, GmailThreadAction, ResearchApi, ResearchStatus, ResearchUpdate } from './research-api';
+import { GmailThread, GmailThreadAction, PendingFile, ResearchApi, ResearchChange, ResearchStatus } from './research-api';
 import { LocalPage } from './meld-toolbar';
 
-/** One card of the Updates column: an Update of an Overleaf project, or an email thread with newsworthy progress. */
-export type FeedItem = { key: string; at: string; update: ResearchUpdate; thread?: undefined } | { key: string; at: string; thread: GmailThread; update?: undefined };
-/** Bullets shown on a thread card; the rest open in Review. */
+/** One card of Private updates: an email thread Meld could not place, or a file the user removed from a project. */
+export type PrivateItem = { key: string; at: string; thread: GmailThread; file?: undefined } | { key: string; at: string; file: PendingFile; thread?: undefined };
+/** Bullets shown on a thread card, and detail changes on an Update card; the rest open in Review. */
 export const THREAD_BULLETS_SHOWN = 4;
+export const CHANGES_SHOWN = 3;
 
 /**
- * Home: a TweetDeck-style feed ported from Project Meld. Updates holds Overleaf Updates and email threads with newsworthy
- * progress (each thread one card whose bullet list grows); Private updates holds threads Meld could not place on a
- * research project, where the user skips them, adds them to a project or starts a new one. On narrow screens one column
- * shows at a time.
+ * Home: a TweetDeck-style feed ported from Project Meld. Updates holds the changelog entries that changed a research
+ * project's details (from Overleaf or email); Private updates holds email threads Meld could not place on a research
+ * project and files the user removed from one, where the user skips them or adds them to a project. On narrow screens one
+ * column shows at a time.
  */
 @Component({
   selector: 'app-research-panel',
@@ -44,7 +45,7 @@ export class ResearchPanel implements OnInit {
   readonly state = signal<ResearchStatus | null>(null);
   readonly error = signal('');
   readonly action = signal('');
-  readonly selectedUpdate = signal<ResearchUpdate | null>(null);
+  readonly selectedChange = signal<ResearchChange | null>(null);
   readonly selectedThread = signal<GmailThread | null>(null);
   /** The column shown on narrow screens. */
   readonly column = signal<'updates' | 'private'>('updates');
@@ -54,18 +55,18 @@ export class ResearchPanel implements OnInit {
   readonly projectName = signal('');
   readonly threadError = signal('');
   readonly threadBulletsShown = THREAD_BULLETS_SHOWN;
-  /** Whether Private updates is offered: Meld's server offers Gmail, or an account is connected. */
-  readonly privateColumn = computed(() => !!this.state()?.gmail?.configured || !!this.state()?.gmail?.accounts.length);
-  readonly feedItems = computed<ReadonlyArray<FeedItem>>(() => {
+  readonly changesShown = CHANGES_SHOWN;
+  /** Whether Private updates is offered: Meld's server offers Gmail, an account is connected, or a removed file waits there. */
+  readonly privateColumn = computed(() => !!this.state()?.gmail?.configured || !!this.state()?.gmail?.accounts.length || !!this.state()?.pendingFiles?.length);
+  /** Updates: changelog entries that changed details, newest first. */
+  readonly feedItems = computed<ReadonlyArray<ResearchChange>>(() => this.state()?.changes ?? []);
+  readonly pending = computed<ReadonlyArray<PrivateItem>>(() => {
     const state = this.state();
-    if (!state) return [];
-    const items: FeedItem[] = state.updates.map(update => ({ key: 'u:' + update.id, at: update.observedAt, update }));
-    for (const thread of state.gmail?.threads ?? [])
-      if (thread.status === 'assigned' && thread.newsAt && !thread.skipped) items.push({ key: `t:${thread.address}|${thread.id}`, at: thread.newsAt, thread });
+    const items: PrivateItem[] = (state?.gmail?.threads ?? []).filter(thread => thread.status === 'pending' && !thread.skipped)
+      .map(thread => ({ key: 't:' + this.threadKey(thread), at: thread.lastSentAt, thread }));
+    for (const file of state?.pendingFiles ?? []) items.push({ key: `f:${file.projectId}|${file.path}`, at: file.removedAt, file });
     return items.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
   });
-  readonly pending = computed(() => (this.state()?.gmail?.threads ?? []).filter(thread => thread.status === 'pending' && !thread.skipped)
-    .slice().sort((a, b) => Date.parse(b.lastSentAt) - Date.parse(a.lastSentAt)));
   /** Research cards a thread can be put on, by title. */
   readonly cards = computed(() => (this.state()?.themes ?? []).filter(theme => !!theme.profile && !theme.skipped)
     .map(theme => ({ id: theme.id, title: theme.profile!.title })).sort((a, b) => a.title.localeCompare(b.title)));
@@ -93,11 +94,7 @@ export class ResearchPanel implements OnInit {
       const next = await this.api.status();
       if (next.account?.id !== this.state()?.account?.id) {
         this.evidenceDialog?.close();
-        this.selectedUpdate.set(null);
-      }
-      if (this.selectedUpdate() && !next.updates.some(update => update.id === this.selectedUpdate()?.id)) {
-        this.evidenceDialog?.close();
-        this.selectedUpdate.set(null);
+        this.selectedChange.set(null);
       }
       const shown = this.selectedThread();
       if (shown) {
@@ -114,18 +111,23 @@ export class ResearchPanel implements OnInit {
     } finally { this.polling = false; }
   }
 
-  /** An Update from a Gmail workstream (its evidence is email, not an Overleaf project). */
-  fromGmail(update: ResearchUpdate): boolean { return update.projectId.startsWith('gmail-'); }
+  kindLabel(change: ResearchChange): string {
+    return { overleaf: 'Overleaf', gmail: 'Email', removed: 'Source removed', user: 'Your change', merge: 'Merged' }[change.kind] ?? 'Update';
+  }
+  kindIcon(change: ResearchChange): string {
+    return { overleaf: 'description', gmail: 'mail', removed: 'remove_circle_outline', user: 'person', merge: 'call_merge' }[change.kind] ?? 'update';
+  }
+  opLabel(op: string): string { return op === 'add' ? 'Added' : op === 'remove' ? 'Removed' : 'Revised'; }
   threadKey(thread: Pick<GmailThread, 'address' | 'id'>): string { return `${thread.address}|${thread.id}`; }
   /** The latest bullets of a thread card, oldest of them first. */
   latestBullets(thread: GmailThread): GmailThread['bullets'] { return thread.bullets.slice(-THREAD_BULLETS_SHOWN); }
 
-  showUpdate(update: ResearchUpdate, template: TemplateRef<unknown>): void {
+  showChange(change: ResearchChange, template: TemplateRef<unknown>): void {
     this.selectedThread.set(null);
-    this.open(template, () => this.selectedUpdate.set(update));
+    this.open(template, () => this.selectedChange.set(change));
   }
   showThread(thread: GmailThread, template: TemplateRef<unknown>): void {
-    this.selectedUpdate.set(null);
+    this.selectedChange.set(null);
     this.open(template, () => this.selectedThread.set(thread));
   }
   private open(template: TemplateRef<unknown>, select: () => void): void {
@@ -136,7 +138,7 @@ export class ResearchPanel implements OnInit {
     dialog.afterClosed().subscribe(() => {
       if (this.evidenceDialog === dialog) {
         this.evidenceDialog = null;
-        this.selectedUpdate.set(null);
+        this.selectedChange.set(null);
         this.selectedThread.set(null);
       }
     });
@@ -158,6 +160,18 @@ export class ResearchPanel implements OnInit {
     try {
       await this.api.decideGmailThread(thread, action, cardId, name);
       if (this.naming() === key) this.naming.set(null);
+      await this.refresh();
+    } catch (error: unknown) { this.threadError.set(describeFailure(error)); }
+    finally { this.deciding.set(null); }
+  }
+  /** A removed file: add it to another research project, or leave it out. */
+  async decideFile(file: PendingFile, action: 'project' | 'dismiss', cardId?: string): Promise<void> {
+    const key = `${file.projectId}|${file.path}`;
+    if (this.deciding()) return;
+    this.deciding.set(key);
+    this.threadError.set('');
+    try {
+      await this.api.decidePendingFile(file, action, cardId);
       await this.refresh();
     } catch (error: unknown) { this.threadError.set(describeFailure(error)); }
     finally { this.deciding.set(null); }

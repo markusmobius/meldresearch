@@ -58,9 +58,13 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     /// Raise to erase every installation's research once, on its first start of a release: projects (summaries, processed
     /// hashes, Updates, queue), include/exclude choices, the OpenAlex match and the encrypted text store. Sign-in is kept.
     /// </summary>
-    internal const int ResetEpoch = 1;
-    /// <summary>Summaries are offered for projects updated within this window, matching the Projects tab's recent list.</summary>
-    internal static readonly TimeSpan SummaryWindow = TimeSpan.FromDays(183);
+    internal const int ResetEpoch = 2;
+    /// <summary>
+    /// The one recency window (OVERLEAF.md §2): projects updated within it need an include/exclude choice and can be summarized,
+    /// and only document trees edited within it are read.
+    /// </summary>
+    internal static readonly TimeSpan SummaryWindow = TimeSpan.FromDays(RecentDays);
+    internal const int RecentDays = 183;
     private volatile string? _summarizing;
     // After a failed grouping call, card work waits instead of retrying in a tight loop.
     private DateTimeOffset _themeRetryAt = DateTimeOffset.MinValue;
@@ -87,6 +91,11 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         var skippedMembers = account is { } owner0 ? ThemePlan.SkippedMembers(state, owner0) : new HashSet<string>();
         var updates = projects.Where(project => !skippedMembers.Contains(project.ProjectId)).SelectMany(project => project.Updates)
             .OrderByDescending(update => update.ObservedAt).ToArray();
+        // The Updates feed: changelog entries that changed the details of projects in the profile (OVERLEAF.md §8).
+        var feedThemes = account is { } owner1 ? ThemePlan.Active(state, owner1) : [];
+        var feedIds = feedThemes.Select(theme => theme.Id).ToHashSet(StringComparer.Ordinal);
+        var changes = (state.Changelog ?? []).Where(entry => entry.AccountId == account && entry.Changes.Count != 0 && feedIds.Contains(entry.CardId))
+            .OrderByDescending(entry => entry.At).ThenByDescending(entry => entry.RecordedAt).Select(entry => Change(entry, feedThemes, state)).ToArray();
         var signIn = _signIn is { } pending && pending.ExpiresAt > clock.GetUtcNow() && state.Credential is null ? pending : null;
         var researcher = state.Researchers?.FirstOrDefault(item => item.AccountId == account);
         HashSet<string> active;
@@ -99,14 +108,15 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         if (running.Length != 0)
         {
             var first = running[0];
-            var (done, total) = ProcessingPlan.Progress(first);
+            var (done, total) = DetailPlan.Progress(first);
             processing = new(first.ProjectId, first.Name, first.ImportComplete ? "update" : "import", done, total, queue.Length - running.Length,
-                ProcessingPlan.Next(first), running.Skip(1).Select(project => project.Name).ToArray());
+                first.PendingTrees?.SelectMany(tree => tree.Send).FirstOrDefault(path => first.Processed?.GetValueOrDefault(path) is not { } hash ||
+                    first.Pending?.Files.FirstOrDefault(file => file.Path == path)?.Sha256 != hash),
+                running.Skip(1).Select(project => project.Name).ToArray());
         }
         string Phase(MonitoredProject project) =>
             project.ErrorCode is not null && Transient(project.ErrorCode) && project.FailureCount < TransientFailuresShown ? "retrying"
             : project.ErrorCode is not null ? "error"
-            // An email stream has no files to import; its summary is refreshed in the background.
             : !project.IsOverleaf ? "ready"
             : project.Pending is not null ? (running.Contains(project) ? (project.ImportComplete ? "updating" : "importing") : "queued")
             : active.Contains(project.ProjectId) ? "checking"
@@ -118,7 +128,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             options.PollSeconds, state.PendingRevocations.Count,
             projects.Select(project =>
             {
-                var (done, total) = ProcessingPlan.Progress(project);
+                var (done, total) = DetailPlan.Progress(project);
                 return new MonitoredProjectResponse(project.ProjectId, project.Name, project.Enabled,
                     project.ConsentVersion != ResearchEvidence.ConsentVersion, project.Baseline?.Revision ?? project.Snapshot?.Revision,
                     project.Profile?.Description ?? project.Summary, project.Profile?.Contributions.Count ?? project.Facts.Count,
@@ -139,11 +149,19 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             account is not { } owner ? [] : ThemePlan.Themes(state, owner).Select(theme =>
             {
                 var anchor = ThemePlan.AnchorOf(state, theme);
-                return new ResearchThemeResponse(theme.Id, theme.Profile, theme.Members, theme.Profile is null || !ThemePlan.Matches(theme, anchor),
-                    theme.Profile is not null && theme.BlurbFor == ThemePlan.Fingerprint(theme.Profile) ? theme.Blurb : null,
-                    anchor?.ProjectId, theme.Anchor is not null && theme.Anchor == anchor?.ProjectId, theme.Reason, theme.Skipped == true);
+                bool updating = theme.Details is { Count: > 0 } details && theme.SummaryFor != DetailPlan.Fingerprint(details) || theme.MatchPending == true ||
+                    theme.Members.Any(member => projects.FirstOrDefault(project => project.ProjectId == member) is { } project && !ThemePlan.Settled(project));
+                return new ResearchThemeResponse(theme.Id, theme.Profile, theme.Members, updating, theme.Profile?.Description,
+                    anchor?.ProjectId, theme.Anchor is not null && theme.Anchor == anchor?.ProjectId, theme.Reason, theme.Skipped == true,
+                    [.. (theme.Details ?? []).Select(detail => new DetailResponse(detail.Id, detail.Text, [.. detail.Citations.Select(citation =>
+                        new DetailSourceResponse(citation.Source.Key, citation.Source.Kind, citation.Source.Label, citation.Source.Version, citation.Source.At,
+                            citation.Quote, citation.Source.Kind == DetailSource.Overleaf
+                                ? projects.FirstOrDefault(project => project.ProjectId == citation.Source.Container)?.Name : citation.Source.Container))]))]);
             }).ToArray(),
-            _sync.Status(state), gmail?.Status(state, importer));
+            _sync.Status(state), gmail?.Status(state, importer), changes.Take(100).ToArray(), changes.Length,
+            [.. (state.PendingFiles ?? []).Where(file => file.AccountId == account && file.TargetCardId is null).OrderByDescending(file => file.RemovedAt)
+                .Select(file => new PendingFileResponse(file.ProjectId, file.ProjectName, file.Path, file.FromCardId,
+                    state.Themes?.FirstOrDefault(theme => theme.Id == file.FromCardId)?.Profile?.Title, file.RemovedAt))], RecentDays);
     }
 
     public async Task<AccountLinkResponse> BeginLinkAsync(string callbackUri, CancellationToken ct)
@@ -389,18 +407,37 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
 
     public async Task MoveToThemeAsync(string projectId, string? themeId, CancellationToken ct)
     {
-        if (!ResearchSources.IsMemberId(projectId) || (themeId is not null && !ResearchThemes.IsThemeId(themeId)))
+        if (!ResearchEvidence.IsProjectId(projectId) || (themeId is not null && !ResearchThemes.IsThemeId(themeId)))
             throw new ResearchFailure(400, "invalid_theme_move", "Choose a project and a research card.");
-        var account = RequireCredential(await store.ReadAsync(ct)).Account.Id;
+        var state = await store.ReadAsync(ct);
+        var account = RequireCredential(state).Account.Id;
+        var project = state.Projects.FirstOrDefault(item => item.AccountId == account && item.ProjectId == projectId);
+        if (project is null || !ThemePlan.Member(state, account, project) || !ThemePlan.Settled(project) || project.Baseline is not { } baseline)
+            throw new ResearchFailure(409, "project_not_ready", "This project can be moved once its import has finished.");
+        if (themeId is not null && !ThemePlan.Themes(state, account).Any(theme => theme.Id == themeId))
+            throw new ResearchFailure(404, "theme_not_found", "That research card no longer exists. Reload and try again.");
+        CancelProject(projectId);
+        // Its sources leave the old card, and its documents are read again into the new one (OVERLEAF.md §11).
+        var texts = await DetailPlan.TextsAsync(store, project, baseline, ct);
         await store.ChangeAsync(current =>
         {
             if (current.Credential?.Account.Id != account) throw AccountChanged();
-            var project = current.Projects.FirstOrDefault(item => item.AccountId == account && item.ProjectId == projectId);
-            if (project is null || !ThemePlan.Member(current, account, project) || !ThemePlan.Settled(project))
-                throw new ResearchFailure(409, "project_not_ready", "This project can be moved once its import has finished.");
-            if (themeId is not null && !ThemePlan.Themes(current, account).Any(theme => theme.Id == themeId))
-                throw new ResearchFailure(404, "theme_not_found", "That research card no longer exists. Reload and try again.");
-            return ThemePlan.Place(current, account, projectId, themeId, clock.GetUtcNow(), pin: true);
+            var item = current.Projects.FirstOrDefault(entry => entry.AccountId == account && entry.ProjectId == projectId) ?? throw AccountChanged();
+            var now = clock.GetUtcNow();
+            if (ThemePlan.CardOf(current, account, projectId) is { } previous)
+            {
+                var (details, changes) = DetailPlan.Without(previous.Details ?? [], source => source.Kind == DetailSource.Overleaf && source.Container == projectId);
+                current = current with
+                {
+                    Themes = [.. current.Themes!.Select(theme => theme == previous ? previous with { Details = details } : theme)],
+                    Changelog = changes.Count == 0 ? current.Changelog : DetailPlan.Log(current.Changelog, new(Guid.NewGuid(), account, previous.Id, now,
+                        ChangelogEntry.User, item.Name + " moved to another project", projectId, [], changes, null, now))
+                };
+            }
+            current = ThemePlan.Place(current, account, projectId, themeId, now, pin: true);
+            var moved = item with { Processed = null, Partial = null, Pending = baseline, PendingSince = now };
+            moved = moved with { PendingTrees = DetailPlan.Trees(moved, baseline, texts, now, SummaryWindow) };
+            return current with { Projects = Replace(current.Projects, moved), ThemesRegroupedFor = null };
         }, ct);
         _themeRetryAt = DateTimeOffset.MinValue;
         Wake();
@@ -410,22 +447,74 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     {
         if (!ResearchThemes.IsThemeId(themeId) || !ResearchThemes.IsThemeId(intoThemeId) || themeId == intoThemeId)
             throw new ResearchFailure(400, "invalid_theme_move", "Choose two different research cards.");
-        var account = RequireCredential(await store.ReadAsync(ct)).Account.Id;
-        await store.ChangeAsync(current =>
-        {
-            if (current.Credential?.Account.Id != account) throw AccountChanged();
-            var themes = ThemePlan.Themes(current, account);
-            if (!themes.Any(theme => theme.Id == themeId) || !themes.Any(theme => theme.Id == intoThemeId))
-                throw new ResearchFailure(404, "theme_not_found", "That research card no longer exists. Reload and try again.");
-            return ThemePlan.MergeCards(current, account, themeId, intoThemeId, clock.GetUtcNow());
-        }, ct);
+        var state = await store.ReadAsync(ct);
+        var credential = RequireCredential(state);
+        var themes = ThemePlan.Themes(state, credential.Account.Id);
+        if (!themes.Any(theme => theme.Id == themeId) || !themes.Any(theme => theme.Id == intoThemeId))
+            throw new ResearchFailure(404, "theme_not_found", "That research card no longer exists. Reload and try again.");
+        await CombineAsync(credential, intoThemeId, [themeId], pin: true, null, ct);
         _themeRetryAt = DateTimeOffset.MinValue;
         Wake();
     }
 
+    /// <summary>
+    /// Combines cards into one (OVERLEAF.md §11): members, email threads and changelogs move to <paramref name="intoId"/>, and
+    /// their details are merged by one Foundry call (keeping the sources of the details each merged one came from). Nothing is
+    /// changed if a card's details changed meanwhile.
+    /// </summary>
+    private async Task CombineAsync(LinkedCredential credential, string intoId, IReadOnlyList<string> otherIds, bool pin, string? reason, CancellationToken ct)
+    {
+        var account = credential.Account.Id;
+        var state = await store.ReadAsync(ct);
+        var cards = ThemePlan.Themes(state, account).Where(theme => theme.Id == intoId || otherIds.Contains(theme.Id))
+            .OrderBy(theme => theme.Id == intoId ? 0 : 1).ToArray();
+        if (cards.Length < 2 || cards[0].Id != intoId) return;
+        var filled = cards.Where(card => card.Details is { Count: > 0 }).ToArray();
+        IReadOnlyList<DetailBullet> details = filled.FirstOrDefault()?.Details ?? [];
+        if (filled.Length > 1)
+        {
+            var request = new DetailMergeRequest([.. filled.Select(card => new DetailMergeCard(Trim(card.Profile?.Title ?? "Research project",
+                ProfileEvidence.HardMaxTitle), DetailPlan.Inputs(card.Details!)))]);
+            var merged = await remote.MergeDetailsAsync(credential.Token, request, ct);
+            DetailRules.ValidateMerged(request, merged);
+            var byId = filled.SelectMany(card => card.Details!).ToDictionary(detail => detail.Id, StringComparer.Ordinal);
+            details = [.. merged.Details.Select(item => new DetailBullet(Guid.NewGuid().ToString("N")[..12], item.Text,
+                [.. item.From.SelectMany(id => byId[id].Citations).DistinctBy(citation => (citation.Source.Key, citation.Source.Version, citation.Quote)).Take(8)]))];
+        }
+        var prints = cards.ToDictionary(card => card.Id, card => DetailPlan.Fingerprint(card.Details), StringComparer.Ordinal);
+        await store.ChangeAsync(current =>
+        {
+            if (current.Credential?.Account.Id != account) return current;
+            var now = ThemePlan.Themes(current, account).Where(theme => prints.ContainsKey(theme.Id)).ToArray();
+            if (now.Length != cards.Length || now.Any(theme => DetailPlan.Fingerprint(theme.Details) != prints[theme.Id])) return current;
+            var target = now.Single(theme => theme.Id == intoId);
+            var others = now.Where(theme => theme.Id != intoId).ToArray();
+            var ids = others.Select(theme => theme.Id).ToHashSet(StringComparer.Ordinal);
+            var moved = others.SelectMany(theme => theme.Members).ToArray();
+            var combined = target with
+            {
+                Members = [.. target.Members.Concat(moved).Distinct(StringComparer.Ordinal)],
+                Pinned = [.. (target.Pinned ?? []).Concat(pin ? moved : others.SelectMany(theme => theme.Pinned ?? [])).Distinct(StringComparer.Ordinal)],
+                Details = details, SummaryFor = null, MatchPending = null, Reason = reason ?? target.Reason
+            };
+            var at = clock.GetUtcNow();
+            var log = (current.Changelog ?? []).Select(entry => ids.Contains(entry.CardId) ? entry with { CardId = intoId } : entry).ToArray();
+            return current with
+            {
+                Themes = [.. current.Themes!.Where(theme => theme.AccountId != account || !ids.Contains(theme.Id))
+                    .Select(theme => theme.AccountId == account && theme.Id == intoId ? combined : theme)],
+                GmailThreads = current.GmailThreads?.Select(thread => thread.CardId is { } card && ids.Contains(card) ? thread with { CardId = intoId } : thread).ToArray(),
+                PendingFiles = current.PendingFiles?.Select(file => file.TargetCardId is { } card && ids.Contains(card) ? file with { TargetCardId = intoId } : file).ToArray(),
+                Changelog = DetailPlan.Log(log, new(Guid.NewGuid(), account, intoId, at, ChangelogEntry.Merge,
+                    "Combined with " + string.Join(", ", others.Select(theme => theme.Profile?.Title ?? "another project")), null, [], [], null, at))
+            };
+        }, ct);
+        logger.LogInformation("Combined {Count} research card(s) into one.", cards.Length);
+    }
+
     public async Task SetAnchorAsync(string themeId, string projectId, CancellationToken ct)
     {
-        if (!ResearchThemes.IsThemeId(themeId) || !ResearchSources.IsMemberId(projectId))
+        if (!ResearchThemes.IsThemeId(themeId) || !ResearchEvidence.IsProjectId(projectId))
             throw new ResearchFailure(400, "invalid_theme_anchor", "Choose a research card and one of its projects.");
         var account = RequireCredential(await store.ReadAsync(ct)).Account.Id;
         await store.ChangeAsync(current =>
@@ -433,48 +522,12 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             if (current.Credential?.Account.Id != account) throw AccountChanged();
             var theme = ThemePlan.Themes(current, account).FirstOrDefault(item => item.Id == themeId)
                 ?? throw new ResearchFailure(404, "theme_not_found", "That research card no longer exists. Reload and try again.");
-            if (!theme.Members.Contains(projectId) || current.Projects.FirstOrDefault(item => item.AccountId == account && item.ProjectId == projectId)?.Profile is null)
-                throw new ResearchFailure(409, "project_not_ready", "Choose a project of this card whose import has finished.");
-            return current with { Themes = [.. current.Themes!.Select(item => item == theme ? theme with { Anchor = projectId } : item)] };
+            if (!theme.Members.Contains(projectId)) throw new ResearchFailure(409, "project_not_ready", "Choose a project of this card.");
+            // The card's title follows its main paper: the summary is written again.
+            return current with { Themes = [.. current.Themes!.Select(item => item == theme ? theme with { Anchor = projectId, SummaryFor = null } : item)] };
         }, ct);
         _themeRetryAt = DateTimeOffset.MinValue;
         Wake();
-    }
-
-    /// <summary>
-    /// Describes a card from its anchor. A card says what its main paper says: its title and a condensed abstract. Without an
-    /// abstract, the anchor's own summary describes the card.
-    /// </summary>
-    private async Task DescribeAsync(LinkedCredential credential, ResearchTheme card, MonitoredProject anchor, CancellationToken ct)
-    {
-        var account = credential.Account.Id;
-        var stale = (Theme: card, Anchor: anchor);
-        ProjectProfile profile;
-        string? blurb = null;
-        if (anchor.Paper is { Title: { } title, Abstract: { } summary })
-        {
-            profile = (await remote.SummarizeCardAsync(credential.Token, new(Trim(title, ProfileEvidence.HardMaxTitle), summary, anchor.Profile!), ct)).Profile;
-            if (!ProfileEvidence.ValidProfile(profile))
-                throw new ResearchFailure(502, "invalid_theme_summary", "Foundry returned an unsupported card summary. Nothing was changed.");
-            blurb = string.Join(' ', profile.Description.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)).Trim();
-            if (!ResearchThemes.ValidBlurb(blurb)) blurb = null;
-        }
-        // Without an abstract the document may be a memo or notes rather than the paper: its title is not used either.
-        else profile = anchor.Profile!;
-        string print = ThemePlan.AnchorPrint(anchor);
-        await store.ChangeAsync(current =>
-        {
-            if (current.Credential?.Account.Id != account) return current;
-            var theme = current.Themes?.FirstOrDefault(item => item.AccountId == account && item.Id == stale.Theme.Id);
-            // The anchor or its summary changed meanwhile: the next step describes the card again.
-            if (theme is null || ThemePlan.AnchorOf(current, theme) is not { } now || now.ProjectId != anchor.ProjectId || ThemePlan.AnchorPrint(now) != print)
-                return current;
-            var described = theme with { Profile = profile, MergedFrom = new Dictionary<string, string> { [anchor.ProjectId] = print } };
-            if (blurb is not null) described = described with { Blurb = blurb, BlurbFor = ThemePlan.Fingerprint(profile) };
-            return current with { Themes = [.. current.Themes!.Select(item => item == theme ? described : item)] };
-        }, ct);
-        logger.LogInformation(blurb is null ? "A research card was described from its main project's summary." :
-            "A research card was described from its main paper's title and abstract.");
     }
 
     public async Task SkipThemeAsync(string themeId, bool skipped, CancellationToken ct)
@@ -486,7 +539,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             if (current.Credential?.Account.Id != account) throw AccountChanged();
             var theme = ThemePlan.Themes(current, account).FirstOrDefault(item => item.Id == themeId)
                 ?? throw new ResearchFailure(404, "theme_not_found", "That research card no longer exists. Reload and try again.");
-            var changed = skipped ? theme with { Skipped = true, SkipGrouped = null } : theme with { Skipped = null, SkipGrouped = null };
+            var changed = skipped ? theme with { Skipped = true, SkipGrouped = null, MatchPending = null } : theme with { Skipped = null, SkipGrouped = null };
             // Back in the profile, the card is compared with the others again.
             return current with
             {
@@ -500,31 +553,144 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     }
 
     /// <summary>
-    /// Reads the title and abstract of a project's main LaTeX document from the stored texts (no model call), once per
-    /// processed revision. Returns false when no project needs it.
+    /// The user removes a source from a research project (OVERLEAF.md §10): every citation of it leaves the card's details
+    /// (details left without one are removed). An Overleaf file waits in Private updates and its project ignores it; an email
+    /// thread returns to Private updates.
     /// </summary>
-    private async Task<bool> PaperStepAsync(Guid account, LocalResearchState state, CancellationToken ct)
+    public async Task RemoveSourceAsync(string themeId, string key, CancellationToken ct)
     {
-        var project = state.Projects.FirstOrDefault(item => item.AccountId == account && item.IsOverleaf && item.Pending is null &&
-            item.Baseline is { } baseline && item.PaperFor != Papers.ReadFor(baseline.Revision));
-        if (project is null) return false;
-        var baseline = project.Baseline!;
-        var texts = new List<(string Path, string Text)>();
-        foreach (var file in baseline.Files.Where(file => file.Analyzed && file.Path.EndsWith(".tex", StringComparison.OrdinalIgnoreCase)).Take(300))
-            if (await store.ReadTextAsync(file.Sha256, ct) is { } text) texts.Add((file.Path, text));
-        var paper = Papers.Read(texts);
-        await store.ChangeAsync(current => current with
+        if (!ResearchThemes.IsThemeId(themeId) || string.IsNullOrWhiteSpace(key)) throw new ResearchFailure(400, "invalid_source", "Choose a source to remove.");
+        var account = RequireCredential(await store.ReadAsync(ct)).Account.Id;
+        await store.ChangeAsync(current =>
         {
-            Projects = [.. current.Projects.Select(item => item.AccountId == account && item.ProjectId == project.ProjectId &&
-                item.Baseline?.Revision == baseline.Revision ? item with { Paper = paper, PaperFor = Papers.ReadFor(baseline.Revision) } : item)]
+            if (current.Credential?.Account.Id != account) throw AccountChanged();
+            var theme = ThemePlan.Themes(current, account).FirstOrDefault(item => item.Id == themeId)
+                ?? throw new ResearchFailure(404, "theme_not_found", "That research card no longer exists. Reload and try again.");
+            var source = (theme.Details ?? []).SelectMany(detail => detail.Citations).Select(citation => citation.Source).FirstOrDefault(item => item.Key == key)
+                ?? throw new ResearchFailure(404, "source_not_found", "This source is no longer part of the project.");
+            var now = clock.GetUtcNow();
+            var (details, changes) = DetailPlan.Without(theme.Details ?? [], item => item.Key == key);
+            current = current with
+            {
+                Themes = [.. current.Themes!.Select(item => item == theme ? theme with { Details = details } : item)],
+                Changelog = DetailPlan.Log(current.Changelog, new(Guid.NewGuid(), account, theme.Id, now, ChangelogEntry.User,
+                    "Removed: " + source.Label, source.Kind == DetailSource.Overleaf ? source.Container : null, [source.Label], changes, null, now))
+            };
+            if (source.Kind == DetailSource.Overleaf)
+            {
+                var project = current.Projects.FirstOrDefault(item => item.AccountId == account && item.ProjectId == source.Container);
+                if (project is not null)
+                {
+                    var processed = (project.Processed ?? new Dictionary<string, string>()).Where(entry => entry.Key != source.Item).ToDictionary(StringComparer.Ordinal);
+                    current = current with
+                    {
+                        Projects = Replace(current.Projects, project with
+                        {
+                            ExcludedDocs = [.. (project.ExcludedDocs ?? []).Append(source.Item).Distinct(StringComparer.Ordinal)], Processed = processed
+                        }),
+                        PendingFiles = [.. (current.PendingFiles ?? []).Where(file => file.AccountId != account || file.ProjectId != source.Container || file.Path != source.Item),
+                            new PendingFile(account, source.Container, project.Name, source.Item, source.Version, theme.Id, now)]
+                    };
+                }
+            }
+            else
+                current = current with
+                {
+                    GmailThreads = current.GmailThreads?.Select(thread => thread.AccountId == account && thread.Id == source.Item &&
+                        string.Equals(thread.Address, source.Container, StringComparison.OrdinalIgnoreCase)
+                            ? thread with { Status = GmailThreadRecord.Pending, CardId = null, FoldedMessageId = null, FoldedSentAt = null, UpdatedAt = now } : thread).ToArray()
+                };
+            return current;
         }, ct);
-        return true;
+        logger.LogInformation("A source was removed from a research project by the user.");
+        Wake();
+    }
+
+    /// <summary>A file removed as a source: add it to another research project (folded there once), or skip it.</summary>
+    public async Task DecidePendingFileAsync(PendingFileDecisionRequest request, CancellationToken ct)
+    {
+        if (request is null || !ResearchEvidence.IsProjectId(request.ProjectId) || string.IsNullOrWhiteSpace(request.Path) ||
+            request.Action is not ("project" or "dismiss") || request.Action == "project" && !ResearchThemes.IsThemeId(request.CardId))
+            throw new ResearchFailure(400, "invalid_file_decision", "Choose a file and what to do with it.");
+        var account = RequireCredential(await store.ReadAsync(ct)).Account.Id;
+        await store.ChangeAsync(current =>
+        {
+            if (current.Credential?.Account.Id != account) throw AccountChanged();
+            var file = current.PendingFiles?.FirstOrDefault(item => item.AccountId == account && item.ProjectId == request.ProjectId && item.Path == request.Path)
+                ?? throw new ResearchFailure(404, "file_not_found", "This file is no longer waiting for a decision.");
+            if (request.Action == "dismiss") return current with { PendingFiles = [.. current.PendingFiles!.Where(item => item != file)] };
+            if (!ThemePlan.Themes(current, account).Any(theme => theme.Id == request.CardId))
+                throw new ResearchFailure(404, "theme_not_found", "That research project no longer exists.");
+            return current with { PendingFiles = [.. current.PendingFiles!.Select(item => item == file ? file with { TargetCardId = request.CardId } : item)] };
+        }, ct);
+        Wake();
+    }
+
+    /// <summary>A page of a research project's changelog, newest first (entries before <paramref name="before"/>).</summary>
+    /// <summary>
+    /// A page of a card's changelog, newest first: the entries after entry <paramref name="after"/> (the last one shown), or,
+    /// when that entry no longer exists, those older than <paramref name="before"/>.
+    /// </summary>
+    public async Task<ChangelogPageResponse> ChangelogAsync(string themeId, DateTimeOffset? before, Guid? after, int limit, CancellationToken ct)
+    {
+        var state = await store.ReadAsync(ct);
+        var account = RequireCredential(state).Account.Id;
+        int size = Math.Clamp(limit, 1, 100);
+        var ordered = (state.Changelog ?? []).Where(entry => entry.AccountId == account && entry.CardId == themeId)
+            .OrderByDescending(entry => entry.At).ThenByDescending(entry => entry.RecordedAt).ThenByDescending(entry => entry.Id).ToList();
+        int shown = after is { } id ? ordered.FindIndex(entry => entry.Id == id) : -1;
+        var rest = shown >= 0 ? ordered.Skip(shown + 1) : ordered.Where(entry => before is null || entry.At < before);
+        var entries = rest.Take(size + 1).ToArray();
+        var themes = ThemePlan.Themes(state, account);
+        return new([.. entries.Take(size).Select(entry => Change(entry, themes, state))], entries.Length > size);
+    }
+
+    private static ChangeResponse Change(ChangelogEntry entry, IReadOnlyList<ResearchTheme> themes, LocalResearchState state) =>
+        new(entry.Id, entry.CardId, themes.FirstOrDefault(theme => theme.Id == entry.CardId)?.Profile?.Title, entry.At, entry.Kind, entry.Title,
+            entry.ProjectId is { } project ? state.Projects.FirstOrDefault(item => item.ProjectId == project)?.Name : null, entry.Documents,
+            [.. entry.Changes.Select(change => new DetailChangeResponse(change.Op, change.DetailId, change.Before, change.After))]);
+
+    private static ThemeCandidate Candidate(ResearchTheme theme)
+    {
+        string description = string.Join(' ', new[] { theme.Profile!.Description }.Concat((theme.Details ?? []).Take(6).Select(detail => detail.Text)));
+        return new(theme.Id, Trim(theme.Profile.Title, ProfileEvidence.HardMaxTitle), Trim(description, ProfileEvidence.HardMaxDescription), []);
+    }
+
+    private static ProjectProfile CardProfile(ResearchTheme theme) =>
+        new(Trim(theme.Profile!.Title, ProfileEvidence.HardMaxTitle), Trim(theme.Profile.Description, ProfileEvidence.HardMaxDescription),
+            [.. (theme.Details ?? []).Take(15).Select(detail => Trim(detail.Text, ProfileEvidence.HardMaxContribution))], []);
+
+    /// <summary>Writes a card's title and two-sentence summary from its details (OVERLEAF.md §8).</summary>
+    private async Task WriteSummaryAsync(LinkedCredential credential, ResearchTheme card, CancellationToken ct)
+    {
+        var account = credential.Account.Id;
+        var anchor = ThemePlan.AnchorOf(await store.ReadAsync(ct), card);
+        var paper = anchor?.Paper is { Abstract: not null } read ? read : null;
+        string print = DetailPlan.Fingerprint(card.Details);
+        // The title is the main paper's, else the name the user gave the project, else Foundry's working title.
+        string? title = paper?.Title ?? card.Name;
+        var response = await remote.SummarizeDetailsAsync(credential.Token, new(title is null ? null : Trim(title, Papers.MaxTitle),
+            paper?.Abstract, [.. card.Details!.Select(detail => detail.Text)]), ct);
+        if (!DetailRules.ValidSummary(response))
+            throw new ResearchFailure(502, "invalid_detail_summary", "Foundry returned an unsupported project summary. Nothing was changed.");
+        var profile = new ProjectProfile(response.Title, response.Summary, [], []);
+        await store.ChangeAsync(current =>
+        {
+            var theme = current.Themes?.FirstOrDefault(item => item.AccountId == account && item.Id == card.Id);
+            // The details changed meanwhile: the summary is written again next.
+            if (current.Credential?.Account.Id != account || theme is null || DetailPlan.Fingerprint(theme.Details) != print) return current;
+            return current with
+            {
+                Themes = [.. current.Themes!.Select(item => item == theme
+                    ? theme with { Profile = profile, Blurb = profile.Description, BlurbFor = ThemePlan.Fingerprint(profile), SummaryFor = print } : item)]
+            };
+        }, ct);
+        logger.LogInformation("A research project's summary was written from its {Count} details.", card.Details!.Count);
     }
 
     /// <summary>
-    /// One unit of research card work: drop departed members, place a newly imported project on a card (one model call when
-    /// cards exist), or combine a card's member summaries (one model call when it has several members). Returns false when
-    /// nothing is due or the last grouping call failed recently.
+    /// One unit of research card work: drop departed members and their sources, write a summary whose details changed, match a
+    /// new card (strictly), compare all cards once more, or group a skipped card with related skipped work (loosely).
     /// </summary>
     private async Task<bool> ThemeStepAsync(LinkedCredential credential, CancellationToken ct)
     {
@@ -533,107 +699,107 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         if (state.Credential?.Account.Id != account) return false;
         if (ThemePlan.Cleaned(state, account) is not null)
         {
-            await store.ChangeAsync(current => current.Credential?.Account.Id == account && ThemePlan.Cleaned(current, account) is { } cleaned
-                ? current with { Themes = cleaned } : current, ct);
+            await store.ChangeAsync(current => current.Credential?.Account.Id == account && ThemePlan.Cleaned(current, account) is { } cleaned ? cleaned : current, ct);
             return true;
-        }
-        // Reading papers and the one-time rebuild need no model call, so they do not use up a step.
-        while (await PaperStepAsync(account, state, ct)) state = await store.ReadAsync(ct);
-        if (state.ThemesVersion < ThemePlan.Version)
-        {
-            bool cards = ThemePlan.Themes(state, account).Count != 0;
-            state = await store.ChangeAsync(current => current.Credential?.Account.Id == account && current.ThemesVersion < ThemePlan.Version
-                ? ThemePlan.Rebuild(current, account) : current, ct);
-            if (cards) logger.LogInformation("Research cards are rebuilt once: each is described from its main paper, and projects are grouped again strictly.");
-            if (ThemePlan.Cleaned(state, account) is not null) return await ThemeStepAsync(credential, ct);
         }
         if (clock.GetUtcNow() < _themeRetryAt) return false;
         try
         {
-            // A new card is described before the next project is placed, so that project can be matched against it.
-            if (ThemePlan.Stale(state, account) is { Theme.Profile: null } fresh)
+            if (ThemePlan.SummaryDue(state, account) is { } due)
             {
-                await DescribeAsync(credential, fresh.Theme, fresh.Anchor, ct);
+                await WriteSummaryAsync(credential, due, ct);
                 return true;
             }
-            if (ThemePlan.Unplaced(state, account) is { } project)
+            if (ThemePlan.MatchDue(state, account) is { } fresh)
             {
-                var candidates = ThemePlan.Active(state, account).Where(theme => theme.Profile is not null).Take(ResearchThemes.MaxCandidates)
-                    .Select(theme => new ThemeCandidate(theme.Id, theme.Profile!.Title, theme.Profile.Description, theme.Profile.Topics)).ToArray();
-                var match = candidates.Length == 0 ? null : await remote.MatchThemeAsync(credential.Token, new(project.Name, project.Profile!, candidates), ct);
-                string? target = match?.ThemeId;
-                await store.ChangeAsync(current =>
-                    current.Credential?.Account.Id == account && ThemePlan.Unplaced(current, account)?.ProjectId == project.ProjectId
-                        ? ThemePlan.Place(current, account, project.ProjectId, target, clock.GetUtcNow(), reason: target is null ? null : match!.Explanation)
-                        : current, ct);
-                logger.LogInformation("Placed a newly imported project on {Kind} research card. Names omitted.", target is null ? "a new" : "an existing");
+                var candidates = ThemePlan.Active(state, account).Where(theme => theme.Id != fresh.Id && theme.Profile is not null && theme.MatchPending != true)
+                    .Take(ResearchThemes.MaxCandidates).Select(Candidate).ToArray();
+                var match = candidates.Length == 0 ? null : await remote.MatchThemeAsync(credential.Token, new(fresh.Profile!.Title, CardProfile(fresh), candidates), ct);
+                if (match?.ThemeId is { } target) await CombineAsync(credential, target, [fresh.Id], pin: false, match.Explanation, ct);
+                else await store.ChangeAsync(current => current with
+                {
+                    Themes = [.. (current.Themes ?? []).Select(theme => theme.AccountId == account && theme.Id == fresh.Id ? theme with { MatchPending = null } : theme)]
+                }, ct);
+                logger.LogInformation(match?.ThemeId is null ? "A new research project stays on its own card." : "A new research project joined an existing one.");
                 return true;
             }
             if (ThemePlan.RegroupDue(state, account))
             {
-                // Cards were placed one project at a time; compare them all once so cards of one programme are combined.
-                string signature = ThemePlan.Signature(state, account);
-                var cards = ThemePlan.Active(state, account).Take(ResearchThemes.MaxCandidates)
-                    .Select(theme => new ThemeCandidate(theme.Id, theme.Profile!.Title, theme.Profile.Description, theme.Profile.Topics)).ToArray();
+                // Cards were matched one at a time; compare them all once so cards of one piece of research are combined.
+                var cards = ThemePlan.Active(state, account).Take(ResearchThemes.MaxCandidates).Select(Candidate).ToArray();
                 var groups = (await remote.RegroupThemesAsync(credential.Token, new(cards), ct)).Groups;
-                await store.ChangeAsync(current =>
+                foreach (var group in groups)
                 {
-                    if (current.Credential?.Account.Id != account || ThemePlan.Signature(current, account) != signature) return current;
-                    var regrouped = ThemePlan.ApplyGroups(current, account, groups);
-                    return regrouped with { ThemesRegroupedFor = ThemePlan.Signature(regrouped, account) };
-                }, ct);
-                logger.LogInformation("Regrouped research cards: {Count} group(s) combined. Names omitted.", groups.Count);
-                return true;
-            }
-            if (ThemePlan.Stale(state, account) is { } stale)
-            {
-                await DescribeAsync(credential, stale.Theme, stale.Anchor, ct);
+                    var members = ThemePlan.Themes(await store.ReadAsync(ct), account).Where(theme => group.CardIds.Contains(theme.Id)).ToArray();
+                    if (members.Length < 2) continue;
+                    var target = members.OrderByDescending(theme => theme.Members.Count).ThenBy(theme => theme.CreatedAt).First();
+                    // A card with projects the user placed by hand is never combined away automatically.
+                    var movable = members.Where(theme => theme != target && theme.Pinned is not { Count: > 0 }).Select(theme => theme.Id).ToArray();
+                    if (movable.Length != 0) await CombineAsync(credential, target.Id, movable, pin: false, group.Explanation, ct);
+                }
+                await store.ChangeAsync(current => current.Credential?.Account.Id == account
+                    ? current with { ThemesRegroupedFor = ThemePlan.Signature(current, account) } : current, ct);
+                logger.LogInformation("Regrouped research cards: {Count} group(s) found.", groups.Count);
                 return true;
             }
             if (ThemePlan.SkipUngrouped(state, account) is { } skippedCard)
             {
-                // Skipped work is grouped generously and without asking: mistakes matter less there, and unskipping undoes it.
+                // Skipped work is grouped generously and without asking: mistakes matter less there, and bringing it back undoes it.
                 var others = ThemePlan.Themes(state, account).Where(theme => theme.Skipped == true && theme.Id != skippedCard.Id && theme.Profile is not null)
-                    .Take(ResearchThemes.MaxCandidates)
-                    .Select(theme => new ThemeCandidate(theme.Id, theme.Profile!.Title, theme.Profile.Description, theme.Profile.Topics)).ToArray();
+                    .Take(ResearchThemes.MaxCandidates).Select(Candidate).ToArray();
                 var match = others.Length == 0 ? null : await remote.MatchThemeAsync(credential.Token,
-                    new(skippedCard.Profile!.Title, skippedCard.Profile, others, Loose: true), ct);
-                await store.ChangeAsync(current =>
+                    new(skippedCard.Profile!.Title, CardProfile(skippedCard), others, Loose: true), ct);
+                if (match?.ThemeId is { } target) await CombineAsync(credential, target, [skippedCard.Id], pin: false, match.Explanation, ct);
+                else await store.ChangeAsync(current => current with
                 {
-                    var theme = current.Themes?.FirstOrDefault(item => item.AccountId == account && item.Id == skippedCard.Id && item.Skipped == true);
-                    if (current.Credential?.Account.Id != account || theme is null) return current;
-                    var target = match?.ThemeId is { } id ? current.Themes!.FirstOrDefault(item => item.AccountId == account && item.Id == id && item.Skipped == true) : null;
-                    if (target is null)
-                        return current with { Themes = [.. current.Themes!.Select(item => item == theme ? theme with { SkipGrouped = true } : item)] };
-                    var merged = ThemePlan.MergeCards(current, account, theme.Id, target.Id, clock.GetUtcNow());
-                    return merged with { Themes = [.. merged.Themes!.Select(item => item.Id == target.Id ? item with { Reason = match!.Explanation } : item)] };
+                    Themes = [.. (current.Themes ?? []).Select(theme => theme.AccountId == account && theme.Id == skippedCard.Id ? theme with { SkipGrouped = true } : theme)]
                 }, ct);
                 logger.LogInformation(match?.ThemeId is null ? "A skipped card stays on its own." : "A skipped card was grouped with related skipped work.");
-                return true;
-            }
-            if (ThemePlan.BlurbDue(state, account) is { } described)
-            {
-                var profile = described.Profile!;
-                string blurb = (await remote.DescribeCardAsync(credential.Token, new(profile), ct)).Blurb;
-                if (!ResearchThemes.ValidBlurb(blurb)) throw new ResearchFailure(502, "invalid_card_blurb", "Foundry returned an unsupported card description.");
-                string print = ThemePlan.Fingerprint(profile);
-                await store.ChangeAsync(current =>
-                {
-                    if (current.Credential?.Account.Id != account) return current;
-                    var theme = current.Themes?.FirstOrDefault(item => item.AccountId == account && item.Id == described.Id);
-                    // The card's summary changed meanwhile: the next step describes the new version.
-                    if (theme?.Profile is null || ThemePlan.Fingerprint(theme.Profile) != print) return current;
-                    return current with { Themes = [.. current.Themes!.Select(item => item == theme ? theme with { Blurb = blurb, BlurbFor = print } : item)] };
-                }, ct);
                 return true;
             }
         }
         catch (ResearchFailure failure)
         {
-            logger.LogWarning("Research card grouping failed: {Code}. It is retried in {Minutes} minutes.", failure.Code, ThemeBackoff.TotalMinutes);
+            logger.LogWarning("Research card work failed: {Code}. It is retried in {Minutes} minutes.", failure.Code, ThemeBackoff.TotalMinutes);
             _themeRetryAt = clock.GetUtcNow() + ThemeBackoff;
         }
         return false;
+    }
+
+    /// <summary>Folds a file the user added to another research project into that project's details, once (OVERLEAF.md §10).</summary>
+    private async Task<bool> PendingFileStepAsync(LinkedCredential credential, CancellationToken ct)
+    {
+        var account = credential.Account.Id;
+        var state = await store.ReadAsync(ct);
+        var file = state.PendingFiles?.FirstOrDefault(item => item.AccountId == account && item.TargetCardId is not null);
+        if (file is null) return false;
+        var card = ThemePlan.Themes(state, account).FirstOrDefault(theme => theme.Id == file.TargetCardId);
+        string? text = await store.ReadTextAsync(file.Sha256, ct);
+        if (card is not null && text is not null)
+        {
+            var segment = LatexTree.Pack([(file.Path, text)])[0][0];
+            var request = new DetailStepRequest(DetailSource.Overleaf, Trim(card.Profile?.Title ?? "Research project", ProfileEvidence.HardMaxTitle), null, null,
+                DetailPlan.Inputs(card.Details ?? []), [file.Path + " [sent]"], [segment]);
+            var response = await remote.DetailStepAsync(credential.Token, request, ct);
+            DetailRules.ValidateResponse(request, response);
+            await store.ChangeAsync(current =>
+            {
+                var theme = current.Themes?.FirstOrDefault(item => item.AccountId == account && item.Id == card.Id);
+                if (current.Credential?.Account.Id != account || theme is null) return current;
+                var now = clock.GetUtcNow();
+                var (details, changes) = DetailPlan.Apply(theme.Details ?? [], response,
+                    quote => new DetailSource(DetailSource.Overleaf, file.ProjectId, quote.Item, file.Sha256, quote.Item, file.RemovedAt));
+                return current with
+                {
+                    Themes = [.. current.Themes!.Select(item => item == theme ? theme with { Details = details } : item)],
+                    PendingFiles = [.. current.PendingFiles!.Where(item => item != file)],
+                    Changelog = DetailPlan.Log(current.Changelog, new(Guid.NewGuid(), account, theme.Id, now, ChangelogEntry.Overleaf,
+                        $"Added {file.Path} from {file.ProjectName}", file.ProjectId, [file.Path], changes, null, now))
+                };
+            }, ct);
+        }
+        else await store.ChangeAsync(current => current with { PendingFiles = [.. (current.PendingFiles ?? []).Where(item => item != file)] }, ct);
+        return true;
     }
 
     /// <summary>A manual check: read every included project again now, even if its daily check is not due.</summary>
@@ -752,7 +918,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         bool queued = selected.Any(project => project.Pending is not null && Due(project, now));
         var summaries = (state.Summaries ?? []).Where(item => item.AccountId == credential.Account.Id && item.Status == "queued")
             .OrderBy(item => item.RequestedAt).ToArray();
-        bool themes = ThemePlan.HasWork(state, credential.Account.Id) && clock.GetUtcNow() >= _themeRetryAt;
+        bool themes = ThemePlan.HasWork(state, credential.Account.Id) && clock.GetUtcNow() >= _themeRetryAt ||
+            state.PendingFiles?.Any(file => file.AccountId == credential.Account.Id && file.TargetCardId is not null) == true;
         bool mail = importer?.HasWork(state, credential.Account.Id, now) == true;
         if (due.Length == 0 && !queued && summaries.Length == 0 && !themes && !mail) return false;
         Interlocked.Exchange(ref _busy, 1);
@@ -774,6 +941,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             if (Volatile.Read(ref _urgent) != 0) return true;
             // Card work first, so a project joins its research card as soon as its import finishes.
             if (await ThemeStepAsync(credential, ct)) continue;
+            if (await PendingFileStepAsync(credential, ct)) continue;
             if (!await StepRoundAsync(credential, ct)) return mailLeft;
         }
         return true;
@@ -787,10 +955,41 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     internal async Task<bool> ResetIfDueAsync(CancellationToken ct)
     {
         if ((await store.ReadAsync(ct)).ResetEpoch >= ResetEpoch) return false;
-        await store.ChangeAsync(current => current with { Projects = [], Decisions = [], Researchers = [], Summaries = [], Themes = [], ThemesRegroupedFor = null, ResetEpoch = ResetEpoch }, ct);
+        await store.ChangeAsync(current => current.ResetEpoch >= ResetEpoch ? current : Fresh(current), ct);
         store.PruneTexts(new HashSet<string>(StringComparer.Ordinal));
-        logger.LogInformation("Applied the one-time research reset {Epoch}: projects, choices, OpenAlex match and texts were erased.", ResetEpoch);
+        logger.LogInformation("Applied the one-time fresh start {Epoch}: research is rebuilt from Overleaf and email; choices were kept.", ResetEpoch);
         return true;
+    }
+
+    /// <summary>
+    /// The one-time fresh start of OVERLEAF.md §13: research content (projects' processing state, cards, details, changelog,
+    /// threads, texts) is erased; the sign-in, the sync key, Gmail connections, include/exclude choices, skipped work and the
+    /// OpenAlex match are kept. Included projects are read again from scratch.
+    /// </summary>
+    internal static LocalResearchState Fresh(LocalResearchState state)
+    {
+        var skipped = (state.Themes ?? []).Where(theme => theme.Skipped == true).SelectMany(theme => theme.Members)
+            .Concat(state.SkippedProjects ?? []).Where(ResearchEvidence.IsProjectId).Distinct(StringComparer.Ordinal).ToArray();
+        var decisions = (state.Decisions ?? []).Where(decision => ResearchEvidence.IsProjectId(decision.ProjectId)).ToArray();
+        var projects = decisions.Where(decision => decision.Included).Select(decision =>
+            new MonitoredProject(decision.AccountId, decision.ProjectId,
+                state.Projects.FirstOrDefault(project => project.AccountId == decision.AccountId && project.ProjectId == decision.ProjectId)?.Name ?? "Overleaf project",
+                true, ResearchEvidence.ConsentVersion, null, null, [], [], null, null, null, null, null, 0, 0)).ToArray();
+        return state with
+        {
+            Projects = projects, Decisions = decisions, Summaries = [], Themes = [], ThemesRegroupedFor = null, Changelog = [], PendingFiles = [],
+            SkippedProjects = skipped.Length == 0 ? null : skipped,
+            // Threads the user skipped stay skipped; everything else is imported again.
+            GmailThreads = [.. (state.GmailThreads ?? []).Where(thread => thread.Status == GmailThreadRecord.Dismissed)
+                .Select(thread => thread with { StreamId = null, CardId = null, FoldedMessageId = null, FoldedSentAt = null })],
+            GmailAccounts = state.GmailAccounts?.Select(account => account with
+            {
+                LastImportAt = null, ImportVersion = null, LeaseBy = null, LeaseUntil = null, Processed = null
+            }).ToArray(),
+            GmailVersion = GmailImporter.Version,
+            Sync = state.Sync is { } sync ? sync with { ProfileETag = null, ProfileSyncedFor = null } : null,
+            ResetEpoch = ResetEpoch
+        };
     }
 
     private bool SweepDue(MonitoredProject project, DateTimeOffset now) => Due(project, now) && project.Pending is null &&
@@ -861,7 +1060,10 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             return current with { Summaries = [.. current.Summaries!.Where(item => item != latest), change(latest)] };
         }, ct);
 
-    /// <summary>Reads each due project once: unchanged metadata or content costs nothing; changed files are queued.</summary>
+    /// <summary>
+    /// Reads each due project once: unchanged metadata or content costs nothing. Changed content starts an ingest cycle
+    /// (OVERLEAF.md §3-§6): the root trees within the window with documents not yet folded at their current version.
+    /// </summary>
     private async Task SweepAsync(LinkedCredential credential, IReadOnlyList<MonitoredProject> due, bool force, CancellationToken ct)
     {
         if (!source.Available)
@@ -895,40 +1097,47 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                     await store.WriteTextAsync(file.Sha256, file.Text!, token);
                 var manifest = new ProjectManifest(snapshot.Revision, snapshot.ObservedAt, snapshot.SourceUpdatedAt,
                     snapshot.Files.Select(file => new ManifestFile(file.Path, file.Sha256, file.Bytes, file.Text is not null)).ToArray());
-                if (project.Profile is null && !manifest.Files.Any(file => file.Analyzed))
+                if (project.Processed is not { Count: > 0 } && !manifest.Files.Any(file => file.Analyzed))
                     throw new ResearchFailure(422, "no_supported_research_text", "This project has no supported UTF-8 .tex, .md, or .txt sources. Bibliographies, PDFs and images are not analyzed in this version.");
                 int unanalyzed = manifest.Files.Count(file => !file.Analyzed);
-                var work = ProcessingPlan.Work(project.Processed, manifest);
-                if (work.Count == 0)
+                if (project.ImportComplete && project.Baseline is { } baseline && SameDocuments(baseline, manifest))
                 {
                     // Nothing to process, so Overleaf's history is not read again: the files' known edit times are kept.
                     var paths = manifest.Files.Select(file => file.Path).ToHashSet(StringComparer.Ordinal);
-                    var kept = project.Baseline?.EditTimes?.Where(entry => paths.Contains(entry.Key)).ToDictionary(StringComparer.Ordinal);
+                    var kept = baseline.EditTimes?.Where(entry => paths.Contains(entry.Key)).ToDictionary(StringComparer.Ordinal);
                     manifest = manifest with { EditTimes = kept is { Count: > 0 } ? kept : null };
                     await CommitAsync(credential, project, item => Clean(item) with
                     {
-                        Name = metadata.Name, Baseline = manifest, Pending = null, PendingOrder = null, PendingSince = null,
-                        ImportComplete = item.Profile is not null, LastSweepAt = now, LastSuccessAt = now, UnprocessedFiles = unanalyzed,
-                        Explanation = "No supported text changes. No model calls were made."
+                        Name = metadata.Name, Baseline = manifest, Pending = null, PendingTrees = null, PendingOrder = null, PendingSince = null,
+                        LastSweepAt = now, LastSuccessAt = now, UnprocessedFiles = unanalyzed, Explanation = "No supported text changes. No model calls were made."
                     }, token);
                     logger.LogInformation("Checked: no supported text changes. No model calls were made.");
                     return;
                 }
                 manifest = manifest with { EditTimes = await source.EditTimesAsync(project.ProjectId, token) };
-                var order = ProcessingPlan.Order(work, manifest);
+                var texts = await DetailPlan.TextsAsync(store, project, manifest, token);
+                var trees = DetailPlan.Trees(project, manifest, texts, now, SummaryWindow);
                 await CommitAsync(credential, project, item => Clean(item) with
                 {
-                    Name = metadata.Name, Pending = manifest, PendingOrder = order, PendingSince = item.PendingSince ?? now,
+                    Name = metadata.Name, Pending = manifest, PendingTrees = trees, PendingOrder = null, PendingSince = item.PendingSince ?? now,
                     LastSweepAt = now, UnprocessedFiles = unanalyzed
                 }, token);
-                logger.LogInformation("Queued {Count} changed file(s) for summary processing.", order.Count);
+                logger.LogInformation("Queued {Trees} document tree(s) with {Documents} document(s) to read.", trees.Count, trees.Sum(tree => tree.Send.Count));
             });
         }
     }
 
+    /// <summary>Whether two manifests have the same readable documents at the same versions.</summary>
+    private static bool SameDocuments(ProjectManifest a, ProjectManifest b)
+    {
+        var first = DetailPlan.Hashes(a);
+        var second = DetailPlan.Hashes(b);
+        return first.Count == second.Count && first.All(entry => second.TryGetValue(entry.Key, out var hash) && hash == entry.Value);
+    }
+
     /// <summary>
-    /// Folds the next queued file of up to <see cref="ResearchOptions.ParallelProjects"/> queued projects into their summaries
-    /// at once: projects are independent, while each project's files stay in order. Returns false when nothing is queued.
+    /// Folds the next part of up to <see cref="ResearchOptions.ParallelProjects"/> projects in an ingest cycle at once:
+    /// projects are independent, while each project's trees and parts stay in order. Returns false when nothing is queued.
     /// </summary>
     private async Task<bool> StepRoundAsync(LinkedCredential credential, CancellationToken ct)
     {
@@ -942,53 +1151,132 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         return true;
     }
 
-    /// <summary>Folds the next queued file of one project into its summary, or finishes the project when none is left.</summary>
+    /// <summary>
+    /// One update of a project's research card (OVERLEAF.md §7): the next part of its cycle is sent with the card's details,
+    /// and the edits, the documents' folded versions and a changelog entry are committed together. When no part is left the
+    /// cycle finishes.
+    /// </summary>
     private async Task StepAsync(LinkedCredential credential, MonitoredProject project, CancellationToken ct)
     {
         await RunForProjectAsync(project, ct, async token =>
         {
+            var account = credential.Account.Id;
             var pending = project.Pending!;
-            string? path = ProcessingPlan.Next(project);
-            if (path is null)
+            var texts = await DetailPlan.TextsAsync(store, project, pending, token);
+            var part = DetailPlan.Next(project, texts);
+            if (part is null)
             {
-                bool firstImport = !project.ImportComplete;
-                var finished = await CommitAsync(credential, project, item => item with
+                await FinishCycleAsync(credential, project, texts, token);
+                return;
+            }
+            var card = ThemePlan.CardOf(await store.ReadAsync(token), account, project.ProjectId);
+            var hashes = DetailPlan.Hashes(pending);
+            var sent = part.Documents.Select(document => document.Path).ToHashSet(StringComparer.Ordinal);
+            var paper = Papers.Read(texts.Where(entry => entry.Key.EndsWith(".tex", StringComparison.OrdinalIgnoreCase)).Select(entry => (entry.Key, entry.Value)));
+            var request = new DetailStepRequest(DetailSource.Overleaf, Trim(card?.Profile?.Title ?? project.Name, ProfileEvidence.HardMaxTitle),
+                paper?.Abstract is not null ? paper.Title : null, paper?.Abstract,
+                DetailPlan.Inputs(card?.Details ?? [], source => source.Kind == DetailSource.Overleaf && source.Container == project.ProjectId &&
+                    sent.Contains(source.Item) && hashes.TryGetValue(source.Item, out var hash) && hash != source.Version),
+                part.Outline, part.Documents);
+            DetailRules.ValidateRequest(request);
+            var response = await remote.DetailStepAsync(credential.Token, request, token);
+            DetailRules.ValidateResponse(request, response);
+            DateTimeOffset Edited(string path) =>
+                pending.EditTimes is { } times && times.TryGetValue(path, out var time) ? time : pending.SourceUpdatedAt ?? pending.ObservedAt;
+            int count = 0;
+            await store.ChangeAsync(current =>
+            {
+                var item = current.Projects.FirstOrDefault(entry => entry.AccountId == account && entry.ProjectId == project.ProjectId);
+                if (current.Credential?.Account.Id != account || current.Credential.Token != credential.Token || item is not { Enabled: true } ||
+                    item.ConsentVersion != ResearchEvidence.ConsentVersion || item.Pending?.Revision != pending.Revision) throw AccountChanged();
+                var now = clock.GetUtcNow();
+                if (ThemePlan.CardOf(current, account, project.ProjectId) is null) current = ThemePlan.Place(current, account, project.ProjectId, null, now);
+                var theme = ThemePlan.CardOf(current, account, project.ProjectId)!;
+                // Edits apply to the card as it is now (another project or email may have changed it meanwhile).
+                var (details, changes) = DetailPlan.Apply(theme.Details ?? [], response,
+                    quote => new DetailSource(DetailSource.Overleaf, project.ProjectId, quote.Item, hashes[quote.Item], quote.Item, Edited(quote.Item)));
+                var processed = new Dictionary<string, string>(item.Processed ?? new Dictionary<string, string>(), StringComparer.Ordinal);
+                var partial = new Dictionary<string, string>(item.Partial ?? new Dictionary<string, string>(), StringComparer.Ordinal);
+                foreach (var path in sent)
                 {
-                    Baseline = pending, Pending = null, PendingOrder = null, PendingSince = null, ImportComplete = item.Profile is not null,
-                    LastSuccessAt = clock.GetUtcNow(),
-                    Explanation = firstImport ? "Initial import complete: the summary now reflects every supported file." : item.Explanation
-                }, token);
-                PruneTexts(finished);
-                logger.LogInformation(firstImport ? "Initial import finished: {Files} file(s) folded into the summary." :
-                    "Changes processed: {Files} file(s) folded into the summary.", project.PendingOrder?.Count ?? 0);
-                return;
-            }
-            var processed = project.Processed ?? new Dictionary<string, string>();
-            var file = pending.Files.FirstOrDefault(item => item.Path == path && item.Analyzed);
-            processed.TryGetValue(path, out var before);
-            bool initial = !project.ImportComplete || project.Profile is null;
-            // Identical copies (for example earlier submission folders) and deletions during the first import need no model call.
-            if ((initial && file is null) || (file is not null && before is null && processed.Values.Contains(file.Sha256)))
-            {
-                await CommitStepAsync(credential, project, path, before, file?.Sha256, null, [], token);
-                return;
-            }
-            string? current = file is null ? null : await store.ReadTextAsync(file.Sha256, token) ?? throw MissingText();
-            string? previous = initial || before is null ? null : await store.ReadTextAsync(before, token) ?? throw MissingText();
-            var request = new ProfileStepRequest(project.ProjectId, project.Name, initial, project.Profile, new(path, previous, current));
-            var response = await remote.ProfileStepAsync(credential.Token, request, token);
-            ProfileEvidence.ValidateResponse(request, response);
-            var observed = clock.GetUtcNow();
-            DateTimeOffset? edited = pending.EditTimes is { } times && times.TryGetValue(path, out var time) ? time : pending.SourceUpdatedAt;
-            var updates = response.Updates.Select(update => new ResearchUpdate(Guid.NewGuid(), project.ProjectId, project.Name,
-                file is null ? ResearchUpdateKind.Removal : ResearchUpdateKind.Change, update.Title, update.Summary, observed, edited,
-                project.Baseline?.Revision, pending.Revision, Guid.NewGuid(), update.Evidence, null)).ToArray();
-            await CommitStepAsync(credential, project, path, before, file?.Sha256, response, updates, token);
-            var (done, total) = ProcessingPlan.Progress(project);
-            logger.LogInformation(updates.Length == 0 ? "{Kind}: file {Done} of {Total} folded into the summary." :
-                "{Kind}: file {Done} of {Total} folded into the summary with {Count} new Update(s).",
-                initial ? "Import" : "Update", done + 1, total, updates.Length);
+                    if (part.Completes.Contains(path))
+                    {
+                        // A document read in full: citations of its earlier versions go (OVERLEAF.md §7.5).
+                        processed[path] = hashes[path];
+                        partial.Remove(path);
+                        var (kept, dropped) = DetailPlan.Without(details, source => source.Kind == DetailSource.Overleaf &&
+                            source.Container == project.ProjectId && source.Item == path && source.Version != hashes[path]);
+                        details = kept;
+                        changes = [.. changes, .. dropped];
+                    }
+                    else partial[path] = $"{hashes[path]}:{part.Documents.Where(document => document.Path == path).Max(document => document.FirstLine)}";
+                }
+                count = changes.Count;
+                return current with
+                {
+                    Themes = [.. current.Themes!.Select(entry => entry == theme ? theme with { Details = details } : entry)],
+                    Projects = Replace(current.Projects, item with
+                    {
+                        Processed = processed, Partial = partial.Count == 0 ? null : partial, LastAttemptAt = now, Explanation = response.Explanation,
+                        ErrorCode = null, Error = null, FailureCount = 0, NextAttemptAt = null
+                    }),
+                    Changelog = DetailPlan.Log(current.Changelog, new(Guid.NewGuid(), account, theme.Id, part.Tree.Date, ChangelogEntry.Overleaf,
+                        part.Tree.Root, project.ProjectId, [.. sent], changes, $"{project.ProjectId}|{part.Tree.Root}|{pending.Revision}", now))
+                };
+            }, token);
+            var (done, total) = DetailPlan.Progress(await ProjectAsync(project, token) ?? project);
+            logger.LogInformation("{Kind}: {Done} of {Total} document(s) read; {Changes} change(s) to the project's details.",
+                project.ImportComplete ? "Update" : "Import", done, total, count);
         });
+    }
+
+    private async Task<MonitoredProject?> ProjectAsync(MonitoredProject project, CancellationToken ct) =>
+        (await store.ReadAsync(ct)).Projects.FirstOrDefault(item => item.AccountId == project.AccountId && item.ProjectId == project.ProjectId);
+
+    /// <summary>
+    /// Ends an ingest cycle (OVERLEAF.md §9): documents that are gone (deleted, too large, excluded) lose their sources, the
+    /// observed version becomes the baseline, and the paper's title and abstract are read again. A project gets its card here
+    /// if no part was sent.
+    /// </summary>
+    private async Task FinishCycleAsync(LinkedCredential credential, MonitoredProject project, IReadOnlyDictionary<string, string> texts, CancellationToken ct)
+    {
+        var account = credential.Account.Id;
+        var pending = project.Pending!;
+        var paper = Papers.Read(texts.Where(entry => entry.Key.EndsWith(".tex", StringComparison.OrdinalIgnoreCase)).Select(entry => (entry.Key, entry.Value)));
+        int removed = 0;
+        await store.ChangeAsync(current =>
+        {
+            var item = current.Projects.FirstOrDefault(entry => entry.AccountId == account && entry.ProjectId == project.ProjectId);
+            if (current.Credential?.Account.Id != account || item is not { Enabled: true } || item.Pending?.Revision != pending.Revision) throw AccountChanged();
+            var now = clock.GetUtcNow();
+            if (ThemePlan.CardOf(current, account, project.ProjectId) is null) current = ThemePlan.Place(current, account, project.ProjectId, null, now);
+            var theme = ThemePlan.CardOf(current, account, project.ProjectId)!;
+            var gone = (item.Processed ?? new Dictionary<string, string>()).Keys.Where(path => !texts.ContainsKey(path)).ToHashSet(StringComparer.Ordinal);
+            removed = gone.Count;
+            if (gone.Count != 0)
+            {
+                var (details, changes) = DetailPlan.Without(theme.Details ?? [], source => source.Kind == DetailSource.Overleaf &&
+                    source.Container == project.ProjectId && gone.Contains(source.Item));
+                current = current with
+                {
+                    Themes = [.. current.Themes!.Select(entry => entry == theme ? theme with { Details = details } : entry)],
+                    Changelog = DetailPlan.Log(current.Changelog, new(Guid.NewGuid(), account, theme.Id, pending.SourceUpdatedAt ?? now, ChangelogEntry.Removed,
+                        gone.Count == 1 ? gone.First() + " removed" : $"{gone.Count} documents removed", project.ProjectId, [.. gone], changes, null, now))
+                };
+            }
+            return current with
+            {
+                Projects = Replace(current.Projects, item with
+                {
+                    Baseline = pending, Pending = null, PendingTrees = null, PendingOrder = null, PendingSince = null, Partial = null,
+                    Processed = (item.Processed ?? new Dictionary<string, string>()).Where(entry => !gone.Contains(entry.Key)).ToDictionary(StringComparer.Ordinal),
+                    ImportComplete = true, LastSuccessAt = now, Paper = paper, PaperFor = Papers.ReadFor(pending.Revision),
+                    Explanation = item.ImportComplete ? "Changes read." : "Initial import complete."
+                })
+            };
+        }, ct);
+        PruneTexts(await store.ReadAsync(ct));
+        logger.LogInformation(removed == 0 ? "Ingest cycle finished." : "Ingest cycle finished; {Removed} removed document(s) lost their sources.", removed);
     }
 
     /// <summary>Runs one project's work with its own deadline and cancellation, recording failures on that project only.</summary>
@@ -1029,22 +1317,6 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     private static MonitoredProject Clean(MonitoredProject project) => project.Snapshot is null && project.Facts.Count == 0 && project.Summary is null
         ? project with { ErrorCode = null, Error = null, FailureCount = 0, NextAttemptAt = null }
         : project with { Snapshot = null, Summary = null, Facts = [], ErrorCode = null, Error = null, FailureCount = 0, NextAttemptAt = null };
-
-    private Task<LocalResearchState> CommitStepAsync(LinkedCredential credential, MonitoredProject project, string path, string? before,
-        string? after, ProfileStepResponse? response, IReadOnlyList<ResearchUpdate> updates, CancellationToken ct) =>
-        CommitAsync(credential, project, item =>
-        {
-            var processed = new Dictionary<string, string>(item.Processed ?? new Dictionary<string, string>(), StringComparer.Ordinal);
-            // Another step or a pause changed this file's state meanwhile: discard this result.
-            if ((processed.TryGetValue(path, out var stored) ? stored : null) != before) throw AccountChanged();
-            if (after is null) processed.Remove(path); else processed[path] = after;
-            return item with
-            {
-                Processed = processed, Profile = response?.Profile ?? item.Profile, Updates = [.. item.Updates, .. updates],
-                Explanation = response?.Explanation ?? item.Explanation, LastAttemptAt = clock.GetUtcNow(),
-                ErrorCode = null, Error = null, FailureCount = 0, NextAttemptAt = null
-            };
-        }, ct);
 
     /// <summary>Deletes stored texts that no project's processed or pending files reference.</summary>
     private void PruneTexts(LocalResearchState state)

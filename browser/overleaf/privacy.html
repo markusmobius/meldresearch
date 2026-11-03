@@ -21,7 +21,7 @@
       <header class="page-header">
         <div class="page-heading">
           <h1 class="page-title"><span class="material-icons site-only" aria-hidden="true">shield</span>Privacy &amp; Controls</h1>
-          <p class="page-subtitle">Last updated: October 2026 &middot; Meld Research and its Overleaf connector, version 0.6.3</p>
+          <p class="page-subtitle">Last updated: November 2026 &middot; Meld Research and its Overleaf connector, version 0.6.4</p>
         </div>
       </header>
 
@@ -45,13 +45,15 @@
               <li><strong>Activity log:</strong> the desktop companion keeps a log of its own activity (for example checks,
                 processing progress and errors) in memory and in a small file on your computer, shown under More &rarr; Log. It names
                 projects only by their Overleaf identifier and contains no research text or credentials; it is not uploaded.</li>
-              <li><strong>Your computer:</strong> the desktop companion stores source text, project summaries (your private profile),
-                Update history, and installation credentials in an encrypted research store, plus project snapshots you download.
+              <li><strong>Your computer:</strong> the desktop companion stores source text, your private profile (each research
+                project's summary, details with their quoted sources, and changelog), and installation credentials in an encrypted
+                research store, plus project snapshots you download.
                 The research store is never uploaded in readable form.</li>
               <li><strong>Encrypted sync:</strong> when Meld's service offers it, you choose a passphrase in the desktop companion so
                 your computers share one profile and a second computer continues from the first one's work instead of sending your
-                projects to Azure AI Foundry again. Your included projects' research (summaries, processing state, Updates and the
-                source text they were made from), your include/exclude choices, research cards, project summaries and OpenAlex match
+                projects to Azure AI Foundry again. Your included projects' research (processing state and the source text it was
+                made from), your research projects' summaries, details and recent changelog, your include/exclude choices, skipped
+                work, project summaries and OpenAlex match
                 are encrypted <em>on your computer</em> and uploaded through short-lived links to Azure Blob Storage operated for Meld
                 Research. Neither the Meld website nor Azure can read them: the passphrase never leaves your computer.</li>
               <li><strong>Overleaf:</strong> the connector reads projects through your normal signed-in browser session. Meld does not
@@ -61,28 +63,29 @@
                 change or delete mail. Meld uses only threads you wrote in (chats excluded), starting with the last 30 days, and looks
                 for new mail in them about once an hour. Of each thread with new mail it sends only the new messages (signatures and
                 quoted replies removed; mailing-list and automated mail only if you wrote it), with up to four earlier messages for
-                context, through Meld's service to Azure AI Foundry, one thread at a time, together with short descriptions of your
-                research projects (title, a few sentences, topics) so the thread can be placed. Each thread becomes a list of short
-                bullet points with quoted evidence that grows as replies arrive; it joins the research project it belongs to, and
-                its newsworthy progress appears in your Updates feed. Threads that fit none of your projects wait in Private updates
-                until you skip them, add them to a project or start a new one; Meld never starts a project on its own. Threads that
-                are not work are skipped. A project's email bullets (not the emails) are also sent to summarize its email for the
-                project's card. Meld's server does not store the email text; the threads' bullets and quotes and the list of threads
-                already analyzed are kept in the encrypted research store and your end-to-end encrypted sync.
+                context, through Meld's service to Azure AI Foundry, one thread at a time. A new thread is sent with short
+                descriptions of your research projects (title, summary and first details) so it can be placed. A thread that belongs
+                to a research project becomes one of its sources: its new messages are sent with that project's current details,
+                which the model updates with quotes from the messages, and the change appears in your Updates feed. Threads that fit
+                none of your projects wait in Private updates, with a short quoted preview, until you skip them, add them to a project
+                or start a new one; Meld never starts a project on its own. Threads that are not work are skipped. Meld's server does
+                not store the email text; the details, previews and quotes and the list of threads already analyzed are kept in the
+                encrypted research store and your end-to-end encrypted sync.
                 Google's access grant is kept only in the encrypted research store and in your end-to-end encrypted sync; it is never
                 sent to Meld's server, put into a backup or logged. Meld's server provides only the Google sign-in client. While Meld
                 Research is in Google's testing phase, Google asks you to reconnect every 7 days. Meld's use of information received
                 from Google APIs adheres to the
                 Google API Services User Data Policy (developers.google.com/terms/api-services-user-data-policy), including the Limited Use requirements: it is used only for these features, not sold, not
                 used for advertising or model training, and not read by people.</li>
-              <li><strong>Azure AI Foundry:</strong> after you include a project, the companion sends it one file at a time (and, for
-                a changed file, its previous version) together with the project's current summary through the configured Meld service
-                to the configured Azure AI Foundry chat deployment. The updated summary and grounded Updates are returned to your
-                computer. To show the projects of one piece of research (for example a paper, its drafts and slides) on one card of
-                your private profile, the summaries of your included projects are also sent to decide which projects belong
-                together. Each card is described from its main paper: the title and abstract that Meld reads from the paper's main
-                .tex file on your computer are sent with that project's summary to write the card's description. Processing runs in
-                the background without a separate prompt for each model request.</li>
+              <li><strong>Azure AI Foundry:</strong> after you include a project, the companion reads it as document trees (a main
+                document with the files it includes) and sends the trees edited in the last six months, oldest first, in parts of at
+                most 60,000 characters, together with the research project's current details and its main paper's title and abstract,
+                through the configured Meld service to the configured Azure AI Foundry chat deployment. Later checks send only
+                documents that changed. The model returns edits to the details (at most 25 sentences), each citing lines that the
+                service copies from the sent text; a two-sentence summary is then written from the details. To show the projects of
+                one piece of research (for example a paper, its drafts and slides) as one research project, the summaries and first
+                details of your research projects are also sent to decide which belong together, and combining two of them sends both
+                detail lists. Processing runs in the background without a separate prompt for each model request.</li>
               <li><strong>The Meld website:</strong> keeps your account and approved installations in its own database. The remote
                 Meld application does not persist a project archive or log research payloads. To monitor cost and capacity, it records
                 for each model request only its time, deployment, purpose, outcome, token counts and duration, not its content or
@@ -122,8 +125,9 @@
               <li><strong>A local preference:</strong> whether the connector is connected or disconnected is saved in this browser
                 profile. Connection state is held in memory.</li>
               <li><strong>Research processing:</strong> UTF-8 .tex, .md and .txt source text of included projects, file paths, hashes
-                and last-edit times, each project's summary (about 5,000 characters, at most 12,000), Updates and their citations. Bibliographies,
-                PDF and image contents are not analyzed by this version.</li>
+                and last-edit times, which files include which, and for each research project its summary, details with their quoted
+                sources and changelog. A source you remove from a research project waits in Private updates until you add it to
+                another project or skip it. Bibliographies, PDF and image contents are not analyzed by this version.</li>
               <li><strong>Profile choices and publications:</strong> whether you included or excluded each Overleaf project in your
                 private profile, the name you searched on OpenAlex, the offered author candidates, the author you confirmed, and that
                 author's public OpenAlex works (titles, authors, venues, years, DOIs and available abstracts).</li>
@@ -214,15 +218,16 @@
             <h2><span class="material-icons site-only" aria-hidden="true">delete_outline</span> Your Controls and Deletion</h2>
             <p><strong>Pause monitoring</strong> stops a selected project's research processing. <strong>Disconnect account</strong>
               stops local processing and requests remote credential revocation, retrying if the service is unavailable.
-              <strong>Forget local research</strong> removes that project's summary, processing state, and update history for the
-              linked account. <strong>Excluding</strong> a project also deletes its encrypted synced copy. <strong>Removing</strong> a Gmail
+              <strong>Forget local research</strong> removes that project's processing state and its sources from your research
+              projects for the linked account. <strong>Removing a source</strong> from a research project's details takes it off every
+              detail of that project. <strong>Excluding</strong> a project also deletes its encrypted synced copy. <strong>Removing</strong> a Gmail
               account (Account &rarr; Gmail) withdraws Meld's access at Google and removes the account and its email threads on all your
               computers; you can also withdraw access in your Google account's security settings. <strong>Start over</strong>
               (offered when the passphrase and recovery key are lost) deletes every encrypted synced copy of the account; research on
               the computer where you choose it is uploaded again under the new passphrase. Disconnecting an account does not delete
               its encrypted copy.</p>
             <p>Under Account &rarr; Backup, <strong>Download my data</strong> saves everything Meld keeps for your account on this
-              computer (choices, research cards, summaries, Updates, publications and the Overleaf text they were made from) as
+              computer (choices, research projects with their details and changelog, publications and the Overleaf text they were made from) as
               readable JSON, and <strong>Upload data</strong> restores such a file into the signed-in account (also a new one);
               encrypted sync then uploads it. Under Account &rarr; Meld account, <strong>Leave Meld Research</strong>, after you type DELETE, deletes
               your Meld account on Meld's server with its devices, profile picture and encrypted synced research, erases the

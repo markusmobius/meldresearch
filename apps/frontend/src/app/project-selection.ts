@@ -6,7 +6,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { OverleafApi, OverleafProject, describeFailure } from './overleaf-api';
 import { ProjectSummary, ResearchApi, ResearchProject, ResearchStatus, isOverleafProject } from './research-api';
-import { ProjectChoice, isRecent, projectChoice } from './project-decisions';
+import { ProjectChoice, RECENT_DAYS, isRecent, projectChoice } from './project-decisions';
 
 /** Account → Overleaf → Projects: an active include/exclude choice per recent project, optional choices for older ones. */
 @Component({
@@ -25,13 +25,13 @@ export class ProjectSelection {
   readonly action = signal('');
   readonly error = signal('');
   readonly confirmForget = signal<string | null>(null);
-  readonly recent = computed(() => this.projects().filter(project => isRecent(project)));
-  readonly older = computed(() => this.projects().filter(project => !isRecent(project)));
+  readonly recent = computed(() => this.projects().filter(project => this.isRecentProject(project)));
+  readonly older = computed(() => this.projects().filter(project => !this.isRecentProject(project)));
   readonly undecided = computed(() => this.recent().filter(project => this.choice(project.id) === null));
   readonly includedOlder = computed(() => this.older().filter(project => this.choice(project.id) === 'included').length);
 
   choice(id: string): ProjectChoice { return projectChoice(this.status(), id); }
-  isRecentProject(project: OverleafProject): boolean { return isRecent(project); }
+  isRecentProject(project: OverleafProject): boolean { return isRecent(project, Date.now(), this.status()?.recentDays ?? RECENT_DAYS); }
   /** This tab manages Overleaf projects only; workstreams from other sources (Gmail) are managed with their source. */
   readonly overleafProjects = computed(() => (this.status()?.projects ?? []).filter(isOverleafProject));
   monitored(id: string): ResearchProject | undefined { return this.status()?.projects.find(project => project.projectId === id); }

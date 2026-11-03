@@ -62,69 +62,6 @@ public sealed class ResearchSourcesTests
     }
 
     [Fact]
-    public async Task AGmailWorkstreamIsNeverReadFromOverleafButJoinsCardsAndCanBeMovedExcludedAndIncluded()
-    {
-        var store = new MemoryStore(new(1, Credential, null, null, [Included(), Workstream(WorkstreamId)], []));
-        var remote = new Remote();
-        var source = new Source(Files(("main.tex", "Main text.")));
-        using var coordinator = Coordinator(store, remote, source);
-        await Drain(coordinator);
-
-        Assert.Equal(1, source.Reads);
-        Assert.All(remote.Requests, request => Assert.NotEqual(WorkstreamId, request.ProjectId));
-        var themes = store.State.Themes!;
-        Assert.Contains(themes, theme => theme.Members.Contains(WorkstreamId));
-        var status = await coordinator.StatusAsync(None);
-        var member = status.Projects.Single(project => project.ProjectId == WorkstreamId);
-        Assert.Equal((ResearchSources.Gmail, GmailAddress, "ready", (DateTimeOffset?)null), (member.Source, member.Parent, member.Phase, member.NextSweepAt));
-        Assert.Null(status.Projects.Single(project => project.ProjectId == ProjectId).Source);
-
-        // The whole workstream (with its Updates) moves to the Overleaf project's card, and back to a card of its own.
-        string overleafCard = themes.Single(theme => theme.Members.Contains(ProjectId)).Id;
-        await coordinator.MoveToThemeAsync(WorkstreamId, overleafCard, None);
-        Assert.Equal([ProjectId, WorkstreamId], store.State.Themes!.Single(theme => theme.Id == overleafCard).Members.Order(StringComparer.Ordinal));
-        await coordinator.MoveToThemeAsync(WorkstreamId, null, None);
-        Assert.Equal(2, store.State.Themes!.Count);
-
-        await coordinator.DecideProjectAsync(WorkstreamId, new(false, null), None);
-        await Drain(coordinator);
-        Assert.False(store.State.Projects.Single(project => project.ProjectId == WorkstreamId).Enabled);
-        Assert.DoesNotContain(store.State.Themes!, theme => theme.Members.Contains(WorkstreamId));
-        await coordinator.DecideProjectAsync(WorkstreamId, new(true, null), None);
-        await Drain(coordinator);
-        Assert.True(store.State.Projects.Single(project => project.ProjectId == WorkstreamId).Enabled);
-        Assert.Contains(store.State.Themes!, theme => theme.Members.Contains(WorkstreamId));
-        Assert.Equal(1, source.Reads);
-        await Assert.ThrowsAsync<ResearchFailure>(() => coordinator.DecideProjectAsync("gmail-" + new string('b', 32), new(true, null), None));
-    }
-
-    [Fact]
-    public async Task AWorkstreamSyncsToAnotherComputerWithItsSourceParentAndEmailEvidence()
-    {
-        var box = new BlobBox();
-        var snapshot = Files(("main.tex", "Main text."));
-        var firstStore = new MemoryStore(new(1, Credential, null, null, [Included(), Workstream(WorkstreamId)], [],
-            Decisions: [new ProjectDecision(Account.Id, ProjectId, true, DateTimeOffset.UtcNow)]));
-        var firstRemote = new Remote { Box = box };
-        using var first = Coordinator(firstStore, firstRemote, new Source(snapshot));
-        await first.WithSyncAsync((sync, credential) => sync.CreateAsync(credential, "correct horse battery", None), None);
-        await Drain(first);
-
-        var secondStore = new MemoryStore(new(1, Credential, null, null, [], []));
-        var secondRemote = new Remote { Box = box };
-        using var second = Coordinator(secondStore, secondRemote, new Source(snapshot));
-        await second.WithSyncAsync(async (sync, credential) => { await sync.UnlockAsync(credential, new("correct horse battery", null), None); return true; }, None);
-        await Drain(second);
-
-        var pulled = secondStore.State.Projects.Single(project => project.ProjectId == WorkstreamId);
-        Assert.Equal((ResearchSources.Gmail, GmailAddress, true), (pulled.Source, pulled.Parent, pulled.Enabled));
-        Assert.Equal("Grant renewal", pulled.Profile!.Title);
-        Assert.Equal("18c2f0a1b2c3d4e5", pulled.Updates.Single().Evidence.Single().Email!.MessageId);
-        Assert.Contains(secondStore.State.Themes!, theme => theme.Members.Contains(WorkstreamId));
-        Assert.Equal(0, secondRemote.Calls + secondRemote.Matches.Count + secondRemote.Merges.Count + secondRemote.Blurbs.Count);
-    }
-
-    [Fact]
     public async Task ABackupKeepsWorkstreamsAndRejectsAProjectFileWithTheWrongSource()
     {
         var updates = new UpdateOptions(false, "test", "development", null, null, null, null, new Uri("https://meld.example.invalid"), false,

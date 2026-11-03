@@ -71,6 +71,36 @@ export interface ResearchStatus {
   sync?: SyncStatus | null;
   /** Connected Gmail accounts (read-only); configured: Meld's server offers Gmail. */
   gmail?: GmailStatus | null;
+  /** The feed's Updates: changelog entries that changed a research project's details, newest first (the latest 100). */
+  changes?: ReadonlyArray<ResearchChange> | null; totalChanges?: number;
+  /** Files the user removed as a source of a project, waiting in Private updates. */
+  pendingFiles?: ReadonlyArray<PendingFile> | null;
+  /** Projects edited within this many days need an include/exclude choice and are read; the same window for both. */
+  recentDays?: number;
+}
+/**
+ * A source of a detail: an Overleaf document at a version (kind overleaf, origin: its project) or an email thread up to a
+ * message (kind gmail, origin: the Gmail address). key identifies the source across versions; quote is the cited text.
+ */
+export interface DetailSource {
+  key: string; kind: 'overleaf' | 'gmail'; label: string; version: string; at: string | null; quote: string; origin: string | null;
+}
+/** One sentence of a research project's current state, with the sources it rests on. */
+export interface ResearchDetail { id: string; text: string; sources: ReadonlyArray<DetailSource>; }
+/** What one source did to one detail: added, revised (before and after) or removed it. */
+export interface DetailChange { op: 'add' | 'revise' | 'remove'; detailId: string; before: string | null; after: string | null; }
+/**
+ * A changelog entry of a research project: a source that updated it (kind overleaf: documents of one tree; gmail: new email
+ * of a thread), a removed source, the user's change or a merge. changes is empty when the source changed no detail.
+ */
+export interface ResearchChange {
+  id: string; cardId: string; cardTitle: string | null; at: string; kind: 'overleaf' | 'gmail' | 'removed' | 'user' | 'merge';
+  title: string; projectName: string | null; documents: ReadonlyArray<string>; changes: ReadonlyArray<DetailChange>;
+}
+export interface ChangelogPage { entries: ReadonlyArray<ResearchChange>; more: boolean; }
+/** An Overleaf file removed as a source of research project fromCardId; the user adds it to another project or skips it. */
+export interface PendingFile {
+  projectId: string; projectName: string; path: string; fromCardId: string; fromCardTitle: string | null; removedAt: string;
 }
 /** connected, reconnect (Google withdrew access, for example weekly while Meld is in Google's testing phase) or error. */
 export interface GmailAccount {
@@ -133,6 +163,8 @@ export interface ResearchTheme {
   anchorId?: string | null; anchorChosen?: boolean; reason?: string | null;
   /** Skipped as not the user's own research (About me → Skipped). */
   skipped?: boolean;
+  /** The current state of the research: at most 25 one-sentence details with their sources (profile.description summarizes them). */
+  details?: ReadonlyArray<ResearchDetail> | null;
 }
 export interface ProjectSummary {
   projectId: string; status: 'queued' | 'running' | 'ready' | 'error'; summary: string | null; mainPath: string | null;
@@ -177,6 +209,21 @@ export class ResearchApi {
   /** Chooses the project a research card is described from (its main paper). */
   setThemeAnchor(themeId: string, projectId: string): Promise<void> {
     return firstValueFrom(this.http.put<void>(`/api/research/themes/${encodeURIComponent(themeId)}/anchor`, { projectId }));
+  }
+  /** Removes a source from every detail of a research project; it goes to Private updates. */
+  removeSource(themeId: string, key: string): Promise<void> {
+    return firstValueFrom(this.http.post<void>(`/api/research/themes/${encodeURIComponent(themeId)}/sources/remove`, { key }));
+  }
+  /** A page of a research project's changelog, newest first: the entries after the last one shown (last). */
+  changelog(themeId: string, last?: Pick<ResearchChange, 'id' | 'at'> | null, limit = 30): Promise<ChangelogPage> {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (last) { query.set('after', last.id); query.set('before', last.at); }
+    return firstValueFrom(this.http.get<ChangelogPage>(`/api/research/themes/${encodeURIComponent(themeId)}/changelog?${query}`));
+  }
+  /** A removed file from Private updates: add it to research project cardId, or leave it out (dismiss). */
+  decidePendingFile(file: Pick<PendingFile, 'projectId' | 'path'>, action: 'project' | 'dismiss', cardId?: string): Promise<void> {
+    return firstValueFrom(this.http.post<void>('/api/research/files/decision',
+      { projectId: file.projectId, path: file.path, action, cardId: cardId ?? null }));
   }
   mergeTheme(themeId: string, intoThemeId: string): Promise<void> {
     return firstValueFrom(this.http.put<void>(`/api/research/themes/${encodeURIComponent(themeId)}/merge`, { intoThemeId }));

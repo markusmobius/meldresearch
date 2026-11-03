@@ -27,7 +27,10 @@ internal sealed record MonitoredProject(Guid AccountId, string ProjectId, string
     DateTimeOffset? PrioritizedAt = null, string? SyncETag = null, string? SyncedFor = null, DateTimeOffset? LastSyncedAt = null,
     string? Source = null, string? Parent = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PaperInfo? Paper = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? PaperFor = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? PaperFor = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<PendingTree>? PendingTrees = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, string>? Partial = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? ExcludedDocs = null)
 {
     /// <summary>An Overleaf project (Source null or "overleaf"): read from Overleaf file by file. Other sources are not swept.</summary>
     public bool IsOverleaf => Source is null or ResearchSources.Overleaf;
@@ -40,6 +43,13 @@ internal sealed record MonitoredProject(Guid AccountId, string ProjectId, string
 internal sealed record SyncState(Guid AccountId, string DataKey, DateTimeOffset UnlockedAt, string? ProfileETag = null,
     string? ProfileSyncedFor = null, DateTimeOffset? LastPushAt = null, DateTimeOffset? LastPullAt = null,
     string? KeyETag = null, DateTimeOffset? KeyCreatedAt = null);
+
+/// <summary>
+/// A root tree to fold in the current ingest cycle (OVERLEAF.md §6-§7): its root, date, the whole tree in reading order
+/// (Order, for the outline) and the documents to send (Send). Partial on the project maps a long document being folded in
+/// parts to "hash:first line of the last part folded".
+/// </summary>
+internal sealed record PendingTree(string Root, DateTimeOffset Date, IReadOnlyList<string> Order, IReadOnlyList<string> Send);
 
 /// <summary>An observed project's files by hash; the text of analyzed files is in the encrypted text store.</summary>
 internal sealed record ProjectManifest(string Revision, DateTimeOffset ObservedAt, DateTimeOffset? SourceUpdatedAt,
@@ -70,7 +80,32 @@ internal sealed record ResearchTheme(Guid AccountId, string Id, IReadOnlyList<st
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Anchor = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Reason = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? Skipped = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? SkipGrouped = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? SkipGrouped = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<DetailBullet>? Details = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SummaryFor = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? MatchPending = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Name = null);
+
+/// <summary>
+/// One entry of a research project's changelog (OVERLEAF.md §8): a source that updated it (an Overleaf root tree, an email
+/// thread's new messages), a removal, or the user's change. Changes is what it did to the details; Key merges the parts of
+/// one root tree of one cycle into one entry.
+/// </summary>
+internal sealed record ChangelogEntry(Guid Id, Guid AccountId, string CardId, DateTimeOffset At, string Kind, string Title,
+    string? ProjectId, IReadOnlyList<string> Documents, IReadOnlyList<DetailChange> Changes, string? Key, DateTimeOffset RecordedAt)
+{
+    public const string Overleaf = "overleaf", Gmail = "gmail", Removed = "removed", User = "user", Merge = "merge";
+}
+
+/// <summary>What one update did to one detail: added, revised (Before and After) or removed it.</summary>
+internal sealed record DetailChange(string Op, string DetailId, string? Before, string? After);
+
+/// <summary>
+/// An Overleaf file the user removed as a source of a research project (OVERLEAF.md §10). It waits in Private updates until
+/// the user adds it to another project (TargetCardId: folded there once) or skips it; its own project ignores it meanwhile.
+/// </summary>
+internal sealed record PendingFile(Guid AccountId, string ProjectId, string ProjectName, string Path, string Sha256, string FromCardId,
+    DateTimeOffset RemovedAt, string? TargetCardId = null);
 
 /// <summary>ResetEpoch records the last one-time research reset this installation applied (see ResearchCoordinator.ResetEpoch).</summary>
 internal sealed record LocalResearchState(int Version, LinkedCredential? Credential, PendingDeviceLink? PendingLink,
@@ -78,7 +113,9 @@ internal sealed record LocalResearchState(int Version, LinkedCredential? Credent
     IReadOnlyList<ProjectDecision>? Decisions = null, IReadOnlyList<ResearcherState>? Researchers = null, int ResetEpoch = 0,
     IReadOnlyList<ProjectSummaryState>? Summaries = null, IReadOnlyList<ResearchTheme>? Themes = null,
     string? ThemesRegroupedFor = null, SyncState? Sync = null, IReadOnlyList<GmailAccountState>? GmailAccounts = null,
-    string? DeviceId = null, IReadOnlyList<GmailThreadRecord>? GmailThreads = null, int GmailVersion = 0, int ThemesVersion = 0);
+    string? DeviceId = null, IReadOnlyList<GmailThreadRecord>? GmailThreads = null, int GmailVersion = 0, int ThemesVersion = 0,
+    IReadOnlyList<ChangelogEntry>? Changelog = null, IReadOnlyList<PendingFile>? PendingFiles = null,
+    IReadOnlyList<string>? SkippedProjects = null);
 
 /// <summary>
 /// A Gmail account connected for read-only access. RefreshToken is Google's long-lived grant; it is kept only in this encrypted
@@ -102,16 +139,20 @@ internal sealed record GmailThreadState(string Id, string HistoryId, string Last
     string? WorkstreamId, DateTimeOffset ProcessedAt);
 
 /// <summary>
-/// One Gmail thread as Meld recorded it: a list of bullets that grows as mail arrives. Status: assigned (its bullets are part
-/// of the email stream StreamId on a research card), pending (work, but the user decides where it goes: Private updates),
-/// skipped (not work; looked at again only when new mail arrives) or dismissed (the user chose to ignore it for good).
+/// One Gmail thread as Meld recorded it: a list of preview bullets that grows as mail arrives. Status: assigned (a source of
+/// research card CardId: its mail up to FoldedMessageId is folded into the card's details), pending (work, but the user
+/// decides where it goes: Private updates), skipped (not work; looked at again only when new mail arrives) or dismissed
+/// (the user chose to ignore it for good). StreamId belongs to the earlier email streams and is no longer set.
 /// HistoryId is Gmail's version of the thread when it was last analyzed ("" while a long thread is analyzed in parts) and
 /// LastMessageId/LastSentAt the last message analyzed, so only later messages are new. Headline and NewsAt are set when the
 /// thread made newsworthy progress (it then appears in the Updates feed); Suggested names a project for a pending thread.
 /// </summary>
 internal sealed record GmailThreadRecord(Guid AccountId, string Address, string Id, string Subject, string Status, string HistoryId,
     string LastMessageId, DateTimeOffset LastSentAt, DateTimeOffset UpdatedAt, IReadOnlyList<GmailBullet> Bullets,
-    string? StreamId = null, string? Headline = null, DateTimeOffset? NewsAt = null, string? Suggested = null, string? Explanation = null)
+    string? StreamId = null, string? Headline = null, DateTimeOffset? NewsAt = null, string? Suggested = null, string? Explanation = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? CardId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? FoldedMessageId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateTimeOffset? FoldedSentAt = null)
 {
     public const string Assigned = "assigned", Pending = "pending", Skipped = "skipped", Dismissed = "dismissed";
 }

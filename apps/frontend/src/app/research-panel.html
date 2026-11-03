@@ -64,38 +64,24 @@
                   attentionProjects().length + ' projects could not be processed: ' + attentionProjects().slice(0, 3).join(', ') + (attentionProjects().length > 3 ? ', ...' : '') + '.' }}
                 Meld retries automatically. <a href="/#account">See why</a>.</p>
             }
-            @for (item of feedItems(); track item.key) {
-              @if (item.thread; as thread) {
-                <article class="feed-card thread-card">
-                  <header class="feed-card-head">
-                    <mat-icon class="feed-source">mail</mat-icon><span class="feed-kind">Email thread</span>
-                    <time class="feed-date" [attr.datetime]="thread.newsAt" [title]="thread.newsAt | date:'medium'">{{ thread.newsAt | date:'MMM d' }}</time>
-                  </header>
-                  <h3 class="feed-card-title"><button class="feed-card-open" (click)="showThread(thread, threadDialog)">{{ thread.title }}</button></h3>
-                  <ng-container *ngTemplateOutlet="bullets; context: { $implicit: thread }"></ng-container>
-                  @if (naming() === threadKey(thread)) { <ng-container *ngTemplateOutlet="nameProject; context: { $implicit: thread }"></ng-container> }
-                  <div class="feed-card-actions">
-                    <button mat-button class="feed-action" (click)="showThread(thread, threadDialog)"><mat-icon>rate_review</mat-icon>Review</button>
-                    <button mat-button class="feed-action move-thread" [matMenuTriggerFor]="threadMenu" [matMenuTriggerData]="{ thread: thread }"
-                      [disabled]="!!deciding()"><mat-icon>drive_file_move</mat-icon>Move</button>
-                    <span class="feed-project" [title]="'Research project: ' + (thread.cardTitle ?? '')">{{ thread.cardTitle }}</span>
-                  </div>
-                </article>
-              } @else if (item.update; as update) {
-              <article class="feed-card share-source-own">
+            @for (change of feedItems(); track change.id) {
+              <article class="feed-card change-card share-source-own">
                 <header class="feed-card-head">
-                  <span class="feed-kind">{{ update.kind === 'initialImport' ? 'Initial import' : update.kind === 'removal' ? 'Knowledge removed' : 'Update' }}</span>
-                  <time class="feed-date" [attr.datetime]="update.observedAt" [title]="update.observedAt | date:'medium'">{{ update.observedAt | date:'MMM d' }}</time>
+                  <mat-icon class="feed-source" [class.mail]="change.kind === 'gmail'">{{ kindIcon(change) }}</mat-icon><span class="feed-kind">{{ kindLabel(change) }}</span>
+                  <time class="feed-date" [attr.datetime]="change.at" [title]="change.at | date:'medium'">{{ change.at | date:'MMM d' }}</time>
                 </header>
-                <h3 class="feed-card-title"><button class="feed-card-open" (click)="showUpdate(update, evidence)">{{ update.title }}</button></h3>
-                <p class="feed-card-body feed-clamp">{{ update.summary }}</p>
+                <h3 class="feed-card-title"><button class="feed-card-open" (click)="showChange(change, evidence)">{{ change.cardTitle ?? 'Research project' }}</button></h3>
+                <ul class="change-bullets">
+                  @for (item of change.changes.slice(0, changesShown); track $index) {
+                    <li [class]="'op-' + item.op"><span class="op">{{ opLabel(item.op) }}</span>{{ item.op === 'remove' ? item.before : item.after }}</li>
+                  }
+                  @if (change.changes.length > changesShown) { <li class="thread-earlier">{{ change.changes.length - changesShown }} more</li> }
+                </ul>
                 <div class="feed-card-actions">
-                  <button mat-button class="feed-action" (click)="showUpdate(update, evidence)"><mat-icon>rate_review</mat-icon>Review</button>
-                  <span class="feed-project" [title]="(fromGmail(update) ? 'Gmail workstream: ' : '') + update.projectName">
-                    @if (fromGmail(update)) { <mat-icon class="feed-source">mail</mat-icon> }{{ update.projectName }}</span>
+                  <button mat-button class="feed-action" (click)="showChange(change, evidence)"><mat-icon>rate_review</mat-icon>Review</button>
+                  <span class="feed-project" [title]="change.documents.length ? change.documents.join(', ') : change.title">{{ change.title }}</span>
                 </div>
               </article>
-              }
             } @empty {
               @if (current.projects.length) {
                 <p class="feed-state">
@@ -103,13 +89,13 @@
                     Building your private profile from {{ current.processing?.name }} ({{ current.processing?.filesDone }} of {{ current.processing?.filesTotal }} files).
                     The first import establishes what the project already says; Updates appear when included projects change.
                   } @else {
-                    No updates yet. Meld checks your included projects once a day and reports meaningful research changes here.
+                    No updates yet. Meld checks your included projects once a day; here you see what changed your research projects' details.
                   }
                 </p>
               }
             }
-            @if (current.totalUpdates > current.updates.length) {
-              <p class="feed-state">Showing the latest {{ current.updates.length }} updates. Earlier updates remain in the encrypted local store.</p>
+            @if ((current.totalChanges ?? 0) > feedItems().length) {
+              <p class="feed-state">Showing the latest {{ feedItems().length }} updates. Each project's full changelog is under <a href="/#about-me">About me</a>.</p>
             } @else if (feedItems().length) {
               <p class="feed-state feed-end">Caught up.</p>
             }
@@ -119,13 +105,28 @@
           <section id="feed-private" class="feed-column feed-column-private" [class.feed-column-active]="column() === 'private'" aria-labelledby="private-title">
             <header class="feed-column-head">
               <mat-icon>move_to_inbox</mat-icon><h2 id="private-title">Private updates</h2>
-              <span class="feed-count" [attr.aria-label]="pending().length + ' threads waiting for a decision'">{{ pending().length }}</span>
+              <span class="feed-count" [attr.aria-label]="pending().length + ' items waiting for a decision'">{{ pending().length }}</span>
               <a mat-icon-button class="feed-icon-button feed-settings" href="/#gmail" aria-label="Gmail accounts" title="Gmail accounts"><mat-icon>tune</mat-icon></a>
             </header>
-            <div class="feed-column-body" tabindex="0" aria-label="Email threads waiting for a decision">
-              <p class="feed-notice">Email threads that Meld could not place on one of your research projects. Nothing joins your profile until you decide.</p>
+            <div class="feed-column-body" tabindex="0" aria-label="Email threads and files waiting for a decision">
+              <p class="feed-notice">Email threads Meld could not place on one of your research projects, and sources you removed from one. Nothing joins your profile until you decide.</p>
               @if (threadError()) { <p class="alert" role="alert">{{ threadError() }}</p> }
-              @for (thread of pending(); track threadKey(thread)) {
+              @for (item of pending(); track item.key) {
+                @if (item.file; as file) {
+                <article class="feed-card pending-card file-card">
+                  <header class="feed-card-head">
+                    <mat-icon class="feed-source">description</mat-icon><span class="feed-kind feed-address" [title]="file.projectName">{{ file.projectName }}</span>
+                    <time class="feed-date" [attr.datetime]="file.removedAt" [title]="file.removedAt | date:'medium'">{{ file.removedAt | date:'MMM d' }}</time>
+                  </header>
+                  <h3 class="feed-card-title file-path">{{ file.path }}</h3>
+                  <p class="thread-suggestion">Removed from <strong>{{ file.fromCardTitle ?? 'a research project' }}</strong>; it no longer counts there.</p>
+                  <div class="feed-card-actions">
+                    <button mat-button class="feed-action add-file" [matMenuTriggerFor]="fileMenu" [matMenuTriggerData]="{ file: file }"
+                      [disabled]="!!deciding() || !cards().length"><mat-icon>playlist_add</mat-icon>Add to project</button>
+                    <button mat-button class="feed-action skip-file" [disabled]="!!deciding()" (click)="decideFile(file, 'dismiss')"><mat-icon>close</mat-icon>Skip</button>
+                  </div>
+                </article>
+                } @else if (item.thread; as thread) {
                 <article class="feed-card thread-card pending-card">
                   <header class="feed-card-head">
                     <mat-icon class="feed-source">mail</mat-icon><span class="feed-kind feed-address" [title]="thread.address">{{ thread.address }}</span>
@@ -142,6 +143,7 @@
                     <button mat-button class="feed-action skip-thread" [disabled]="!!deciding()" (click)="decide(thread, 'dismiss')"><mat-icon>close</mat-icon>Skip</button>
                   </div>
                 </article>
+                }
               } @empty {
                 @if (current.gmail?.accounts?.length) {
                   <p class="feed-state">Nothing waiting. When Meld finds work in your email that fits none of your projects, it appears here for you to decide.</p>
@@ -160,26 +162,21 @@
 } @else { <p class="action-status" role="status">Loading research status...</p> }
 
 <ng-template #evidence>
-  @if (selectedUpdate(); as update) {
-    <h2 mat-dialog-title>{{ update.title }}</h2>
+  @if (selectedChange(); as change) {
+    <h2 mat-dialog-title>{{ change.cardTitle ?? 'Research project' }}</h2>
     <mat-dialog-content class="update-detail">
-      <p class="muted">{{ update.kind === 'initialImport' ? 'Initial import' : update.kind === 'removal' ? 'Knowledge removed' : fromGmail(update) ? 'Update' : 'Project update' }}
-        &middot; {{ update.observedAt | date:'medium' }}</p>
-      <p>{{ update.summary }}</p>
-      @if (fromGmail(update)) { <p><mat-icon class="evidence-mail">mail</mat-icon> Gmail workstream: {{ update.projectName }}</p> }
-      @else if (state()?.dummy) { <p>{{ update.projectName }}</p> }
-      @else { <p><a [href]="'https://www.overleaf.com/project/' + update.projectId" target="_blank" rel="noopener noreferrer">{{ update.projectName }}</a></p> }
-      <h3>Source evidence</h3>
-      @if (!fromGmail(update)) { <p class="muted">Revision {{ update.revision.slice(0, 12) }}</p> }
-      @for (citation of update.evidence; track $index) {
-        @if (citation.email; as email) {
-          <p><mat-icon class="evidence-mail">mail</mat-icon> <strong>{{ citation.path }}</strong> &middot; from {{ email.from }} &middot; {{ email.sentAt | date: 'MMM d, y, h:mm a' }}</p>
-        } @else {
-          <p><code>{{ citation.path }}</code> &middot; {{ citation.version }} snapshot</p>
+      <p class="muted"><mat-icon class="evidence-mail" [class.mail]="change.kind === 'gmail'">{{ kindIcon(change) }}</mat-icon> {{ kindLabel(change) }}:
+        <strong>{{ change.title }}</strong>@if (change.projectName) { &middot; {{ change.projectName }} } &middot; {{ change.at | date:'medium' }}</p>
+      @if (change.documents.length > 1) { <p class="muted">Documents read: {{ change.documents.join(', ') }}</p> }
+      <ul class="change-detail">
+        @for (item of change.changes; track $index) {
+          <li [class]="'op-' + item.op"><span class="op">{{ opLabel(item.op) }}</span>
+            <span>{{ item.op === 'remove' ? item.before : item.after }}</span>
+            @if (item.op === 'revise' && item.before && item.before !== item.after) { <span class="was">Was: {{ item.before }}</span> }
+          </li>
         }
-        <blockquote>{{ citation.quote }}</blockquote>
-      }
-      @if (update.previousSummary) { <p><strong>Previous knowledge:</strong> {{ update.previousSummary }}</p> }
+      </ul>
+      <p class="muted">The sources of every detail, and this project's full changelog, are under <a href="/#about-me">About me</a>.</p>
     </mat-dialog-content>
     <mat-dialog-actions align="end"><button mat-button mat-dialog-close>Close</button></mat-dialog-actions>
   }
@@ -207,6 +204,16 @@
   <ng-template matMenuContent let-thread="thread">
     @for (card of cards(); track card.id) {
       <button mat-menu-item (click)="decide(thread, 'project', card.id)"><mat-icon>topic</mat-icon><span>{{ card.title }}</span></button>
+    }
+  </ng-template>
+</mat-menu>
+
+<mat-menu #fileMenu="matMenu">
+  <ng-template matMenuContent let-file="file">
+    @for (card of cards(); track card.id) {
+      @if (card.id !== file.fromCardId) {
+        <button mat-menu-item (click)="decideFile(file, 'project', card.id)"><mat-icon>topic</mat-icon><span>{{ card.title }}</span></button>
+      }
     }
   </ng-template>
 </mat-menu>

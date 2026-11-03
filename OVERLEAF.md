@@ -2,9 +2,15 @@
 
 This is the design for how Meld Research reads Overleaf projects into a research
 project's profile in About me. It replaces the earlier file-by-file summary
-pipeline. Nothing here is implemented yet; this file is the specification we
-implement against. Email (Gmail) follows the same profile schema and is covered
-briefly in [Email sources](#email-sources).
+pipeline and is implemented: the include graph and parts in
+[LatexTree](libraries/Research/LatexTree.cs), the contracts and limits in
+[DetailContracts](libraries/Research/DetailContracts.cs), planning and detail edits
+in [DetailPlan](apps/LocalBackend/Services/Research/DetailPlan.cs), the cycle in
+[ResearchCoordinator](apps/LocalBackend/Services/Research/ResearchCoordinator.cs) and
+the model steps in [FoundryService](apps/RemoteBackend/Services/FoundryService.cs)
+(`/api/research/detail-step`, `/detail-summary`, `/detail-merge`). Email (Gmail)
+follows the same profile schema and is covered briefly in
+[Email sources](#12-email-sources).
 
 ## 1. The profile schema
 
@@ -41,8 +47,8 @@ details imply.
 - **Tree date**: the latest edit time of any document in a root's tree.
 - **Window**: the last **six months** (183 days) before the ingest. This is the
   same single setting that decides which Overleaf projects need an active
-  include/exclude choice (`ResearchOptions.RecentWindow`); there is no second
-  window.
+  include/exclude choice (`ResearchCoordinator.RecentDays`, reported to the app as
+  `recentDays`); there is no second window.
 - **Cycle**: one ingest of one Overleaf project (initial or later).
 - **Folded version**: for each document, the hash whose text the card's details
   already reflect.
@@ -145,9 +151,12 @@ For each selected root, in the order of §6:
      characters.
    - Every citation names a document sent in this step and a valid line range.
      The server copies the cited lines verbatim (as for Updates today).
-   - Ids that are not current bullets are rejected.
-   - A step that fails validation is retried; after 3 failures its documents are
-     marked folded without changes, and the failure is logged and shown.
+   - Operations on ids that are not current bullets, and citations that fail
+     these checks, are dropped; an `add` left without citations is dropped too.
+   - A step that fails (the server, Foundry or a malformed answer) commits
+     nothing: the project backs off (1 minute, doubling to a day), shows the
+     error and retries the same part; **Check now** retries at once. Failed
+     processing never advances the folded versions.
 7. **Commit.** Each step commits atomically: the new details, and the folded
    version of every document in the part. A restart therefore continues with
    the next part, and an unchanged project makes **zero** model calls.
@@ -197,8 +206,9 @@ The user can click a bullet, see its sources and remove one.
 - The citation is removed from the bullet; a bullet without sources is deleted.
 - An Overleaf **file** source goes to **Private updates** (like an email thread):
   *"sections/model.tex of overleaf_pcm"*. There the user can:
-  - **add it to another project** — it is folded into that card as an update;
-  - **skip it** — it joins the skipped work in About me.
+  - **add it to another project** — its current version is folded into that
+    card once, as an update;
+  - **skip it** — it is left out.
 
   Until then this card ignores that document: it is not sent again, even when
   it changes.
@@ -278,7 +288,7 @@ project, and the email import for every connected account.
 | A document over 60,000 characters | Split at sections, then at paragraphs (§7.3). |
 | A document over 128 KB | Not read; listed in the outline as *too large*. |
 | Root deleted | Its documents leave the tree; their sources are removed (§9). |
-| Model failure | Retried; after 3 failures the part is marked folded without changes and shown as an error (§7.6). |
+| Model failure | Nothing is committed; the part is retried with backoff and the error is shown (§7.6). |
 
 ## 16. Decisions
 
@@ -290,3 +300,9 @@ project, and the email import for every connected account.
    and sends it to Private updates. **Add to project** folds that file's current
    version into the chosen card once; the file stays out of its own project's
    card. **Skip** leaves it out.
+5. A failed step is retried rather than skipped, so a model or server failure
+   never loses a document's content (§7.6).
+6. The feed's Updates are the changelog entries that changed details, including
+   the user's own removals; the changelog is ordered by the sources' dates.
+7. The changelog pages by entry (`after` = the last entry shown), so entries that
+   share a date are never skipped between pages.

@@ -28,7 +28,23 @@ public sealed record ResearchStatusResponse(MeldAccountResponse? Account, DateTi
     IReadOnlyList<ResearchUpdate> Updates, int TotalUpdates, IReadOnlyList<ProjectDecisionResponse> Decisions,
     OverleafProjectsSnapshot? OverleafProjects, ResearcherStatusResponse? Researcher, ProcessingStatusResponse? Processing,
     IReadOnlyList<ProjectSummaryResponseItem>? Summaries = null, IReadOnlyList<ResearchThemeResponse>? Themes = null,
-    SyncStatusResponse? Sync = null, GmailStatusResponse? Gmail = null);
+    SyncStatusResponse? Sync = null, GmailStatusResponse? Gmail = null, IReadOnlyList<ChangeResponse>? Changes = null, int TotalChanges = 0,
+    IReadOnlyList<PendingFileResponse>? PendingFiles = null, int RecentDays = 183);
+
+/// <summary>A detail of a research project with its sources (each citation: the source, its version, the quote).</summary>
+public sealed record DetailResponse(string Id, string Text, IReadOnlyList<DetailSourceResponse> Sources);
+/// <summary>Key identifies the source regardless of version (removing it removes every citation of it); Origin is the project or address.</summary>
+public sealed record DetailSourceResponse(string Key, string Kind, string Label, string Version, DateTimeOffset? At, string Quote, string? Origin);
+/// <summary>A changelog entry: a source that updated a research project and what it did to the details.</summary>
+public sealed record ChangeResponse(Guid Id, string CardId, string? CardTitle, DateTimeOffset At, string Kind, string Title, string? ProjectName,
+    IReadOnlyList<string> Documents, IReadOnlyList<DetailChangeResponse> Changes);
+public sealed record DetailChangeResponse(string Op, string DetailId, string? Before, string? After);
+public sealed record ChangelogPageResponse(IReadOnlyList<ChangeResponse> Entries, bool More);
+/// <summary>A file removed as a source of a research project, waiting in Private updates.</summary>
+public sealed record PendingFileResponse(string ProjectId, string ProjectName, string Path, string FromCardId, string? FromCardTitle, DateTimeOffset RemovedAt);
+public sealed record RemoveSourceRequest(string Key);
+/// <summary>Action: "project" (fold it into research card CardId once) or "dismiss" (leave it out).</summary>
+public sealed record PendingFileDecisionRequest(string ProjectId, string Path, string Action, string? CardId = null);
 
 /// <summary>
 /// Account → Gmail. Configured: Meld's server offers Gmail. Accounts never carry Google's grants. LastError: why the last
@@ -104,7 +120,8 @@ public sealed record LeaveResponse(bool Uninstalling, bool AccountDeleted, strin
 /// Reason says why the last project was grouped onto it. Skipped: not the user's own research (About me → Skipped).
 /// </summary>
 public sealed record ResearchThemeResponse(string Id, ProjectProfile? Profile, IReadOnlyList<string> ProjectIds, bool Updating,
-    string? Blurb = null, string? AnchorId = null, bool AnchorChosen = false, string? Reason = null, bool Skipped = false);
+    string? Blurb = null, string? AnchorId = null, bool AnchorChosen = false, string? Reason = null, bool Skipped = false,
+    IReadOnlyList<DetailResponse>? Details = null);
 public sealed record ThemeAnchorRequest(string ProjectId);
 public sealed record ThemeSkipRequest(bool Skipped);
 

@@ -174,7 +174,7 @@ that backend requires real Google OAuth configuration. No synthetic identity is
 available in Live mode.
 
 The source manifest now uses the supplied Chrome draft public key:
-**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.6.3**, wire protocol **2**.
+**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.6.4**, wire protocol **2**.
 It is a public identity key, not a signing secret.
 
 Until the private listing is approved, remove the old development-ID unpacked
@@ -204,38 +204,63 @@ instead of the feed. **Bump the manifest version whenever connector files change
 the version is what Meld compares. A store-published connector updates through the
 Chrome Web Store instead.
 
-## File-by-file profiles and Updates
+## Research projects: details, summary and changelog
+
+About me shows one card per **research project**, built as specified in
+[OVERLEAF.md](OVERLEAF.md):
+
+- **a) Summary**: two sentences, rewritten from b) once a cycle that changed b) ends.
+- **b) Details**: the current state of the project, at most 25 one-sentence details,
+  each with its **sources**: an Overleaf document at a content hash, or a Gmail
+  thread up to a message. Select a detail to see its sources and the cited lines;
+  **Remove** takes a source off every detail of the card (a detail left without
+  sources is deleted) and puts it in **Private updates**, where the user adds it to
+  another project or skips it.
+- **c) Changelog**: every source that updated the project, with what it added,
+  revised or removed, newest first and loaded while scrolling. The feed's
+  **Updates** are the changelog entries that changed details.
+
+How Overleaf is read:
 
 - Monitoring is off until an existing Meld account is linked and the current
   processing-consent version is accepted by choosing **Include** for a project.
-- **Initial import.** Meld downloads the project ZIP and folds its supported files
-  into a running JSON summary of about 5,000 characters, **one file per model
-  request**, earliest edited file first. A summary over its size targets gets one
-  cheap "summary of the summary" request (only the summary is sent); if that is
-  still too long it is accepted as is, and only one beyond the hard safety limits
-  (12,000 characters) is trimmed at sentence boundaries. Edit times come from Overleaf's project
-  history through the connector (paths and times only); files older than the
-  available history, or every file if the history is unavailable, come first, main
-  document before deeper folders. The import produces the baseline summary and
-  **no Updates**.
+- **Document trees.** Meld builds the `\input`/`\include`/`\subfile`/`\import`
+  graph of the project's `.tex`, `.md` and `.txt` documents
+  ([LatexTree](libraries/Research/LatexTree.cs)). Each **root** (a document nothing
+  includes: the paper, a memo, a slide deck, or an orphan fragment of at least
+  1,000 characters) is read with everything it includes, in reading order. A
+  tree's date is the latest Overleaf edit of any of its documents.
+- **Window.** Roots whose tree changed in the last 183 days are read, oldest first,
+  so the newest writing wins; if none did, the newest root is read. The same
+  window decides which projects need an include/exclude choice
+  (`ResearchCoordinator.RecentDays`, reported as `recentDays`).
+- **Steps.** A tree's documents are sent in parts of at most 60,000 characters
+  (split at sections, then paragraphs); each part is one Foundry step that edits the
+  details with add/revise/remove operations. The model names line ranges; the
+  server copies the cited lines verbatim and drops citations, ids or additions it
+  cannot ground. Every step commits atomically (details, folded hashes, changelog),
+  so a restart continues with the next part.
 - **Daily checks.** Each included project is read again once a day
-  (`ResearchSweepHours`, default 24) or at once with **Check now**. Unchanged
-  Overleaf metadata needs no download; unchanged file hashes need no model call.
-  Changed files are folded in the same way, now with the file's before/after text,
-  and each meaningful change becomes a dated **Update** in the private profile and
-  the Feed. Deleted files can remove claims.
-- **Queue.** Pending work is part of the encrypted state: the observed manifest,
-  the order and, per file, the hash the summary already reflects. Every file step
-  commits atomically, so a restart resumes at the next file and never repeats one.
-  Account → Overleaf → Projects shows what is importing or updating and the queue.
-  A failed step backs off (1 minute doubling to a day) without blocking other
-  projects; **Check now** retries at once. Including (or resuming) a project stops
-  the worker after its current file step, reads that project and processes it
-  before older queued work.
+  (`ResearchSweepHours`, default 24) or at once with **Check now**. Only roots whose
+  tree changed are processed, and only their changed documents are sent; unchanged
+  content makes **zero** model calls, also after a restart. Deleted documents lose
+  their sources without a model call.
+- **Cards.** A newly read project gets a card of its own; Foundry then decides with
+  strict matching (the same paper or core question; a shared topic, data set or
+  method is not enough) whether it belongs on an existing card, and combining two
+  cards merges their details in one call. The card title is the main paper's
+  `\title` ([Papers](libraries/Research/PaperContracts.cs)); **Make main paper**
+  chooses another member. A card's **Projects** tab moves a project to another card
+  (its sources leave the old card and its trees are read into the new one), merges
+  the whole card into another, or skips it. Projects placed by hand are pinned.
+- **Failures.** A failed step commits nothing and backs off (1 minute doubling to a
+  day) without blocking other projects; **Check now** retries at once. Including (or
+  resuming) a project reads it before older queued work. Pausing, excluding,
+  forgetting or switching accounts discards an in-flight step.
 - **Parallel processing** (as Project Meld's inference queue). Up to
-  `ResearchParallelProjects` (default 3) projects are folded in at once; each
-  project's files stay strictly in order because every step builds on the previous
-  summary. The remote service admits at most `Foundry:MaxConcurrency` (default 4)
+  `ResearchParallelProjects` (default 3) projects are read at once; each
+  project's parts stay strictly in order because every step builds on the details
+  the previous one left. The remote service admits at most `Foundry:MaxConcurrency` (default 4)
   Foundry requests at a time and `Foundry:MaxConcurrencyPerAccount` (default 3) per
   account; further requests wait up to `Foundry:QueueSeconds` (default 30, at most
   60) instead of being refused. A Foundry 429 or 503 is retried up to three times
@@ -248,42 +273,13 @@ Chrome Web Store instead.
   with the usual backoff but shown as *Waiting to retry* (not an error) until a
   project has failed four times in a row, and the account banner appears only after
   five minutes without the server.
-- **Research cards.** About me groups included projects into research cards. A card
-  is ONE piece of research: the same paper or the same core question (drafts,
-  versions, slides, referee responses, evaluation material, a companion paper testing
-  the same model). A shared topic, data set, pipeline, method or field is not enough,
-  and when in doubt cards stay separate. Once a project's first import finishes,
-  Foundry decides whether it is the same research as an existing card; a regrouping
-  pass compares all cards once whenever they changed and no first import is running.
-  The reason for the last grouping is shown in the card dialog.
-  A card is described from its **main paper** (anchor,
-  [ThemePlan.AnchorOf](apps/LocalBackend/Services/Research/ThemePlan.cs)): Meld reads
-  `\title{}` and the abstract (`\begin{abstract}`, `\abstract{}` or an
-  `\input` abstract file) straight from each project's main .tex
-  ([Papers](libraries/Research/PaperContracts.cs), no model). The anchor is the
-  project with an abstract (then a title), most recently edited first; the user can
-  choose another with **Make main paper**. With an abstract, one Foundry call
-  (`/api/research/card-summary`) writes the card's title (the paper's), a 3-5
-  sentence condensation of the abstract (also the card text) and its main
-  contributions; without one, the anchor's own summary describes the card. Other
-  members (drafts, slides, evaluation logs, email streams) are the card's materials
-  and feed its Recent updates, never its description. A card is described again only
-  when its anchor, the anchor's paper or its summary changes. The card dialog moves
-  a project to another card or a card of its own, or merges the whole card into
-  another; projects placed by hand are pinned and never moved by regrouping. Cards
-  grouped under the earlier, looser rule are rebuilt once (`ThemesVersion`): each
-  keeps its anchor and hand-placed members, and the others are placed again.
 - **Skipped work.** Work that is not the user's own research (for example helping a
-  family member) can be skipped: a card ("Skip — not my research" in its dialog) or
-  an email thread (Skip in the feed). Skipped cards (`ResearchTheme.Skipped`) move to
-  About me → Skipped, leave the feed, and their Overleaf projects pause. They are
-  grouped like projects but generously and without confirmation (a loose
-  `ThemeMatchRequest`: the same people or topic is enough); a skipped thread joins
-  the related skipped card's email stream or starts a skipped project of its own.
-  New threads that belong to a skipped project (`EmailStepRequest.NotMine`) are
-  skipped too, and skipped threads are not read again. **Bring back** returns a card
-  to the profile (its projects resume); **Unskip** returns a thread to Private
-  updates.
+  family member) can be skipped: a card (**Skip — not my research** in its Projects
+  tab) or an email thread (Skip in Private updates). Skipped cards move to About me →
+  Skipped, leave the feed, and their Overleaf projects pause. They are grouped
+  generously and without confirmation; new threads that belong to a skipped project
+  are skipped too. **Bring back** returns a card; **Unskip** returns a thread to
+  Private updates.
 - **Log.** More → Log shows the local app's own activity (checks, progress per file,
   grouping, updates, warnings and errors), newest first, with level and source
   filters, as in Project Meld. Entries name projects by Overleaf id (the page shows
@@ -291,24 +287,17 @@ Chrome Web Store instead.
   `logs/app-log.jsonl` under the runtime folder so they survive restarts. A badge
   counts warnings and errors of the last ten minutes.
 - **One-time resets.** Raising `ResearchCoordinator.ResetEpoch` makes every
-  installation erase, on its first start of that release, all projects (summaries,
-  hashes, Updates, queue), include/exclude choices, project summaries, the OpenAlex
-  match and the encrypted text store, keeping only sign-in. Epoch 1 starts all
-  imports from scratch after the move to file-by-file profiles.
-- File hashes, not ZIP timestamps or ZIP byte order, identify content. Identical
-  copies (for example earlier submission folders) are folded in once.
-- The model selects source line ranges; the server copies the exact source text
-  rather than trusting the model to reproduce quotations. Updates must cite the
-  current file (or, for a deleted file, its previous text). Invalid citations,
-  oversized summaries and malformed results are errors, not empty successes.
-- Pausing, excluding, forgetting or switching accounts discards an in-flight step;
-  failures never advance the stored progress or erase saved knowledge.
+  installation start its research over once on the first start of that release.
+  Epoch 2 (this format) erases projects' processing state, cards, details,
+  changelog, recorded threads and stored texts, and keeps the sign-in, the sync key,
+  Gmail connections, include/exclude choices, skipped work and the OpenAlex match;
+  included projects and mail are then read again (OVERLEAF.md §13).
 - Source text is kept in an encrypted, content-addressed store next to the state
   (`research/texts`), so the state file stays small; unreferenced texts are pruned.
-- UTF-8 `.tex`, `.md` and `.txt` files of up to 128 KiB are analyzed. Bibliographies,
+- UTF-8 `.tex`, `.md` and `.txt` files of up to 128 KiB are documents. Bibliographies,
   PDFs, images, larger or non-UTF-8 files are tracked by hash only. A project may
   hold up to 16 MiB of analyzed text and 2,000 files.
-- The UI shows the latest 100 updates; earlier entries remain stored.
+- The feed shows the latest 100 Updates; each card's full changelog is in About me.
 - Not yet built (phase 2): the public profile and News suggestions from Updates.
 
 The browser must be running for fresh reads. Saved research remains local; model
@@ -578,30 +567,27 @@ wrote in during the last 30 days (`in:sent newer_than:30d -in:chats`) and reads
 only threads whose Gmail `historyId` changed, oldest first. Messages are cleaned
 locally ([EmailText](apps/LocalBackend/Services/Research/EmailText.cs): plain text
 preferred, quoted replies, forwards and signatures cut, 8,000 characters); bulk
-mail counts only if the user wrote it. Each thread is one `GmailThreadRecord`: a
-list of cited bullets that grows as replies arrive. Only the new messages go to
-`POST /api/research/email-step` (with up to four earlier ones as context):
-- a thread seen for the first time gets the user's research cards as compact
-  candidates (title, first sentences, topics) and Foundry answers **skip** (not
-  work), **project** (a card id) or **unassigned** (with a suggested name);
-- a known thread gets its recorded bullets and card and only **continues**.
+mail counts only if the user wrote it. Each thread is one `GmailThreadRecord`.
+A thread seen for the first time goes to `POST /api/research/email-step` with the
+user's research cards as compact candidates (title, summary, first details), and
+Foundry answers **skip** (not work), **project** (a card id) or **unassigned**
+(with a suggested name and short cited preview bullets,
+[EmailSteps](libraries/Research/EmailContracts.cs)).
 
-Bullets cite line ranges, copied verbatim on the server and checked again locally
-([EmailSteps](libraries/Research/EmailContracts.cs)); `newsworthy` progress sets
-the thread's headline and puts it in the Updates feed. An assigned thread joins
-its card's **email stream** (one `gmail-` member per Gmail account and card,
-pinned there); after an import, each changed stream is summarized from its
-bullets (`POST /api/research/email-stream`) so the card summary includes email.
-Unassigned threads wait in the feed's **Private updates** column, where the user
-skips them, adds them to a card or starts a new project (a card of its own);
-Meld never starts one itself. Each thread commits atomically, so an unchanged
-mailbox makes no model call, also after a restart. With encrypted sync the
+An assigned thread is a **source** of its card: its new messages (with up to four
+earlier ones as context) are one detail step (`POST /api/research/detail-step`,
+kind `gmail`) that adds, revises or removes the card's details, cites the
+messages' lines verbatim and adds one changelog entry; only messages after the
+last one folded are sent ([OVERLEAF.md](OVERLEAF.md) §12). Unassigned threads wait
+in the feed's **Private updates** column, where the user skips them, adds them to
+a card or starts a new project (a card of its own); Meld never starts one itself.
+Removing a thread as a source of a card sends it back there. Each thread commits
+atomically, so an unchanged mailbox makes no model call, also after a restart. With encrypted sync the
 threads and `LastImportAt` merge across computers, and a lease
 (`LeaseBy`/`LeaseUntil`, 15 minutes, renewed per thread) is pushed before any
 mail is read, so other computers wait instead of analyzing mail twice. Account →
-Gmail shows progress and offers Import now. State from the earlier
-one-workstream-per-line analysis is replaced once (`GmailVersion`) and the mail
-imported again. Dummy mode uses a synthetic mailbox (a thread about the
+Gmail shows progress and offers Import now. State from earlier analyses
+(workstreams, email streams) is replaced once and the mail imported again. Dummy mode uses a synthetic mailbox (a thread about the
 synthetic Overleaf project, a paper and a grant that fit no project, a lunch) and
 needs no Google setup, but analysis uses real Foundry.
 
