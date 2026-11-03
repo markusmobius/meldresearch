@@ -39,7 +39,10 @@ details imply.
 - **Tree** of a document: the document and everything it includes, transitively.
 - **Root**: a document that no other document includes (no parent).
 - **Tree date**: the latest edit time of any document in a root's tree.
-- **Window**: the last **90 days** before the ingest.
+- **Window**: the last **six months** (183 days) before the ingest. This is the
+  same single setting that decides which Overleaf projects need an active
+  include/exclude choice (`ResearchOptions.RecentWindow`); there is no second
+  window.
 - **Cycle**: one ingest of one Overleaf project (initial or later).
 - **Folded version**: for each document, the hash whose text the card's details
   already reflect.
@@ -78,7 +81,9 @@ A **root** is a document with no parents. Typically:
 - memos and notes (their own `\documentclass`, or a standalone `notes.md`);
 - slide decks (beamer documents) — treated like any other root;
 - orphan fragments: a section file no document includes any more (an old draft
-  or a scrap). These are roots too; the window in §6 is what keeps old ones out.
+  or a scrap). An orphan without `\documentclass` counts as a root only if it has
+  at least **1,000 characters**, so tiny scraps never cost a call; the window in
+  §6 keeps old ones out.
 
 ## 5. Step iii — tree dates
 
@@ -93,17 +98,15 @@ project's last-update time from Overleaf's project list.
 
 ## 6. Step iv — order and window
 
-1. Keep the roots whose tree date is within the **last 90 days**.
+1. Keep the roots whose tree date is within the **window** (six months).
 2. Order them by tree date, **oldest first**, so the most recent writing (usually
    the paper) is folded last and wins where documents disagree.
 3. If no root is within the window (an included project that has been quiet for
    months), take the single newest root, so every included project still gets
    details.
 
-> Note: the Projects tab asks for an active include/exclude choice for projects
-> updated within about **six months** (`ResearchCoordinator.SummaryWindow`, 183
-> days). The ingest window here is **90 days** as specified. If both should be
-> the same, change one constant; they are independent today.
+The window is the same setting as the Projects tab's: projects updated within
+it need an active include/exclude choice, and only roots within it are read.
 
 ## 7. Step v — feeding a tree into details
 
@@ -268,7 +271,7 @@ project, and the email import for every connected account.
 | Case | Handling |
 | --- | --- |
 | No Overleaf history | Every document uses the project's last-update time; all roots share one date and are folded in path order. |
-| No root within 90 days | The newest root is folded (§6.3). |
+| No root within the window | The newest root is folded (§6.3). |
 | Only orphan fragments recent | They are roots and are folded; the old paper is not, unless it is the newest root. |
 | A section included by two roots | Read once, with the first tree that reaches it; later trees list it as *already read*. |
 | Include cycle | The closing edge is dropped (§3). |
@@ -277,12 +280,13 @@ project, and the email import for every connected account.
 | Root deleted | Its documents leave the tree; their sources are removed (§9). |
 | Model failure | Retried; after 3 failures the part is marked folded without changes and shown as an error (§7.6). |
 
-## 16. Open questions
+## 16. Decisions
 
-1. Should the 90-day ingest window and the six-month Projects window be one
-   setting?
-2. Should orphan fragments (roots without `\documentclass`) need a minimum size
-   (for example 1,000 characters) to count as roots, so tiny scraps never cost
-   a call?
-3. Should slide decks only add bullets that no paper bullet covers, or be folded
-   like any other root (current specification)?
+1. One window for include/exclude choices and for ingest: six months (183 days).
+2. Orphan fragments without `\documentclass` need at least 1,000 characters to
+   count as roots.
+3. Slide decks are roots like any other document.
+4. Removing a source removes it from the whole card (every bullet that cites it)
+   and sends it to Private updates. **Add to project** folds that file's current
+   version into the chosen card once; the file stays out of its own project's
+   card. **Skip** leaves it out.

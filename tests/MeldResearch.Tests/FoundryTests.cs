@@ -375,6 +375,51 @@ public sealed class FoundryTests
     }
 
     [Fact]
+    public async Task DetailStepsCiteSentLinesVerbatimAndIgnoreUnknownDetails()
+    {
+        string reply = "";
+        using var http = new HttpClient(new Handler(_ => Task.FromResult(Response(new { choices = new[] { new { finish_reason = "stop", message = new { content = reply } } } }))));
+        using var foundry = Create(http);
+        var request = new DetailStepRequest(DetailSource.Overleaf, "PCM", "Paying for Information, Not Clicks", "We build a marketplace.",
+            [new("d1", "The paper proposes a publisher marketplace.", [new("r1", "main.tex", false)])],
+            ["main.tex [sent]", "sections/model.tex [sent]"],
+            [new("main.tex", "\\title{PCM}\nWe build a marketplace.", 1), new("sections/model.tex", "Credit is split by Shapley values.\nPrices are fixed.", 41)]);
+        object Op(string op, string? id, string? text, object[] cite, string[] remove) => new { op, id, text, cite, remove };
+        object Cite(string item, int start, int end) => new { item, startLine = start, endLine = end };
+        reply = JsonSerializer.Serialize(new
+        {
+            explanation = "Added the attribution rule.",
+            ops = new[]
+            {
+                Op("add", null, "Credit is split among publishers by Shapley values.", [Cite("sections/model.tex", 41, 41), Cite("sections/model.tex", 1, 1)], []),
+                Op("add", null, "Invented.", [Cite("other.tex", 1, 1)], []),
+                Op("revise", "d1", null, [Cite("main.tex", 2, 2)], ["r1", "r9"]),
+                Op("remove", "d9", null, [], [])
+            }
+        }, ResearchJson.Options);
+        var response = await foundry.DetailStepAsync(request, CancellationToken.None);
+        Assert.Equal([DetailRules.Add, DetailRules.Revise], response.Ops.Select(op => op.Op));
+        // Line 41 is the first line of a segment that starts at line 41; line 1 is not part of that segment.
+        Assert.Equal(new DetailQuote("sections/model.tex", 41, 41, "Credit is split by Shapley values."), Assert.Single(response.Ops[0].Add));
+        Assert.Equal(("We build a marketplace.", "r1"), (response.Ops[1].Add.Single().Quote, response.Ops[1].Remove.Single()));
+
+        reply = JsonSerializer.Serialize(new { title = "ignored", summary = "The paper proposes a marketplace.\nIt is under revision." }, ResearchJson.Options);
+        var summary = await foundry.SummarizeDetailsAsync(new("Paying for Information, Not Clicks", null, ["The paper proposes a marketplace."]), CancellationToken.None);
+        Assert.Equal(("Paying for Information, Not Clicks", "The paper proposes a marketplace. It is under revision."), (summary.Title, summary.Summary));
+
+        reply = JsonSerializer.Serialize(new { details = new[] { new { text = "Combined.", from = new[] { "a", "zz" } }, new { text = "None.", from = new[] { "zz" } } } },
+            ResearchJson.Options);
+        var merged = await foundry.MergeDetailsAsync(new([new("A", [new("a", "Detail A.", [])]), new("B", [new("b", "Detail B.", [])])]), CancellationToken.None);
+        Assert.Equal(new DetailMerged("Combined.", ["a"]), Assert.Single(merged.Details), new MergedComparer());
+    }
+
+    private sealed class MergedComparer : IEqualityComparer<DetailMerged>
+    {
+        public bool Equals(DetailMerged? x, DetailMerged? y) => x!.Text == y!.Text && x.From.SequenceEqual(y.From);
+        public int GetHashCode(DetailMerged obj) => obj.Text.GetHashCode();
+    }
+
+    [Fact]
     public async Task RejectionsNameFoundrysStatusAndErrorCodeButNeverItsMessage()
     {
         using var http = new HttpClient(new Handler(_ => Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.Forbidden)

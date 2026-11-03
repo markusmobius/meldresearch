@@ -83,6 +83,27 @@ internal static class RemoteEndpoints
             using var slot = await gate.EnterAsync(account.Id, ct);
             return TypedResults.Ok(await foundry.EmailStepAsync(request, ct));
         }).WithName("EmailStep").WithSummary("Place one email thread and record its new messages as cited bullets; nothing is stored.");
+        app.MapPost("/api/research/detail-step", async Task<Ok<DetailStepResponse>> (
+            DetailStepRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, InferenceGate gate, CancellationToken ct) =>
+        {
+            var account = await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            using var slot = await gate.EnterAsync(account.Id, ct);
+            return TypedResults.Ok(await foundry.DetailStepAsync(request, ct));
+        }).WithName("DetailStep").WithSummary("Edit a research project's details from Overleaf documents or new emails; nothing is stored.");
+        app.MapPost("/api/research/detail-summary", async Task<Ok<DetailSummaryResponse>> (
+            DetailSummaryRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, InferenceGate gate, CancellationToken ct) =>
+        {
+            var account = await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            using var slot = await gate.EnterAsync(account.Id, ct);
+            return TypedResults.Ok(await foundry.SummarizeDetailsAsync(request, ct));
+        }).WithName("DetailSummary").WithSummary("Write a research project's title and two-sentence summary from its details; nothing is stored.");
+        app.MapPost("/api/research/detail-merge", async Task<Ok<DetailMergeResponse>> (
+            DetailMergeRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, InferenceGate gate, CancellationToken ct) =>
+        {
+            var account = await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            using var slot = await gate.EnterAsync(account.Id, ct);
+            return TypedResults.Ok(await foundry.MergeDetailsAsync(request, ct));
+        }).WithName("DetailMerge").WithSummary("Combine the details of research projects that are one project; nothing is stored.");
         app.MapPost("/api/research/card-summary", async Task<Ok<ThemeMergeResponse>> (
             CardSummaryRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, InferenceGate gate, CancellationToken ct) =>
         {

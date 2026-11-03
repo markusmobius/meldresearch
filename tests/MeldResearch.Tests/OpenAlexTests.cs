@@ -91,6 +91,9 @@ public sealed class OpenAlexTests
         public Task<EmailStepResponse> EmailStepAsync(EmailStepRequest request, CancellationToken ct) => throw new NotSupportedException();
         public Task<EmailStreamResponse> EmailStreamAsync(EmailStreamRequest request, CancellationToken ct) => throw new NotSupportedException();
         public Task<ThemeMergeResponse> SummarizeCardAsync(CardSummaryRequest request, CancellationToken ct) => throw new NotSupportedException();
+        public Task<DetailStepResponse> DetailStepAsync(DetailStepRequest request, CancellationToken ct) => throw new NotSupportedException();
+        public Task<DetailSummaryResponse> SummarizeDetailsAsync(DetailSummaryRequest request, CancellationToken ct) => throw new NotSupportedException();
+        public Task<DetailMergeResponse> MergeDetailsAsync(DetailMergeRequest request, CancellationToken ct) => throw new NotSupportedException();
         public Task<ResearchEmbeddingResponse> EmbedAsync(ResearchEmbeddingRequest request, CancellationToken ct) => throw new NotSupportedException();
         public Task<ProjectSummaryResponse> SummarizeProjectAsync(ProjectSummaryRequest request, CancellationToken ct) => throw new NotSupportedException();
         public Task<ThemeMatchResponse> MatchThemeAsync(ThemeMatchRequest request, CancellationToken ct) => throw new NotSupportedException();
