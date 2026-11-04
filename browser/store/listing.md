@@ -1,6 +1,6 @@
 # Chrome Web Store listing copy
 
-Prepared for a **private tester-group release**, version 0.6.5. Publisher: **Meld Research**.
+Prepared for a **private tester-group release**, version 0.6.6. Publisher: **Meld Research**.
 Public support and privacy contact: **markusmobius@gmail.com**.
 This document is submission material, not an assertion that a listing exists.
 
@@ -24,7 +24,7 @@ This read-only connector:
   or sign-in recovery.
 - Downloads explicitly selected projects, including automatic checks for projects
   whose monitoring the user enables in the desktop companion.
-- Reuses a normal Overleaf tab, or opens a background tab when a read needs one.
+- Reads in its own background Overleaf tab (never the tab you work in), closed again after two idle minutes.
 - Shows only Sign in to Overleaf until you are signed in, then Connect or Disconnect.
 - Remembers Disconnect across browser restarts.
 
@@ -86,9 +86,9 @@ meaningful updates through the companion's explicitly authorized Foundry process
 | --- | --- |
 | `nativeMessaging` | Exchanges bounded project metadata and user-selected ZIP data with the installed Meld Research native host. Browser cookies and passwords are not exported. |
 | `scripting` | Injects only packaged, read-only scripts into an Overleaf tab to make authenticated first-party HTTPS reads and filter metadata before it leaves that tab. |
-| `storage` | Persists the user's Connect/Disconnect (auto-connect) preference in the local browser profile. It does not store project contents or authentication tokens. |
-| `alarms` | Retries the local native-host connection while enabled, including after service-worker suspension or a desktop restart. The alarm itself does not read Overleaf. |
-| `https://www.overleaf.com/*` | Finds and reuses an Overleaf tab, performs the project-list and selected-project ZIP reads, reads each included project's edit history keeping only file paths and last-edit times, detects completion of sign-in, and, while the popup is open, checks only whether Overleaf redirects to its sign-in page. No other remote website is granted access. |
+| `storage` | Persists the user's Connect/Disconnect (auto-connect) preference in the local browser profile and, for the browser session, the id of the connector's background Overleaf tab. It does not store project contents or authentication tokens. |
+| `alarms` | Retries the local native-host connection while enabled, including after service-worker suspension or a desktop restart, and closes the connector's background Overleaf tab once reads have been idle. The alarms themselves do not read Overleaf. |
+| `https://www.overleaf.com/*` | Opens and reuses its own background Overleaf tab, performs the project-list and selected-project ZIP reads, reads each included project's edit history keeping only file paths and last-edit times, detects completion of sign-in, and, while the popup is open, checks only whether Overleaf redirects to its sign-in page. No other remote website is granted access. |
 
 External messaging is limited to the local Meld page on `localhost` or
 `127.0.0.1`; the worker independently checks ports 6001/6010 and rejects subframes.

@@ -73,11 +73,13 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     private DateTimeOffset _themeRetryAt = DateTimeOffset.MinValue;
     private static readonly TimeSpan ThemeBackoff = TimeSpan.FromMinutes(15);
     /// <summary>
-    /// Failures of the connection to Meld's server (dropped, timed out, behind its proxy, busy). They are retried like other
-    /// failures but shown as waiting rather than as errors until they persist.
+    /// Failures of the connection to Meld's server (dropped, timed out, behind its proxy, busy) or of the browser's Overleaf
+    /// reader tab (closed, moved, asleep). They are retried like other failures but shown as waiting rather than as errors
+    /// until they persist.
     /// </summary>
     internal static bool Transient(string? code) =>
-        code is "remote_unavailable" or "remote_timeout" or "remote_gateway_error" or "foundry_busy" or "browser_unavailable";
+        code is "remote_unavailable" or "remote_timeout" or "remote_gateway_error" or "foundry_busy" or "browser_unavailable" or
+            "overleaf_tab_closed" or "overleaf_tab_navigated" or "overleaf_tab_asleep" or "overleaf_tab_unavailable";
     /// <summary>A project's server problem is shown as an error after this many consecutive failures (about 15 minutes).</summary>
     internal const int TransientFailuresShown = 4;
     private static readonly TimeSpan ServerProblemShownAfter = TimeSpan.FromMinutes(5);

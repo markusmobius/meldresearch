@@ -445,6 +445,19 @@ public sealed class DetailIngestTests
         Assert.Equal(DetailPlan.Fingerprint(card.Details), card.ReviewedFor);
     }
 
+    [Theory]
+    [InlineData("tab_closed", "overleaf_tab_closed")]
+    [InlineData("tab_navigated", "overleaf_tab_navigated")]
+    [InlineData("tab_discarded", "overleaf_tab_asleep")]
+    [InlineData("tab_unavailable", "overleaf_tab_unavailable")]
+    public void ReaderTabProblemsAreRetriedQuietlyWhileSignInIsShownAtOnce(string connector, string code)
+    {
+        var failure = MeldResearch.LocalBackend.Services.BrowserFailures.FromCode(connector);
+        Assert.Equal((503, code), (failure.Status, failure.Code));
+        Assert.True(ResearchCoordinator.Transient(failure.Code));
+        Assert.False(ResearchCoordinator.Transient(MeldResearch.LocalBackend.Services.BrowserFailures.FromCode("sign_in_required").Code));
+    }
+
     [Fact]
     public async Task ServerOutagesAreShownAsRetryingUntilTheyPersist()
     {

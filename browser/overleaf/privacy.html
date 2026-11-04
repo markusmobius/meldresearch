@@ -21,7 +21,7 @@
       <header class="page-header">
         <div class="page-heading">
           <h1 class="page-title"><span class="material-icons site-only" aria-hidden="true">shield</span>Privacy &amp; Controls</h1>
-          <p class="page-subtitle">Last updated: November 2026 &middot; Meld Research and its Overleaf connector, version 0.6.5</p>
+          <p class="page-subtitle">Last updated: November 2026 &middot; Meld Research and its Overleaf connector, version 0.6.6</p>
         </div>
       </header>
 
@@ -115,10 +115,12 @@
               <li><strong>Overleaf website content:</strong> project IDs, titles, last-updated values, archived/deleted flags, and ZIP
                 contents of projects you select. Project contents may include personal or confidential information you or your
                 collaborators put in them.</li>
-              <li><strong>Overleaf tab information:</strong> the connector checks matching Overleaf tab URLs and loading state to reuse a
-                tab or detect completion of sign-in. It does not record your general browsing history or inspect unrelated websites.</li>
+              <li><strong>Overleaf tab information:</strong> the connector reads Overleaf in its own background tab, which it opens
+                without focusing it and closes after two idle minutes. It checks that tab's URL and loading state (to detect sign-in
+                pages, a closed or sleeping tab, or a tab that moved elsewhere) and matching Overleaf tab URLs to detect completion of
+                sign-in. It does not record your general browsing history or inspect unrelated websites.</li>
               <li><strong>Overleaf project history:</strong> for an included project, the connector reads the project's Overleaf
-                edit history inside the Overleaf tab and passes on only each file's path and the time it was last edited, so files
+                edit history inside its Overleaf tab and passes on only each file's path and the time it was last edited, so files
                 can be processed in the order they were written. Collaborator names, emails and the edits themselves are discarded
                 in the tab.</li>
               <li><strong>Overleaf sign-in status:</strong> while the connector popup is open, it requests your Overleaf project page

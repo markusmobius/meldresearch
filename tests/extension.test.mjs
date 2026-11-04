@@ -155,21 +155,116 @@ test('automatically connects without a popup and creates a repeating reconnect a
     assert.equal(state.connected, true);
     assert.equal(state.enabled, true);
     assert.equal(state.protocolVersion, 2);
-    assert.equal(state.extensionVersion, '0.6.5');
+    assert.equal(state.extensionVersion, '0.6.6');
     assert.equal(harness.alarms.get('meld-native-reconnect').periodInMinutes, 1);
     assert.equal(harness.requests.length, 0, 'Connecting alone must not read Overleaf.');
     assert.equal(harness.tabActions.length, 0, 'Passive startup must not steal focus.');
   } finally { await harness.close(); }
 });
 
-test('creates a missing Overleaf tab in the background for reads', async () => {
-  const { harness, host, messages } = await connected(async () =>
-    response(`<meta name="ol-prefetchedProjectsBlob" content='{"projects":[]}'>`), { tabs: [] });
+const projectList = () => response(`<meta name="ol-prefetchedProjectsBlob" content='{"projects":[]}'>`);
+
+test('reads in its own background Overleaf tab, never the user\'s, reuses it and closes it once idle', async () => {
+  // The user has Overleaf open and active (tab 1): reads must not use it.
+  const { harness, host, messages } = await connected(async () => projectList());
   try {
     host.postMessage({ type: 'request', id: requestId, operation: 'listProjects' });
     await waitUntil(() => messages.some(message => message.type === 'complete'), 'background tab read');
-    assert.deepEqual(harness.tabActions, [{ type: 'create', url: 'https://www.overleaf.com/project', active: false }]);
+    assert.deepEqual(harness.tabActions, [
+      { type: 'create', url: 'https://www.overleaf.com/project', active: false },
+      { type: 'update', id: 2, autoDiscardable: false },
+    ]);
     assert.equal(harness.windowActions.length, 0);
+    assert.equal(harness.session.readerTabId, 2);
+    assert.ok(harness.alarms.get('meld-reader-close').when > Date.now());
+
+    // A second read reuses the reader tab.
+    host.postMessage({ type: 'request', id: 'b'.repeat(32), operation: 'listProjects' });
+    await waitUntil(() => messages.filter(message => message.type === 'complete').length === 2, 'second read');
+    assert.equal(harness.tabActions.filter(action => action.type === 'create').length, 1);
+
+    // Idle: the reader tab closes; the user's tab stays.
+    harness.chrome.alarms.onAlarm.emit({ name: 'meld-reader-close' });
+    await waitUntil(() => harness.tabActions.some(action => action.type === 'remove'), 'reader tab closed');
+    assert.deepEqual(harness.tabs.map(tab => tab.id), [1]);
+    assert.equal(harness.session.readerTabId, undefined);
+  } finally { await harness.close(); }
+});
+
+test('a reader tab the user switched to is left open for them', async () => {
+  const { harness, host, messages } = await connected(async () => projectList());
+  try {
+    host.postMessage({ type: 'request', id: requestId, operation: 'listProjects' });
+    await waitUntil(() => messages.some(message => message.type === 'complete'), 'read');
+    harness.tabs.find(tab => tab.id === 2).active = true;
+    harness.chrome.alarms.onAlarm.emit({ name: 'meld-reader-close' });
+    await waitUntil(() => harness.session.readerTabId === undefined, 'reader tab released');
+    assert.equal(harness.tabActions.some(action => action.type === 'remove'), false);
+    // The next read opens a fresh reader tab instead of using the user's.
+    host.postMessage({ type: 'request', id: 'b'.repeat(32), operation: 'listProjects' });
+    await waitUntil(() => messages.filter(message => message.type === 'complete').length === 2, 'second read');
+    assert.equal(harness.session.readerTabId, 3);
+  } finally { await harness.close(); }
+});
+
+test('a tab that breaks before anything reached Meld is retried once in a fresh tab without an error', async () => {
+  const { harness, host, messages } = await connected(async () => projectList());
+  const inject = harness.chrome.scripting.executeScript;
+  let failures = 1;
+  try {
+    harness.chrome.scripting.executeScript = async options => {
+      if (failures-- > 0) throw new Error('Synthetic navigation during injection.');
+      return inject(options);
+    };
+    host.postMessage({ type: 'request', id: requestId, operation: 'listProjects' });
+    await waitUntil(() => messages.some(message => message.type === 'complete'), 'retried read');
+    assert.equal(messages.some(message => message.type === 'error'), false);
+    assert.deepEqual(harness.tabActions.filter(action => action.type !== 'update'), [
+      { type: 'create', url: 'https://www.overleaf.com/project', active: false },
+      { type: 'remove', id: 2 },
+      { type: 'create', url: 'https://www.overleaf.com/project', active: false },
+    ]);
+  } finally { await harness.close(); }
+});
+
+for (const [name, change, expected] of [
+  ['closed', harness => harness.tabs.splice(harness.tabs.findIndex(tab => tab.id === 2), 1), 'tab_closed'],
+  ['put to sleep', harness => { harness.tabs.find(tab => tab.id === 2).discarded = true; }, 'tab_discarded'],
+  ['moved to sign-in', harness => { harness.tabs.find(tab => tab.id === 2).url = 'https://www.overleaf.com/login'; }, 'sign_in_required'],
+  ['moved away from Overleaf', harness => { delete harness.tabs.find(tab => tab.id === 2).url; }, 'tab_navigated'],
+]) {
+  test(`a reader tab ${name} during a transfer is reported as ${expected}`, async () => {
+    // The download starts streaming, then the tab goes away; part of it already reached Meld, so it is not retried.
+    const { harness, host, messages } = await connected(async () => response(new ReadableStream({
+      start(controller) { controller.enqueue(new Uint8Array([80, 75])); },
+      cancel() {},
+    }), { type: 'application/zip' }), { acknowledge: false });
+    try {
+      host.postMessage({ type: 'request', id: requestId, operation: 'downloadProject', projectId });
+      await waitUntil(() => messages.some(message => message.type === 'chunk'), 'transfer started');
+      change(harness);
+      harness.contentPorts[0].disconnect();
+      await waitUntil(() => messages.some(message => message.type === 'error'), 'reported failure');
+      assert.equal(messages.find(message => message.type === 'error').error, expected);
+      assert.equal(harness.tabActions.filter(action => action.type === 'create').length, 1);
+      assert.equal((await harness.send({ type: 'status' })).errorCode, expected);
+    } finally { await harness.close(); }
+  });
+}
+
+test('a new reader tab that lands on Overleaf\'s sign-in page asks for sign-in without retrying', async () => {
+  const { harness, host, messages } = await connected(async () => projectList());
+  const create = harness.chrome.tabs.create;
+  try {
+    harness.chrome.tabs.create = options => create({ ...options, url: 'https://www.overleaf.com/login' });
+    host.postMessage({ type: 'request', id: requestId, operation: 'listProjects' });
+    await waitUntil(() => messages.some(message => message.type === 'error'), 'sign-in failure');
+    assert.equal(messages.find(message => message.type === 'error').error, 'sign_in_required');
+    assert.equal(harness.requests.length, 0, 'Nothing is read from a sign-in page.');
+    assert.equal(harness.tabActions.filter(action => action.type === 'create').length, 1);
+    // Sign-in uses the user's own Overleaf tab, not the reader tab.
+    await harness.external({ type: 'signIn' });
+    assert.deepEqual(harness.tabActions.at(-1), { type: 'update', id: 1, active: true });
   } finally { await harness.close(); }
 });
 
@@ -384,7 +479,7 @@ test('the Meld page can ask the connector to reload into an updated copy, but un
     await new Promise(resolve => setTimeout(resolve, 200));
     assert.equal(harness.reloads.length, 0);
     const state = await harness.external({ type: 'reload' });
-    assert.equal(state.extensionVersion, '0.6.5', 'The reply is sent before the extension reloads.');
+    assert.equal(state.extensionVersion, '0.6.6', 'The reply is sent before the extension reloads.');
     await waitUntil(() => harness.reloads.length === 1, 'extension reload');
   } finally { await harness.close(); }
 });

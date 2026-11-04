@@ -54,7 +54,7 @@ export function response(body, { status = 200, type = 'text/html', url = 'https:
 }
 
 export function browserHarness({
-  nativePort, fetch: fetchResponse, overleafFetch, permitted = true, storage = {}, storageError = false,
+  nativePort, fetch: fetchResponse, overleafFetch, permitted = true, storage = {}, storageError = false, session = {},
   tabs = [{ id: 1, windowId: 1, active: true, incognito: false, status: 'complete', url: 'https://www.overleaf.com/project' }],
   now = () => Date.now(),
 }) {
@@ -70,6 +70,7 @@ export function browserHarness({
   const runtimeMessages = event();
   const externalMessages = event();
   const contentConnections = event();
+  const contentPorts = [];
   const contentContext = vm.createContext({
     chrome: { runtime: { id: extensionId, onConnect: contentConnections } },
     location: { origin: 'https://www.overleaf.com' },
@@ -99,6 +100,11 @@ export function browserHarness({
         if (storageError) throw new Error('Synthetic storage failure.');
         Object.assign(storage, values);
       },
+    },
+    session: {
+      get: async key => (key in session ? { [key]: session[key] } : {}),
+      set: async values => { Object.assign(session, values); },
+      remove: async key => { delete session[key]; },
     } },
     alarms: {
       get: async name => alarms.get(name),
@@ -135,10 +141,18 @@ export function browserHarness({
         Object.assign(tab, options);
         return { ...tab };
       },
+      remove: async id => {
+        tabActions.push({ type: 'remove', id });
+        const index = tabs.findIndex(tab => tab.id === id);
+        if (index < 0) throw new Error('Synthetic missing tab.');
+        tabs.splice(index, 1);
+        chrome.tabs.onRemoved.emit(id);
+      },
       onUpdated: event(),
       onRemoved: event(),
       connect: (_tabId, options) => {
         const [background, content] = portPair(options.name);
+        contentPorts.push(content);
         contentConnections.emit(content);
         return background;
       },
@@ -171,7 +185,7 @@ export function browserHarness({
     chrome.tabs.onUpdated.emit(id, changes, { ...tab });
   }
   return {
-    send, external, requests, backgroundRequests, reloads, warnings, chrome, tabs, tabActions, windowActions, alarms, storage, updateTab,
+    send, external, requests, backgroundRequests, reloads, warnings, chrome, tabs, tabActions, windowActions, alarms, storage, session, updateTab, contentPorts,
     close: () => send({ type: 'disconnect' }),
     dispose: () => { for (const port of nativePorts) port.disconnect(); for (const timer of timers) clearTimeout(timer); },
   };

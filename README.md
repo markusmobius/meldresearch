@@ -174,7 +174,7 @@ that backend requires real Google OAuth configuration. No synthetic identity is
 available in Live mode.
 
 The source manifest now uses the supplied Chrome draft public key:
-**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.6.5**, wire protocol **2**.
+**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.6.6**, wire protocol **2**.
 It is a public identity key, not a signing secret.
 
 Until the private listing is approved, remove the old development-ID unpacked
@@ -185,8 +185,13 @@ Native registration is automatic; silent consumer extension installation is not.
 
 Normal use does not require the extension popup. The connector reconnects on
 startup, uses a one-minute fallback alarm, respects a persistent Disconnect
-preference, and creates background Overleaf tabs without stealing focus. Explicit
-sign-in opens a normal tab. One browser/profile can connect at a time. The popup
+preference, and reads Overleaf in its **own background tab** without stealing focus:
+never a tab you work in, so switching projects or reloading Overleaf cannot break a
+read. That tab is kept awake during reads and closed after two idle minutes (unless
+you switched to it). A read that breaks before any data reached Meld is retried once
+in a fresh tab; otherwise the error says whether the tab was closed, moved, put to
+sleep or needs sign-in, and Meld retries automatically. Explicit sign-in uses your
+normal Overleaf tab. One browser/profile can connect at a time. The popup
 offers only **Sign in to Overleaf** until Overleaf is signed in, then **Connect** or
 **Disconnect**.
 
