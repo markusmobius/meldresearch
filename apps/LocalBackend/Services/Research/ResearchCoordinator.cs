@@ -71,6 +71,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     private volatile string? _summarizing;
     // After a failed grouping call, card work waits instead of retrying in a tight loop.
     private DateTimeOffset _themeRetryAt = DateTimeOffset.MinValue;
+    // After a failed embedding call, ranking work waits instead of retrying in a tight loop.
+    private DateTimeOffset _rankRetryAt = DateTimeOffset.MinValue;
     private static readonly TimeSpan ThemeBackoff = TimeSpan.FromMinutes(15);
     /// <summary>
     /// Failures of the connection to Meld's server (dropped, timed out, behind its proxy, busy) or of the browser's Overleaf
@@ -823,6 +825,67 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         return false;
     }
 
+    private bool RankDue(LocalResearchState state, Guid account, DateTimeOffset now) =>
+        Ranking.Cleaned(state, account) is not null || now >= _rankRetryAt && Ranking.Due(state, account).Count != 0;
+
+    /// <summary>
+    /// Embeds up to <see cref="Ranking.Batch"/> cards, groups, projects or removed files whose text changed (one call), so
+    /// the project chooser can be ordered by closeness without a call when it opens. Vectors of another embedding model are
+    /// replaced; a failed call is retried later and never holds up other work.
+    /// </summary>
+    private async Task<bool> RankStepAsync(LinkedCredential credential, CancellationToken ct)
+    {
+        var account = credential.Account.Id;
+        var state = await store.ReadAsync(ct);
+        if (state.Credential?.Account.Id != account) return false;
+        if (Ranking.Cleaned(state, account) is not null)
+        {
+            await store.ChangeAsync(current => current.Credential?.Account.Id == account && Ranking.Cleaned(current, account) is { } cleaned ? cleaned : current, ct);
+            return true;
+        }
+        if (clock.GetUtcNow() < _rankRetryAt) return false;
+        var due = Ranking.Due(state, account).Take(Ranking.Batch).ToArray();
+        if (due.Length == 0) return false;
+        var texts = new List<string>();
+        foreach (var item in due)
+            texts.Add(item.File is { } file ? Ranking.FileText(file, await store.ReadTextAsync(file.Sha256, ct)) : item.Text!);
+        ResearchEmbeddingResponse response;
+        try
+        {
+            response = await remote.EmbedAsync(credential.Token, new(texts), ct);
+            ResearchEvidence.ValidateEmbeddings(response.Embeddings, texts.Count);
+        }
+        catch (Exception error) when (error is ResearchFailure or HttpRequestException || error is TaskCanceledException && !ct.IsCancellationRequested)
+        {
+            _rankRetryAt = clock.GetUtcNow() + ThemeBackoff;
+            logger.LogWarning("Ranking projects for the chooser failed ({Type}); it is retried in {Minutes} minutes.",
+                error is ResearchFailure failure ? failure.Code : error.GetType().Name, ThemeBackoff.TotalMinutes);
+            return false;
+        }
+        await store.ChangeAsync(current =>
+        {
+            if (current.Credential?.Account.Id != account) return current;
+            var still = Ranking.Due(current, account).ToDictionary(item => item.Key, StringComparer.Ordinal);
+            // Vectors of another embedding model cannot be compared with these; they are made again.
+            var vectors = (current.Vectors ?? []).Where(vector => vector.AccountId != account || vector.Model == response.Model)
+                .ToDictionary(vector => (vector.AccountId, vector.Key));
+            for (int index = 0; index < due.Length; index++)
+                if (still.TryGetValue(due[index].Key, out var item) && item.For == due[index].For)
+                    vectors[(account, item.Key)] = new RankVector(account, item.Key, item.For, response.Model, Ranking.Encode(response.Embeddings[index]));
+            return current with { Vectors = [.. vectors.Values] };
+        }, ct);
+        logger.LogInformation("Ranked {Count} item(s) for the project chooser.", due.Length);
+        return true;
+    }
+
+    /// <summary>The research projects to add something to or move it to, closest first (no model call).</summary>
+    public async Task<ChoicesResponse> ChoicesAsync(string kind, string id, CancellationToken ct)
+    {
+        var state = await store.ReadAsync(ct);
+        if (string.IsNullOrWhiteSpace(id) || id.Length > 1000) throw new ResearchFailure(400, "invalid_choice_request", "Choose what to add or move.");
+        return Ranking.Choices(state, RequireCredential(state).Account.Id, kind, id);
+    }
+
     /// <summary>Folds a file the user added to another research project into that project's details, once (OVERLEAF.md §10).</summary>
     private async Task<bool> PendingFileStepAsync(LinkedCredential credential, CancellationToken ct)
     {
@@ -978,7 +1041,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         bool themes = ThemePlan.HasWork(state, credential.Account.Id, now, ReviewInterval) && clock.GetUtcNow() >= _themeRetryAt ||
             state.PendingFiles?.Any(file => file.AccountId == credential.Account.Id && file.TargetCardId is not null) == true;
         bool mail = importer?.HasWork(state, credential.Account.Id, now) == true;
-        if (due.Length == 0 && !queued && summaries.Length == 0 && !themes && !mail) return false;
+        bool rank = RankDue(state, credential.Account.Id, now);
+        if (due.Length == 0 && !queued && summaries.Length == 0 && !themes && !mail && !rank) return false;
         Interlocked.Exchange(ref _busy, 1);
         var identity = await remote.AccountAsync(credential.Token, ct);
         if (identity.Id != credential.Account.Id) throw AccountChanged();
@@ -999,6 +1063,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             // Card work first, so a project joins its research card as soon as its import finishes.
             if (await ThemeStepAsync(credential, ct)) continue;
             if (await PendingFileStepAsync(credential, ct)) continue;
+            if (await RankStepAsync(credential, ct)) continue;
             if (!await StepRoundAsync(credential, ct)) return mailLeft;
         }
         return true;
@@ -1039,7 +1104,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             // Threads the user skipped stay skipped; everything else is imported again.
             GmailThreads = [.. (state.GmailThreads ?? []).Where(thread => thread.Status == GmailThreadRecord.Dismissed)
                 .Select(thread => thread with { StreamId = null, CardId = null, FoldedMessageId = null, FoldedSentAt = null, GroupId = null, GroupPinned = null })],
-            HousekeepingGroups = null,
+            HousekeepingGroups = null, Vectors = null,
             GmailAccounts = state.GmailAccounts?.Select(account => account with
             {
                 LastImportAt = null, ImportVersion = null, LeaseBy = null, LeaseUntil = null, Processed = null

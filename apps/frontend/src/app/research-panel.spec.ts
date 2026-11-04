@@ -9,7 +9,7 @@ describe('Research Updates onboarding', () => {
   const api = {
     status: vi.fn(), link: vi.fn(), unlink: vi.fn(), monitor: vi.fn(),
     forget: vi.fn(), sync: vi.fn(), demoChange: vi.fn(), decideGmailThread: vi.fn(), decidePendingFile: vi.fn(),
-    decideHousekeepingGroup: vi.fn(), renameHousekeepingGroup: vi.fn(),
+    decideHousekeepingGroup: vi.fn(), renameHousekeepingGroup: vi.fn(), choices: vi.fn(),
   };
   const base: ResearchStatus = {
     account: { id: 'account-one', name: 'Synthetic researcher', email: 'researcher@example.invalid' },
@@ -209,13 +209,17 @@ describe('Research Updates onboarding', () => {
     await vi.waitFor(() => expect(api.decideGmailThread).toHaveBeenCalledWith(expect.objectContaining({ id: 'n1' }), 'dismiss'));
     await settle();
 
-    // Removed files: added together to a project other than the one they came from.
+    // Removed files: added together through the chooser (ranked for those files), selecting and then confirming.
+    api.choices.mockResolvedValue({ ranked: true, choices: [{ cardId: other, title: 'Pricing', summary: 'Prices.', projects: [], lastChanged: null,
+      best: true, suggested: false }] });
     files.querySelector<HTMLButtonElement>('.add-group')!.click();
+    await vi.waitFor(() => expect(document.querySelector('app-project-chooser .choice')).not.toBeNull());
+    expect(api.choices).toHaveBeenCalledWith('files', card);
+    // No "new project" choice for files.
+    expect(document.querySelectorAll('app-project-chooser .choice')).toHaveLength(1);
+    document.querySelector<HTMLButtonElement>('app-project-chooser .choice')!.click();
     fixture.detectChanges();
-    await fixture.whenStable();
-    const targets = [...document.querySelectorAll<HTMLButtonElement>('.mat-mdc-menu-item')];
-    expect(targets.map(item => item.textContent?.trim())).toEqual(['topicPricing']);
-    targets[0].click();
+    document.querySelector<HTMLButtonElement>('app-project-chooser .confirm')!.click();
     await vi.waitFor(() => expect(api.decidePendingFile).toHaveBeenCalledTimes(2));
     expect(api.decidePendingFile).toHaveBeenCalledWith(expect.objectContaining({ path: 'appendix/notes.tex' }), 'project', other);
     fixture.destroy();
@@ -231,7 +235,7 @@ describe('Research Updates onboarding', () => {
 
     await open(grantCard.querySelectorAll<HTMLButtonElement>('.group-thread-menu')[0]);
     expect(menuItems().map(item => item.textContent?.trim())).toEqual(
-      ['drive_file_moveMove to group', 'call_splitNew group', 'playlist_addAdd to project', 'closeSkip this thread']);
+      ['drive_file_moveMove to group', 'call_splitNew group', 'playlist_addAdd to project…', 'closeSkip this thread']);
     menuItems()[1].click();
     await vi.waitFor(() => expect(api.decideGmailThread).toHaveBeenCalledWith(expect.objectContaining({ id: 'g2' }), 'group', undefined, undefined, null));
     await vi.waitFor(() => expect(fixture.componentInstance.deciding()).toBeNull());

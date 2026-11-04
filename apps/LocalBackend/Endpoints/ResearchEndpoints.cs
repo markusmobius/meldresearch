@@ -82,6 +82,9 @@ internal static class ResearchEndpoints
             string themeId, DateTimeOffset? before, Guid? after, int? limit, ResearchCoordinator research, CancellationToken ct) =>
             TypedResults.Ok(await research.ChangelogAsync(themeId, before, after, limit ?? 30, ct)))
             .WithName("GetResearchChangelog").WithSummary("A page of a research project's changelog, newest first.");
+        group.MapGet("/choices", async Task<Ok<ChoicesResponse>> (string kind, string id, ResearchCoordinator research, CancellationToken ct) =>
+            TypedResults.Ok(await research.ChoicesAsync(kind, id, ct)))
+            .WithName("GetProjectChoices").WithSummary("The research projects to add something to or move it to, closest first.");
         group.MapPost("/files/decision", async Task<NoContent> (PendingFileDecisionRequest request, ResearchCoordinator research, CancellationToken ct) =>
         {
             await research.DecidePendingFileAsync(request, ct);

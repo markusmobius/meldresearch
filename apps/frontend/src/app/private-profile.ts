@@ -2,10 +2,12 @@ import { DatePipe } from '@angular/common';
 import { Component, Directive, ElementRef, OnDestroy, OnInit, computed, inject, input, output, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
-import { MatMenuModule } from '@angular/material/menu';
+import { MatDialog } from '@angular/material/dialog';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTabsModule } from '@angular/material/tabs';
+import { firstValueFrom } from 'rxjs';
 import { describeFailure } from './overleaf-api';
+import { ChooserData, ChooserResult, ProjectChooser } from './project-chooser';
 import {
   DetailSource, GmailThread, ResearchApi, ResearchChange, ResearchDetail, ResearchProject, ResearchStatus,
 } from './research-api';
@@ -54,7 +56,7 @@ type Tab = 'details' | 'changelog' | 'projects';
  */
 @Component({
   selector: 'app-private-profile',
-  imports: [DatePipe, InView, MatButtonModule, MatIconModule, MatMenuModule, MatProgressBarModule, MatTabsModule],
+  imports: [DatePipe, InView, MatButtonModule, MatIconModule, MatProgressBarModule, MatTabsModule],
   templateUrl: './private-profile.html',
   styleUrl: './private-profile.css',
 })
@@ -62,6 +64,7 @@ export class PrivateProfile {
   readonly status = input<ResearchStatus | null>(null);
   readonly changed = output<void>();
   private readonly api = inject(ResearchApi);
+  private readonly dialog = inject(MatDialog);
   readonly expandedId = signal<string | null>(null);
   readonly tab = signal<Tab>('details');
   /** The detail whose sources are shown (one at a time). */
@@ -189,14 +192,33 @@ export class PrivateProfile {
     if (!card.themeId) return;
     await this.act(card.id, () => this.api.setThemeAnchor(card.themeId!, project.projectId));
   }
-  /** Combines the whole card into another card. */
-  async mergeInto(card: ProfileCard, target: ProfileCard): Promise<void> {
-    if (!card.themeId || !target.themeId) return;
-    if (await this.act(card.id, () => this.api.mergeTheme(card.themeId!, target.themeId!))) this.expandedId.set(target.id);
+  /** Opens the project chooser (wide, closest first; select, then confirm). */
+  private choose(data: ChooserData): Promise<ChooserResult> {
+    return firstValueFrom(this.dialog.open<ProjectChooser, ChooserData, ChooserResult>(ProjectChooser,
+      { data, width: '680px', maxWidth: '100vw', maxHeight: '92dvh', autoFocus: 'first-tabbable' }).afterClosed());
   }
-  /** Moves one Overleaf project to another card, or to a card of its own (target null). */
-  async move(project: ResearchProject, target: ProfileCard | null): Promise<void> {
-    await this.act(project.projectId, () => this.api.moveToTheme(project.projectId, target?.themeId ?? null));
+  /** Move: the chooser lists the other projects closest to this Overleaf project first, and a project of its own. */
+  async chooseMove(card: ProfileCard, project: ResearchProject): Promise<void> {
+    const choice = await this.choose({ heading: `Move ${project.name}`, confirm: 'Move', kind: 'project', id: project.projectId,
+      subject: `Choose the research project that ${project.name} belongs to. Its sources leave “${card.title}”.`,
+      extra: card.members.length > 1 ? { label: 'A project of its own', hint: 'Start a separate research project from this Overleaf project.' } : null });
+    if (choice) await this.move(project, choice === 'new' ? null : choice);
+  }
+  /** Merge into: the chooser lists the projects closest to this one first. */
+  async chooseMerge(card: ProfileCard): Promise<void> {
+    if (!card.themeId) return;
+    const choice = await this.choose({ heading: `Merge “${card.title}” into…`, confirm: 'Merge', kind: 'card', id: card.themeId,
+      subject: 'Both become one research project; their details are combined.' });
+    if (choice) await this.mergeInto(card, choice);
+  }
+  /** Combines the whole card into another card. */
+  async mergeInto(card: ProfileCard, targetId: string): Promise<void> {
+    if (!card.themeId) return;
+    if (await this.act(card.id, () => this.api.mergeTheme(card.themeId!, targetId))) this.expandedId.set(targetId);
+  }
+  /** Moves one Overleaf project to another card, or to a card of its own (targetId null). */
+  async move(project: ResearchProject, targetId: string | null): Promise<void> {
+    await this.act(project.projectId, () => this.api.moveToTheme(project.projectId, targetId));
   }
   private async act(key: string, operation: () => Promise<void>): Promise<boolean> {
     if (this.working()) return false;

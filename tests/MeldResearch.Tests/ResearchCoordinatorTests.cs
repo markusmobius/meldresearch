@@ -336,6 +336,11 @@ public sealed class ResearchCoordinatorTests
             ("paper/slant.tex", "\\documentclass{article}\\title{\\texorpdfstring{\\texttt{slant}}{slant}: Article-Level Slant, see \\href{https://x.example}{the site}}" +
                 "\\begin{document}\\begin{abstract}We measure slant.\\end{abstract}\\end{document}")])!;
         Assert.Equal(("paper/slant.tex", "slant: Article-Level Slant, see the site", "We measure slant."), (memo.Path, memo.Title, memo.Abstract));
+
+        // A line break in a title, also with spacing, is a space (not "[0.3em]").
+        var broken = Papers.Read([("main.tex", @"\documentclass{article}\title{AI Needs Checks and Balances \\[0.3em] From Jiminy Cricket\\* to Montesquieu}" +
+            @"\begin{document}\begin{abstract}A.\end{abstract}\end{document}")])!;
+        Assert.Equal("AI Needs Checks and Balances From Jiminy Cricket to Montesquieu", broken.Title);
     }
 
     internal sealed class MultiSource(params ResearchSnapshot[] snapshots) : IOverleafEvidenceSource
@@ -496,6 +501,22 @@ public sealed class ResearchCoordinatorTests
         {
             lock (Reviews) Reviews.Add(request);
             return Task.FromResult((Review ?? (item => new([.. item.Details.Select(detail => new DetailMerged(detail.Text, [detail.Id]))], "Unchanged.", "chat")))(request));
+        }
+        public List<ResearchEmbeddingRequest> Embeds { get; } = [];
+        public string EmbeddingModel { get; set; } = "embed-test";
+        /// <summary>A stand-in embedding: each lowercase word adds to one of 64 dimensions, so shared words mean closeness.</summary>
+        public Task<ResearchEmbeddingResponse> EmbedAsync(string token, ResearchEmbeddingRequest request, CancellationToken ct)
+        {
+            lock (Embeds) Embeds.Add(request);
+            if (Failure is not null) throw Failure;
+            return Task.FromResult(new ResearchEmbeddingResponse(EmbeddingModel, [.. request.Input.Select(text =>
+            {
+                var vector = new float[64];
+                foreach (var word in text.ToLowerInvariant().Split([' ', '\n', '.', ',', ':', ';', '(', ')'], StringSplitOptions.RemoveEmptyEntries))
+                    vector[(int)((uint)ResearchEvidence.Hash(word).GetHashCode() % 64)] += 1;
+                vector[0] += 0.01f;
+                return (IReadOnlyList<float>)vector;
+            })]));
         }
         public List<CardSummaryRequest> Cards { get; } = [];
         public Task<ThemeMergeResponse> SummarizeCardAsync(string token, CardSummaryRequest request, CancellationToken ct)

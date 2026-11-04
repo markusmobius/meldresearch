@@ -62,6 +62,8 @@ internal interface IResearchRemote
     Task<DetailReviewResponse> ReviewDetailsAsync(string token, DetailReviewRequest request, CancellationToken ct);
     /// <summary>A research card's summary from its main paper's title and abstract.</summary>
     Task<ThemeMergeResponse> SummarizeCardAsync(string token, CardSummaryRequest request, CancellationToken ct);
+    /// <summary>Embeds 1-20 texts with the server's Foundry embedding deployment (to order the project chooser).</summary>
+    Task<ResearchEmbeddingResponse> EmbedAsync(string token, ResearchEmbeddingRequest request, CancellationToken ct);
     Task<SyncListResponse> SyncListAsync(string token, CancellationToken ct);
     Task<SyncLinksResponse> SyncLinksAsync(string token, SyncLinksRequest request, CancellationToken ct);
     Task SyncDeleteAllAsync(string token, CancellationToken ct);
@@ -187,6 +189,8 @@ internal sealed class ResearchRemote(ResearchOptions options, IHttpClientFactory
         CallAsync<DetailReviewResponse>("api/research/detail-review", HttpMethod.Post, request, token, ct);
     public Task<ThemeMergeResponse> SummarizeCardAsync(string token, CardSummaryRequest request, CancellationToken ct) =>
         CallAsync<ThemeMergeResponse>("api/research/card-summary", HttpMethod.Post, request, token, ct);
+    public Task<ResearchEmbeddingResponse> EmbedAsync(string token, ResearchEmbeddingRequest request, CancellationToken ct) =>
+        CallAsync<ResearchEmbeddingResponse>("api/research/embeddings", HttpMethod.Post, request, token, ct);
     public Task<CardBlurbResponse> DescribeCardAsync(string token, CardBlurbRequest request, CancellationToken ct) =>
         CallAsync<CardBlurbResponse>("api/research/card-blurb", HttpMethod.Post, request, token, ct);
     public Task<ResearcherSearchResponse> SearchResearcherAsync(string token, ResearcherSearchRequest request, CancellationToken ct) =>

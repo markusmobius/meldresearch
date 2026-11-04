@@ -137,9 +137,9 @@
                         <button mat-button type="button" class="make-main" [disabled]="!!working()" (click)="makeMain(card, member)"
                           [attr.aria-label]="'Make ' + member.name + ' the main paper'"><mat-icon>star_outline</mat-icon>Make main paper</button>
                       }
-                      <button mat-button type="button" class="move" [disabled]="!!working()" [matMenuTriggerFor]="moveMenu"
-                        [matMenuTriggerData]="{ member: member, card: card }" [attr.aria-label]="'Move ' + member.name + ' to another project'">
-                        <mat-icon>drive_file_move</mat-icon>Move</button>
+                      <button mat-button type="button" class="move" [disabled]="!!working() || (!targets().length && card.members.length < 2)"
+                        (click)="chooseMove(card, member)" [attr.aria-label]="'Move ' + member.name + ' to another project'">
+                        <mat-icon>drive_file_move</mat-icon>Move&hellip;</button>
                     </li>
                   } @empty {
                     <li class="muted">This project is built from email only.</li>
@@ -148,7 +148,7 @@
                 @if (card.reason && card.members.length > 1) { <p class="muted grouping-reason"><mat-icon>link</mat-icon>Grouped because: {{ card.reason }}</p> }
                 <div class="card-actions">
                   @if (targets().length) {
-                    <button mat-stroked-button type="button" [disabled]="!!working()" [matMenuTriggerFor]="mergeMenu" [matMenuTriggerData]="{ card: card }">
+                    <button mat-stroked-button type="button" class="merge-card" [disabled]="!!working()" (click)="chooseMerge(card)">
                       <mat-icon>call_merge</mat-icon>Merge into&hellip;</button>
                   }
                   <button mat-stroked-button type="button" class="skip-card" [disabled]="!!working()" (click)="skip(card, true)">
@@ -210,21 +210,3 @@
   </section>
 }
 
-<mat-menu #moveMenu="matMenu">
-  <ng-template matMenuContent let-member="member" let-card="card">
-    @for (target of targets(); track target.id) {
-      <button mat-menu-item (click)="move(member, target)"><mat-icon>topic</mat-icon><span>{{ target.title }}</span></button>
-    }
-    @if (card.members.length > 1) {
-      <button mat-menu-item (click)="move(member, null)"><mat-icon>add</mat-icon><span>A project of its own</span></button>
-    }
-  </ng-template>
-</mat-menu>
-
-<mat-menu #mergeMenu="matMenu">
-  <ng-template matMenuContent let-card="card">
-    @for (target of targets(); track target.id) {
-      <button mat-menu-item (click)="mergeInto(card, target)"><mat-icon>topic</mat-icon><span>{{ target.title }}</span></button>
-    }
-  </ng-template>
-</mat-menu>

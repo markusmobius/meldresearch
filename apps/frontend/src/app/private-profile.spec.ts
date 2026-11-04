@@ -21,7 +21,7 @@ describe('About me: my projects', () => {
   ];
   const api = {
     moveToTheme: vi.fn(), mergeTheme: vi.fn(), setThemeAnchor: vi.fn(), skipTheme: vi.fn(), decideGmailThread: vi.fn(),
-    removeSource: vi.fn(), changelog: vi.fn(),
+    removeSource: vi.fn(), changelog: vi.fn(), choices: vi.fn(),
   };
   const status = (projects: ResearchProject[], themes: ResearchStatus['themes']): ResearchStatus => ({
     account: { id: 'a', name: 'R', email: 'r@example.invalid' }, credentialExpiresAt: null, pendingLink: null, accountError: null,
@@ -159,23 +159,30 @@ describe('About me: my projects', () => {
     await vi.waitFor(() => expect(fixture.componentInstance.working()).toBe(''));
     fixture.detectChanges();
 
+    // Move: the chooser ranks projects for this Overleaf project, and offers a project of its own; select, then confirm.
+    api.choices.mockResolvedValue({ ranked: true, choices: [{ cardId: otherCard, title: 'Pricing', summary: 'Pricing in two sentences.',
+      projects: ['pricing'], lastChanged: null, best: true, suggested: false }] });
     members[1].querySelector<HTMLButtonElement>('.move')!.click();
+    await vi.waitFor(() => expect(document.querySelector('app-project-chooser .choice')).not.toBeNull());
+    expect(api.choices).toHaveBeenCalledWith('project', slidesId);
+    const rows = () => [...document.querySelectorAll<HTMLButtonElement>('app-project-chooser .choice')];
+    expect(rows().map(row => row.querySelector('.title')?.textContent?.trim())).toEqual(['Pricing Close match', 'A project of its own']);
+    rows()[1].click();
     fixture.detectChanges();
-    await fixture.whenStable();
-    const moves = [...document.querySelectorAll<HTMLButtonElement>('.mat-mdc-menu-item')];
-    expect(moves.map(item => item.textContent?.trim())).toEqual(['topicPricing', 'addA project of its own']);
-    moves[1].click();
+    expect(api.moveToTheme).not.toHaveBeenCalled();
+    document.querySelector<HTMLButtonElement>('app-project-chooser .confirm')!.click();
     await vi.waitFor(() => expect(api.moveToTheme).toHaveBeenCalledWith(slidesId, null));
     await vi.waitFor(() => expect(fixture.componentInstance.working()).toBe(''));
-    fixture.detectChanges();
-    await fixture.whenStable();
+    await vi.waitFor(() => expect(document.querySelector('app-project-chooser')).toBeNull());
 
-    [...card.querySelectorAll<HTMLButtonElement>('.card-actions button')].find(button => button.textContent?.includes('Merge into'))!.click();
+    // Merge into: the projects closest to this one; the chosen one is confirmed.
+    card.querySelector<HTMLButtonElement>('.merge-card')!.click();
+    await vi.waitFor(() => expect(document.querySelector('app-project-chooser .choice')).not.toBeNull());
+    expect(api.choices).toHaveBeenLastCalledWith('card', cardId);
+    expect(rows()).toHaveLength(1);
+    rows()[0].click();
     fixture.detectChanges();
-    await fixture.whenStable();
-    const panel = [...document.querySelectorAll('.mat-mdc-menu-panel')].at(-1)!;
-    expect([...panel.querySelectorAll('.mat-mdc-menu-item')].map(item => item.textContent?.trim())).toEqual(['topicPricing']);
-    panel.querySelector<HTMLButtonElement>('.mat-mdc-menu-item')!.click();
+    document.querySelector<HTMLButtonElement>('app-project-chooser .confirm')!.click();
     await vi.waitFor(() => expect(api.mergeTheme).toHaveBeenCalledWith(cardId, otherCard));
     fixture.destroy();
   });

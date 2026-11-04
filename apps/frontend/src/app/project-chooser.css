@@ -1,0 +1,33 @@
+:host { display: block; }
+.chooser-title { line-height: 1.3; }
+.chooser { display: flex; flex-direction: column; gap: 10px; }
+.subject { margin: 0; color: #475569; font-size: 0.88rem; overflow-wrap: anywhere; }
+.search { width: 100%; }
+.alert { margin: 0; color: #b42318; font-size: 0.85rem; }
+.choices { display: flex; flex-direction: column; gap: 6px; }
+.section { margin: 6px 0 0; font-size: 0.72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #64748b; }
+/* A large target per project: the whole row selects it; confirming is a separate button. */
+.choice { all: unset; box-sizing: border-box; display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 10px 12px; min-height: 56px;
+  border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; cursor: pointer; transition: border-color .15s, background .15s; }
+.choice:hover { border-color: #94a3b8; background: #f8fafc; }
+.choice:focus-visible { outline: 2px solid #0a6655; outline-offset: 2px; }
+.choice.selected { border-color: #0a6655; background: #ecfdf5; box-shadow: inset 0 0 0 1px #0a6655; }
+.mark { flex: none; color: #94a3b8; margin-top: 1px; }
+.choice.selected .mark { color: #0a6655; }
+.body { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 0.95rem; font-weight: 600; color: #0f172a; line-height: 1.35;
+  overflow-wrap: anywhere; }
+.badge { padding: 1px 7px; border-radius: 999px; background: #eff6ff; color: #1d4ed8; font-size: 0.68rem; font-weight: 700; }
+.badge.suggested { background: #ecfdf5; color: #166534; }
+.summary { font-size: 0.82rem; line-height: 1.45; color: #475569; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2;
+  -webkit-box-orient: vertical; overflow: hidden; }
+.meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 0.74rem; color: #64748b; }
+.projects { display: inline-flex; align-items: center; gap: 3px; overflow-wrap: anywhere; }
+.projects mat-icon { font-size: 14px; width: 14px; height: 14px; flex: none; }
+.extra { border-style: dashed; }
+.empty { margin: 8px 0; color: #64748b; font-size: 0.85rem; }
+.chooser-actions { display: flex; align-items: center; gap: 8px; }
+.choice-note { flex: 1; min-width: 0; font-size: 0.8rem; color: #475569; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The second step: a filled green button once a project is selected. */
+.confirm { min-width: 96px; }
+.confirm:not(:disabled) { background-color: #0a6655 !important; color: #fff !important; }

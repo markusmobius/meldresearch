@@ -121,7 +121,15 @@ internal sealed record LocalResearchState(int Version, LinkedCredential? Credent
     string? DeviceId = null, IReadOnlyList<GmailThreadRecord>? GmailThreads = null, int GmailVersion = 0, int ThemesVersion = 0,
     IReadOnlyList<ChangelogEntry>? Changelog = null, IReadOnlyList<PendingFile>? PendingFiles = null,
     IReadOnlyList<string>? SkippedProjects = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<HousekeepingGroup>? HousekeepingGroups = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<HousekeepingGroup>? HousekeepingGroups = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<RankVector>? Vectors = null);
+
+/// <summary>
+/// An embedding used only to order the project chooser (Ranking): of a research card, a Housekeeping group, an Overleaf
+/// project or a removed file (Key), made from the text whose hash is For by embedding Model, stored normalized as 8-bit
+/// values (Data, base64). Kept on this computer only; each computer embeds its own (it is cheap) and nothing else uses them.
+/// </summary>
+internal sealed record RankVector(Guid AccountId, string Key, string For, string Model, string Data);
 
 /// <summary>
 /// A Gmail account connected for read-only access. RefreshToken is Google's long-lived grant; it is kept only in this encrypted

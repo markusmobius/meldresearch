@@ -458,6 +458,93 @@ public sealed class DetailIngestTests
         Assert.False(ResearchCoordinator.Transient(MeldResearch.LocalBackend.Services.BrowserFailures.FromCode("sign_in_required").Code));
     }
 
+    private static ResearchTheme Settled(string id, string title, string summary, string[] details, params string[] members)
+    {
+        var source = new DetailSource(DetailSource.Overleaf, members.FirstOrDefault() ?? ProjectId, "main.tex", "v1", "main.tex", DateTimeOffset.UtcNow.AddDays(-id[0]));
+        IReadOnlyList<DetailBullet> bullets = [.. details.Select((text, index) => new DetailBullet("d" + index, text, [new(source, "q")]))];
+        return new ResearchTheme(Account.Id, id, members, new(title, summary, [], []), null, DateTimeOffset.UtcNow, Details: bullets,
+            SummaryFor: DetailPlan.Fingerprint(bullets));
+    }
+
+    [Fact]
+    public async Task TheChooserListsProjectsClosestFirstFromStoredVectorsWithoutACallWhenItOpens()
+    {
+        string pcm = new('a', 32), teaching = new('b', 32), optics = new('c', 32), group = new('d', 32);
+        var at = DateTimeOffset.UtcNow;
+        var thread = new GmailThreadRecord(Account.Id, "me@example.invalid", "t1", "Course allocation", GmailThreadRecord.Pending, "1", "m1", at, at,
+            [new GmailBullet(Guid.NewGuid(), "The teaching allocation algorithm assigns courses to faculty.", [], at, at, false)], GroupId: group);
+        // Both projects were just checked, so nothing is read from Overleaf here.
+        var store = new MemoryStore(new(1, Credential, null, null, [Included() with { ImportComplete = true, LastSweepAt = at },
+                Included(SecondId) with { Name = "allocation-code", ImportComplete = true, LastSweepAt = at }], [],
+            Themes: [Settled(pcm, "Publisher content marketplace", "A marketplace that pays publishers for content.", ["Publishers are paid per citation."], ProjectId),
+                Settled(teaching, "Teaching allocation", "An algorithm that assigns teaching courses to faculty.", ["The allocation algorithm uses course surveys."], SecondId),
+                Settled(optics, "Metalens optics", "Metalens design for wide-field imaging.", ["Simulations of aspheric lenses."])],
+            GmailThreads: [thread], HousekeepingGroups: [new(Account.Id, group, "Teaching allocation algorithm", at, at, SuggestedCardId: optics)],
+            Decisions: [new(Account.Id, ProjectId, true, at), new(Account.Id, SecondId, true, at)]));
+        var remote = new Remote();
+        using var coordinator = Create(store, remote, new Source(Files(("main.tex", Memo("Synthetic.")))));
+        Assert.Null(store.State.Vectors);
+        await Drain(coordinator);
+
+        // One embedding call: the three cards, the group, and the two Overleaf projects that details cite.
+        var embed = Assert.Single(remote.Embeds);
+        Assert.Equal(6, embed.Input.Count);
+        Assert.Equal(["card:" + pcm, "card:" + teaching, "card:" + optics, "group:" + group, "project:" + ProjectId, "project:" + SecondId],
+            store.State.Vectors!.Select(vector => vector.Key).Order(StringComparer.Ordinal).OrderBy(key => key.Split(':')[0] switch { "card" => 0, "group" => 1, _ => 2 }));
+        Assert.Contains(embed.Input, text => text.StartsWith("Teaching allocation algorithm\nCourse allocation: The teaching allocation", StringComparison.Ordinal));
+        Assert.All(store.State.Vectors!, vector => Assert.Equal("embed-test", vector.Model));
+
+        // Opening the chooser makes no call. The suggestion leads; then closest first, the closest few marked best.
+        var choices = await coordinator.ChoicesAsync("group", group, None);
+        Assert.True(choices.Ranked);
+        Assert.Equal([optics, teaching, pcm], choices.Choices.Select(choice => choice.CardId));
+        Assert.Equal([(true, false), (false, true), (false, true)], choices.Choices.Select(choice => (choice.Suggested, choice.Best)));
+        Assert.Equal(["allocation-code"], choices.Choices[1].Projects);
+        Assert.Equal("A marketplace that pays publishers for content.", choices.Choices[2].Summary);
+        // A thread in the group ranks like its group; merging a card excludes it and ranks the others by closeness to it.
+        Assert.Equal(teaching, (await coordinator.ChoicesAsync("thread", "me@example.invalid|t1", None)).Choices[1].CardId);
+        var merge = await coordinator.ChoicesAsync("card", teaching, None);
+        Assert.DoesNotContain(merge.Choices, choice => choice.CardId == teaching);
+        Assert.Single(remote.Embeds);
+
+        // Unchanged: nothing is embedded again. A changed summary embeds only that card.
+        await Drain(coordinator);
+        Assert.Single(remote.Embeds);
+        var changed = Settled(pcm, "Publisher content marketplace", "A marketplace that pays publishers for every citation.", ["Publishers are paid per citation."], ProjectId);
+        store.State = store.State with { Themes = [.. store.State.Themes!.Select(theme => theme.Id == pcm ? changed : theme)] };
+        await Drain(coordinator);
+        Assert.Equal(2, remote.Embeds.Count);
+        Assert.Single(remote.Embeds[1].Input);
+
+        // A new embedding model: every vector is made again, so all are comparable.
+        remote.EmbeddingModel = "embed-next";
+        store.State = store.State with { Themes = [.. store.State.Themes!.Select(theme => theme.Id == optics ? theme with { Profile = theme.Profile! with { Description = "Metalens design." } } : theme)] };
+        store.State = store.State with { Themes = [.. store.State.Themes!.Select(theme => theme.Id == optics ? theme with { SummaryFor = DetailPlan.Fingerprint(theme.Details) } : theme)] };
+        await Drain(coordinator);
+        Assert.All(store.State.Vectors!, vector => Assert.Equal("embed-next", vector.Model));
+        Assert.Equal(6, store.State.Vectors!.Count);
+
+        // Without vectors the chooser still lists every project, by latest change.
+        store.State = store.State with { Vectors = null };
+        var unranked = Ranking.Choices(store.State, Account.Id, "card", pcm);
+        Assert.False(unranked.Ranked);
+        Assert.Equal(2, unranked.Choices.Count);
+        Assert.All(unranked.Choices, choice => Assert.False(choice.Best));
+        Assert.Equal("invalid_choice_request", Assert.Throws<ResearchFailure>(() => Ranking.Choices(store.State, Account.Id, "other", "x")).Code);
+    }
+
+    [Fact]
+    public void VectorsAreStoredCompactlyAndKeepTheirDirection()
+    {
+        float[] vector = [3, 4, 0, -5];
+        var decoded = Ranking.Decode(Ranking.Encode(vector))!;
+        Assert.Equal(4, decoded.Length);
+        Assert.InRange(Ranking.Similarity(decoded, decoded)!.Value, 0.99, 1.01);
+        Assert.InRange(Ranking.Similarity(decoded, Ranking.Decode(Ranking.Encode([-3f, -4, 0, 5]))!)!.Value, -1.01, -0.99);
+        Assert.Null(Ranking.Similarity(decoded, Ranking.Decode(Ranking.Encode([1f, 2]))));
+        Assert.Null(Ranking.Decode("not base64!"));
+    }
+
     [Fact]
     public async Task ServerOutagesAreShownAsRetryingUntilTheyPersist()
     {

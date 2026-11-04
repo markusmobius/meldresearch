@@ -21,7 +21,7 @@
       <header class="page-header">
         <div class="page-heading">
           <h1 class="page-title"><span class="material-icons site-only" aria-hidden="true">shield</span>Privacy &amp; Controls</h1>
-          <p class="page-subtitle">Last updated: November 2026 &middot; Meld Research and its Overleaf connector, version 0.6.7</p>
+          <p class="page-subtitle">Last updated: November 2026 &middot; Meld Research and its Overleaf connector, version 0.6.8</p>
         </div>
       </header>
 
@@ -90,7 +90,12 @@
                 dates, but no source text) are also sent to merge overlapping details and retire plans that newer details overtook. To show the projects of
                 one piece of research (for example a paper, its drafts and slides) as one research project, the summaries and first
                 details of your research projects are also sent to decide which belong together, and combining two of them sends both
-                detail lists. Processing runs in the background without a separate prompt for each model request.</li>
+                detail lists. To list the projects closest to what you are adding or moving first, each research project's title,
+                summary and first details, each Overleaf project's paper title, abstract and the details it supports, each
+                Housekeeping group's thread titles and previews, and the text of each file you removed from a project are also sent
+                once (and again only when they change) to the configured Azure AI Foundry embedding deployment; the resulting
+                numbers are kept only on your computer. Processing runs in the background without a separate prompt for each model
+                request.</li>
               <li><strong>The Meld website:</strong> keeps your account and approved installations in its own database. The remote
                 Meld application does not persist a project archive or log research payloads. To monitor cost and capacity, it records
                 for each model request only its time, deployment, purpose, outcome, token counts and duration, not its content or

@@ -66,6 +66,13 @@ public sealed record GmailThreadResponse(string Address, string Id, string Subje
 /// </summary>
 public sealed record HousekeepingGroupResponse(string Id, string Name, bool Named, bool Held, string? SuggestedCardId = null,
     string? SuggestedCardTitle = null, string? SuggestionReason = null);
+/// <summary>
+/// The project chooser: research projects to add something to (or move it to), closest first. Ranked: closeness is known
+/// (otherwise they are ordered by their latest change). Best marks the closest few; Suggested the one the group's check found.
+/// </summary>
+public sealed record ChoicesResponse(IReadOnlyList<ChoiceResponse> Choices, bool Ranked);
+public sealed record ChoiceResponse(string CardId, string Title, string Summary, IReadOnlyList<string> Projects, DateTimeOffset? LastChanged,
+    bool Best, bool Suggested);
 /// <summary>For a whole Housekeeping group: "new" (a research project named Name, else the group's name), "project" (add to CardId) or "dismiss".</summary>
 public sealed record HousekeepingGroupDecisionRequest(string Action, string? CardId = null, string? Name = null);
 public sealed record HousekeepingGroupRenameRequest(string Name);

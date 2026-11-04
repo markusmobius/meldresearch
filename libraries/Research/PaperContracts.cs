@@ -140,7 +140,9 @@ public static partial class Papers
                 string kept = close < 0 ? text[(found.Open + 1)..found.Close] : rest[1..close];
                 text = text[..found.Start] + kept + (close < 0 ? rest : rest[(close + 1)..]);
             }
-        text = text.Replace("\\\\", " ").Replace("~", " ").Replace("\\&", "&").Replace("\\%", "%").Replace("\\$", "$").Replace("\\_", "_")
+        // A line break, also with spacing (\\[0.3em]) or a star, is a space.
+        text = Regex.Replace(text, @"\\\\\*?(?:\s*\[[^\]]*\])?", " ");
+        text = text.Replace("~", " ").Replace("\\&", "&").Replace("\\%", "%").Replace("\\$", "$").Replace("\\_", "_")
             .Replace("``", "\"").Replace("''", "\"").Replace("---", "—").Replace("--", "–");
         text = Regex.Replace(text, @"\\(?:textbf|textit|emph|textsc|texttt|textrm|underline|mbox|text|mathrm|mathbf|url)\s*\{", "{");
         text = Regex.Replace(text, @"\\(?:noindent|centering|newline|par|medskip|bigskip|smallskip|maketitle)\b", " ");

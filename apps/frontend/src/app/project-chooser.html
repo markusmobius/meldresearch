@@ -1,0 +1,53 @@
+<h2 mat-dialog-title class="chooser-title">{{ data.heading }}</h2>
+<mat-dialog-content class="chooser">
+  <p class="subject">{{ data.subject }}</p>
+  <mat-form-field class="search" appearance="outline" subscriptSizing="dynamic">
+    <mat-icon matPrefix>search</mat-icon>
+    <mat-label>Search your research projects</mat-label>
+    <input matInput type="search" [value]="query()" (input)="query.set($any($event.target).value)" />
+  </mat-form-field>
+  @if (loading()) { <mat-progress-bar mode="indeterminate" aria-label="Loading research projects"></mat-progress-bar> }
+  @if (error()) { <p class="alert" role="alert">{{ error() }}</p> }
+  <div class="choices" role="radiogroup" [attr.aria-label]="data.heading">
+    @if (best().length) {
+      <h3 class="section">Best matches</h3>
+      @for (choice of best(); track choice.cardId) { <ng-container *ngTemplateOutlet="row; context: { $implicit: choice }"></ng-container> }
+    }
+    @if (others().length) {
+      <h3 class="section">{{ best().length ? 'Other projects' : ranked() ? 'Projects' : 'Projects, most recently changed first' }}</h3>
+      @for (choice of others(); track choice.cardId) { <ng-container *ngTemplateOutlet="row; context: { $implicit: choice }"></ng-container> }
+    }
+    @if (!loading() && !shown().length) {
+      <p class="empty">{{ query() ? 'No project matches your search.' : 'There is no other research project yet.' }}</p>
+    }
+    @if (data.extra; as extra) {
+      <button type="button" class="choice extra" role="radio" [attr.aria-checked]="selected() === 'new'" [class.selected]="selected() === 'new'"
+        (click)="select('new')">
+        <mat-icon class="mark">{{ selected() === 'new' ? 'radio_button_checked' : 'radio_button_unchecked' }}</mat-icon>
+        <span class="body"><span class="title">{{ extra.label }}</span><span class="summary">{{ extra.hint }}</span></span>
+      </button>
+    }
+  </div>
+</mat-dialog-content>
+<mat-dialog-actions class="chooser-actions">
+  <span class="choice-note">@if (selected()) { {{ data.confirm }}: <strong>{{ selectedTitle() }}</strong> } @else { Select a project }</span>
+  <button mat-button mat-dialog-close type="button">Cancel</button>
+  <button mat-flat-button type="button" class="confirm" [disabled]="!selected()" (click)="confirm()">{{ data.confirm }}</button>
+</mat-dialog-actions>
+
+<ng-template #row let-choice>
+  <button type="button" class="choice" role="radio" [attr.aria-checked]="selected() === choice.cardId" [class.selected]="selected() === choice.cardId"
+    (click)="select(choice.cardId)">
+    <mat-icon class="mark">{{ selected() === choice.cardId ? 'radio_button_checked' : 'radio_button_unchecked' }}</mat-icon>
+    <span class="body">
+      <span class="title">{{ choice.title }}
+        @if (choice.suggested) { <span class="badge suggested">Suggested</span> } @else if (choice.best) { <span class="badge">Close match</span> }
+      </span>
+      <span class="summary">{{ choice.summary }}</span>
+      <span class="meta">
+        @if (choice.projects.length) { <span class="projects"><mat-icon>description</mat-icon>{{ choice.projects.join(' · ') }}</span> }
+        @if (choice.lastChanged) { <span>Changed {{ choice.lastChanged | date:'MMM d, y' }}</span> }
+      </span>
+    </span>
+  </button>
+</ng-template>

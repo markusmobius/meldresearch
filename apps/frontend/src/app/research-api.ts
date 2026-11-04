@@ -99,6 +99,14 @@ export interface ResearchChange {
   title: string; projectName: string | null; documents: ReadonlyArray<string>; changes: ReadonlyArray<DetailChange>;
 }
 export interface ChangelogPage { entries: ReadonlyArray<ResearchChange>; more: boolean; }
+/** What the project chooser is choosing a project for: a Housekeeping group or thread, removed files, an Overleaf project, or a card. */
+export type ChoiceKind = 'group' | 'thread' | 'files' | 'project' | 'card';
+/** A research project in the chooser; best: one of the closest; suggested: the one the group's check found. */
+export interface ProjectChoice {
+  cardId: string; title: string; summary: string; projects: ReadonlyArray<string>; lastChanged: string | null; best: boolean; suggested: boolean;
+}
+/** The chooser's projects, closest first; ranked is false while closeness is not known yet (then by latest change). */
+export interface ProjectChoices { choices: ReadonlyArray<ProjectChoice>; ranked: boolean; }
 /** An Overleaf file removed as a source of research project fromCardId; the user adds it to another project or skips it. */
 export interface PendingFile {
   projectId: string; projectName: string; path: string; fromCardId: string; fromCardTitle: string | null; removedAt: string;
@@ -233,6 +241,10 @@ export class ResearchApi {
     const query = new URLSearchParams({ limit: String(limit) });
     if (last) { query.set('after', last.id); query.set('before', last.at); }
     return firstValueFrom(this.http.get<ChangelogPage>(`/api/research/themes/${encodeURIComponent(themeId)}/changelog?${query}`));
+  }
+  /** The research projects to add something to (or move it to), closest first. */
+  choices(kind: ChoiceKind, id: string): Promise<ProjectChoices> {
+    return firstValueFrom(this.http.get<ProjectChoices>(`/api/research/choices?${new URLSearchParams({ kind, id })}`));
   }
   /** A removed file from Housekeeping: add it to research project cardId, or leave it out (dismiss). */
   decidePendingFile(file: Pick<PendingFile, 'projectId' | 'path'>, action: 'project' | 'dismiss', cardId?: string): Promise<void> {

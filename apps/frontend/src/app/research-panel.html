@@ -129,7 +129,7 @@
                   </ul>
                   <p class="thread-suggestion">They no longer count for that project.</p>
                   <div class="feed-card-actions">
-                    <button mat-button class="feed-action add-group" [matMenuTriggerFor]="addMenu" [matMenuTriggerData]="{ card: card }"
+                    <button mat-button class="feed-action add-group" (click)="chooseProject(card)"
                       [disabled]="!!deciding() || !targets(card).length"><mat-icon>playlist_add</mat-icon>Add to project</button>
                     <button mat-button class="feed-action skip-group" [disabled]="!!deciding()" (click)="skipCard(card)"><mat-icon>close</mat-icon>Skip {{ files.length > 1 ? 'all' : '' }}</button>
                   </div>
@@ -189,7 +189,7 @@
                   }
                   <div class="feed-card-actions">
                     <button mat-button class="feed-action new-project" [disabled]="!!deciding()" (click)="startNaming(card)"><mat-icon>add</mat-icon>Create project</button>
-                    <button mat-button class="feed-action add-group" [matMenuTriggerFor]="addMenu" [matMenuTriggerData]="{ card: card }"
+                    <button mat-button class="feed-action add-group" (click)="chooseProject(card)"
                       [disabled]="!!deciding() || !cards().length"><mat-icon>playlist_add</mat-icon>Add to project</button>
                     <button mat-button class="feed-action skip-group" [disabled]="!!deciding()" (click)="skipCard(card)"><mat-icon>close</mat-icon>{{ card.threads.length > 1 ? 'Skip all' : 'Skip' }}</button>
                   </div>
@@ -240,14 +240,6 @@
   </ul>
 </ng-template>
 
-<mat-menu #addMenu="matMenu">
-  <ng-template matMenuContent let-card="card">
-    @for (target of targets(card); track target.id) {
-      <button mat-menu-item (click)="addToProject(card, target.id)"><mat-icon>topic</mat-icon><span>{{ target.title }}</span></button>
-    }
-  </ng-template>
-</mat-menu>
-
 <mat-menu #threadMenu="matMenu">
   <ng-template matMenuContent let-card="card" let-thread="thread">
     @if (otherGroups(thread).length) {
@@ -257,7 +249,7 @@
       <button mat-menu-item (click)="moveThread(card, thread, null)"><mat-icon>call_split</mat-icon><span>New group</span></button>
     }
     @if (cards().length) {
-      <button mat-menu-item [matMenuTriggerFor]="threadProjectMenu" [matMenuTriggerData]="{ card: card, thread: thread }"><mat-icon>playlist_add</mat-icon><span>Add to project</span></button>
+      <button mat-menu-item (click)="chooseThreadProject(card, thread)"><mat-icon>playlist_add</mat-icon><span>Add to project…</span></button>
     }
     <button mat-menu-item (click)="decideThread(card, thread, 'dismiss')"><mat-icon>close</mat-icon><span>Skip this thread</span></button>
   </ng-template>
@@ -267,14 +259,6 @@
   <ng-template matMenuContent let-card="card" let-thread="thread">
     @for (group of otherGroups(thread); track group.id) {
       <button mat-menu-item (click)="moveThread(card, thread, group.id)"><mat-icon>folder_open</mat-icon><span>{{ group.name }}</span></button>
-    }
-  </ng-template>
-</mat-menu>
-
-<mat-menu #threadProjectMenu="matMenu">
-  <ng-template matMenuContent let-card="card" let-thread="thread">
-    @for (target of cards(); track target.id) {
-      <button mat-menu-item (click)="decideThread(card, thread, 'project', target.id)"><mat-icon>topic</mat-icon><span>{{ target.title }}</span></button>
     }
   </ng-template>
 </mat-menu>

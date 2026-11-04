@@ -174,7 +174,7 @@ that backend requires real Google OAuth configuration. No synthetic identity is
 available in Live mode.
 
 The source manifest now uses the supplied Chrome draft public key:
-**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.6.7**, wire protocol **2**.
+**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.6.8**, wire protocol **2**.
 It is a public identity key, not a signing secret.
 
 Until the private listing is approved, remove the old development-ID unpacked
@@ -258,6 +258,19 @@ How Overleaf is read:
   summary): overlapping details are merged and plans or statuses that newer
   details overtook are retired, keeping at least half. Reviews appear in the
   card's changelog, not in the feed (OVERLEAF.md §8a).
+- **Project chooser.** Adding something to a project (Housekeeping groups, threads
+  and removed files) and About me's **Move** and **Merge into** open one wide chooser:
+  every research project with its title, summary, Overleaf projects and latest
+  change, a search field, and the closest projects first (a group's suggestion leads,
+  the next three are marked **Close match**). Choosing takes two steps: select a
+  project, then confirm. Closeness comes from Foundry embeddings
+  ([Ranking](apps/LocalBackend/Services/Research/Ranking.cs), `/api/research/embeddings`)
+  of each card (title, summary, first details), Housekeeping group (thread titles and
+  preview points), included Overleaf project (paper title, abstract, the details it
+  supports) and removed file (path and text). Each is embedded once, and again only
+  when that text changes, up to 20 per call; opening the chooser makes no call.
+  Vectors are stored compactly (8-bit) on this computer only, so another computer
+  embeds its own once; until they exist the chooser lists projects by latest change.
 - **Cards.** A newly read project gets a card of its own; Foundry then decides with
   strict matching (the same paper or core question; a shared topic, data set or
   method is not enough) whether it belongs on an existing card, and combining two

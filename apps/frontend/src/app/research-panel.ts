@@ -11,6 +11,8 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { describeFailure } from './overleaf-api';
 import { GmailThread, HousekeepingGroup, PendingFile, ResearchApi, ResearchChange, ResearchStatus } from './research-api';
 import { LocalPage } from './meld-toolbar';
+import { ChooserData, ChooserResult, ProjectChooser } from './project-chooser';
+import { firstValueFrom } from 'rxjs';
 
 /**
  * One card of Housekeeping: a group of waiting email threads (group null while a thread is still being grouped: a card of
@@ -230,6 +232,31 @@ export class ResearchPanel implements OnInit {
   /** Moves one thread to another group, or to a new group of its own (groupId null); it stays there. */
   async moveThread(card: HousekeepingCard, thread: GmailThread, groupId: string | null): Promise<void> {
     await this.act(card.key, () => this.api.decideGmailThread(thread, 'group', undefined, undefined, groupId));
+  }
+  /** Opens the project chooser (wide, closest first; select, then confirm). */
+  private choose(data: ChooserData): Promise<ChooserResult> {
+    return firstValueFrom(this.dialog.open<ProjectChooser, ChooserData, ChooserResult>(ProjectChooser,
+      { data, width: '680px', maxWidth: '100vw', maxHeight: '92dvh', autoFocus: 'first-tabbable' }).afterClosed());
+  }
+  /** Add to project for a whole card: its threads (or removed files) go to the chosen project; "a new project" starts naming one. */
+  async chooseProject(card: HousekeepingCard): Promise<void> {
+    const count = card.files?.length ?? card.threads.length;
+    const choice = await this.choose({
+      heading: 'Add to a research project', confirm: 'Add',
+      subject: card.files ? `${count} ${count === 1 ? 'file' : 'files'} removed from ${card.files[0].fromCardTitle ?? 'a research project'}`
+        : `“${card.name}” · ${count} email ${count === 1 ? 'thread' : 'threads'}`,
+      kind: card.files ? 'files' : card.group ? 'group' : 'thread',
+      id: card.files ? card.fromCardId! : card.group ? card.group.id : this.threadKey(card.threads[0]),
+      extra: card.files ? null : { label: 'Create a new project instead', hint: 'Name a new research project for these threads.' },
+    });
+    if (choice === 'new') this.startNaming(card);
+    else if (choice) await this.addToProject(card, choice);
+  }
+  /** Add to project for one thread of a group. */
+  async chooseThreadProject(card: HousekeepingCard, thread: GmailThread): Promise<void> {
+    const choice = await this.choose({ heading: 'Add this thread to a research project', confirm: 'Add', subject: `“${thread.title}”`,
+      kind: 'thread', id: this.threadKey(thread) });
+    if (choice) await this.decideThread(card, thread, 'project', choice);
   }
   /** One thread of a group: to a research project, or skipped. */
   async decideThread(card: HousekeepingCard, thread: GmailThread, action: 'project' | 'dismiss', cardId?: string): Promise<void> {
