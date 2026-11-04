@@ -534,6 +534,35 @@ public sealed class DetailIngestTests
     }
 
     [Fact]
+    public async Task AnImprovedPaperReadingFixesStoredCardTitlesWithoutAModelCall()
+    {
+        var source = new Source(Files(("main.tex", Paper("Paying for Information: \\\\[0.2em] A Marketplace", "We build a publisher marketplace."))));
+        var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
+        var remote = new Remote();
+        using var coordinator = Create(store, remote, source);
+        await Drain(coordinator);
+        var card = Assert.Single(store.State.Themes!);
+        Assert.Equal("Paying for Information: A Marketplace", card.Profile!.Title);
+
+        // As an earlier version stored it: the line break's spacing in the title, read by an older way of reading papers.
+        var project = store.State.Projects.Single();
+        const string broken = "Paying for Information: [0.2em] A Marketplace";
+        store.State = store.State with
+        {
+            Projects = [project with { Paper = project.Paper! with { Title = broken }, PaperFor = "2:" + project.Baseline!.Revision }],
+            Themes = [card with { Profile = card.Profile with { Title = broken } }]
+        };
+        int calls = remote.Calls + remote.DetailSummaries.Count + remote.Reviews.Count + remote.Matches.Count;
+        await Drain(coordinator);
+        // Read again from the stored text; the card's title follows its paper; no chat model call.
+        Assert.Equal(("Paying for Information: A Marketplace", Papers.ReadFor(project.Baseline.Revision)),
+            (store.State.Projects.Single().Paper!.Title, store.State.Projects.Single().PaperFor));
+        Assert.Equal("Paying for Information: A Marketplace", store.State.Themes!.Single().Profile!.Title);
+        Assert.Equal(calls, remote.Calls + remote.DetailSummaries.Count + remote.Reviews.Count + remote.Matches.Count);
+        Assert.Equal("Paying for Information: A Marketplace", (await coordinator.StatusAsync(None)).Themes!.Single().Profile!.Title);
+    }
+
+    [Fact]
     public void VectorsAreStoredCompactlyAndKeepTheirDirection()
     {
         float[] vector = [3, 4, 0, -5];

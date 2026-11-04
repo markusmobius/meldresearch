@@ -115,8 +115,28 @@ internal static class ThemePlan
         Active(state, account).FirstOrDefault(theme => theme.MatchPending == true && theme.Profile is not null &&
             theme.SummaryFor == DetailPlan.Fingerprint(theme.Details));
 
+    /// <summary>
+    /// An included project whose paper was read by an earlier way of reading papers (Papers.Version): it is read again from
+    /// the stored text of its current version, without a model call.
+    /// </summary>
+    public static MonitoredProject? PaperDue(LocalResearchState state, Guid account) =>
+        state.Projects.FirstOrDefault(project => project.AccountId == account && project.IsOverleaf && project.Enabled && project.Pending is null &&
+            project.Baseline is { } baseline && project.PaperFor != Papers.ReadFor(baseline.Revision));
+
+    /// <summary>The title a card takes from its main paper (one with an abstract), exactly as the summary step stores it; else null.</summary>
+    public static string? PaperTitle(LocalResearchState state, ResearchTheme theme)
+    {
+        if (AnchorOf(state, theme)?.Paper is not { Abstract: not null, Title: { } title }) return null;
+        if (title.Length > Papers.MaxTitle) title = title[..Papers.MaxTitle];
+        return title.Length > DetailRules.MaxTitle ? title[..DetailRules.MaxTitle].TrimEnd() : title;
+    }
+
+    /// <summary>A card whose title differs from its main paper's (the paper was edited or read again): the title follows, no model call.</summary>
+    public static ResearchTheme? TitleDue(LocalResearchState state, Guid account) =>
+        Themes(state, account).FirstOrDefault(theme => theme.Profile is not null && PaperTitle(state, theme) is { } title && title != theme.Profile.Title);
+
     public static bool HasWork(LocalResearchState state, Guid account, DateTimeOffset now, TimeSpan interval) =>
-        Cleaned(state, account) is not null || SummaryDue(state, account) is not null || ReviewDue(state, account, now, interval) is not null || MatchDue(state, account) is not null ||
+        Cleaned(state, account) is not null || PaperDue(state, account) is not null || TitleDue(state, account) is not null || SummaryDue(state, account) is not null || ReviewDue(state, account, now, interval) is not null || MatchDue(state, account) is not null ||
         RegroupDue(state, account) || SkipUngrouped(state, account) is not null;
 
     /// <summary>The account's cards and their members, independent of order; regrouping runs again only when it changes.</summary>

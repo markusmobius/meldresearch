@@ -275,8 +275,10 @@ How Overleaf is read:
   strict matching (the same paper or core question; a shared topic, data set or
   method is not enough) whether it belongs on an existing card, and combining two
   cards merges their details in one call. The card title is the main paper's
-  `\title` ([Papers](libraries/Research/PaperContracts.cs)); **Make main paper**
-  chooses another member. A card's **Projects** tab moves a project to another card
+  `\title` ([Papers](libraries/Research/PaperContracts.cs)) and follows it whenever
+  the paper's title changes; when the way papers are read improves (`Papers.Version`),
+  stored papers are read again from their stored text, without a model call.
+  **Make main paper** chooses another member. A card's **Projects** tab moves a project to another card
   (its sources leave the old card and its trees are read into the new one), merges
   the whole card into another, or skips it. Projects placed by hand are pinned.
 - **Failures.** A failed step commits nothing and backs off (1 minute doubling to a

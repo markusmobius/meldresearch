@@ -22,7 +22,7 @@ public static partial class Papers
 {
     public const int MaxTitle = 300, MaxAbstract = 4000;
     /// <summary>How papers are read; a newer reading reads every project's paper again (no model call).</summary>
-    public const int Version = 2;
+    public const int Version = 3;
 
     /// <summary>The marker of the processed revision a project's paper was read from.</summary>
     public static string ReadFor(string revision) => $"{Version}:{revision}";

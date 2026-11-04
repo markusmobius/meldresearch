@@ -698,6 +698,30 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     }
 
     /// <summary>
+    /// Reads a project's paper title and abstract again from the stored text of its current version (after the way papers
+    /// are read improved). No model call; if a text is no longer stored, the earlier reading is kept until the project changes.
+    /// </summary>
+    private async Task RereadPaperAsync(Guid account, MonitoredProject project, CancellationToken ct)
+    {
+        var baseline = project.Baseline!;
+        var texts = new List<(string Path, string Text)>();
+        bool complete = true;
+        foreach (var file in baseline.Files.Where(file => file.Analyzed && file.Path.EndsWith(".tex", StringComparison.OrdinalIgnoreCase)))
+        {
+            if (await store.ReadTextAsync(file.Sha256, ct) is not { } text) { complete = false; break; }
+            texts.Add((file.Path, text));
+        }
+        var paper = complete ? Papers.Read(texts) : null;
+        await store.ChangeAsync(current =>
+        {
+            var item = current.Projects.FirstOrDefault(entry => entry.AccountId == account && entry.ProjectId == project.ProjectId);
+            if (current.Credential?.Account.Id != account || item?.Baseline?.Revision != baseline.Revision || item.Pending is not null) return current;
+            return current with { Projects = Replace(current.Projects, item with { Paper = complete ? paper : item.Paper, PaperFor = Papers.ReadFor(baseline.Revision) }) };
+        }, ct);
+        logger.LogInformation(complete ? "A project's paper was read again." : "A project's paper could not be read again; the earlier reading is kept.");
+    }
+
+    /// <summary>
     /// Reviews a card's details without new evidence (OVERLEAF.md §8a): one Foundry call merges overlapping details and retires
     /// plans and statuses that newer details overtook. The result applies only if the details did not change meanwhile; the
     /// changes go to the changelog (not the feed). A review the server rejects is not retried until the details change again,
@@ -753,6 +777,23 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         if (ThemePlan.Cleaned(state, account) is not null)
         {
             await store.ChangeAsync(current => current.Credential?.Account.Id == account && ThemePlan.Cleaned(current, account) is { } cleaned ? cleaned : current, ct);
+            return true;
+        }
+        if (ThemePlan.PaperDue(state, account) is { } reread)
+        {
+            await RereadPaperAsync(account, reread, ct);
+            return true;
+        }
+        if (ThemePlan.TitleDue(state, account) is { } titled)
+        {
+            // The card's title is its main paper's: when the paper's title changes, so does the card's (no model call).
+            await store.ChangeAsync(current => current.Credential?.Account.Id != account ? current : current with
+            {
+                Themes = [.. current.Themes!.Select(theme => theme.AccountId == account && theme.Id == titled.Id && theme.Profile is { } profile &&
+                    ThemePlan.PaperTitle(current, theme) is { } title && title != profile.Title
+                    ? theme with { Profile = profile with { Title = title }, BlurbFor = ThemePlan.Fingerprint(profile with { Title = title }) } : theme)]
+            }, ct);
+            logger.LogInformation("A research project's title now follows its main paper's title.");
             return true;
         }
         if (clock.GetUtcNow() < _themeRetryAt) return false;
