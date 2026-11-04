@@ -41,6 +41,15 @@ public sealed record ThemeGroup(IReadOnlyList<string> CardIds, string Explanatio
 public sealed record ThemeRegroupResponse(IReadOnlyList<ThemeGroup> Groups, string ChatModel);
 
 /// <summary>
+/// One Housekeeping group of waiting email threads (their titles and latest preview points, newest first), described in one
+/// call: a short headline for the group, and the research project (of Projects, possibly none) it is the same work as.
+/// </summary>
+public sealed record WaitingGroupRequest(string Name, IReadOnlyList<WaitingThread> Threads, IReadOnlyList<ThemeCandidate> Projects);
+public sealed record WaitingThread(string Title, IReadOnlyList<string> Points);
+/// <summary>Headline: at most a few words naming what the threads are about. ProjectId: a matching project (strict rule), or null.</summary>
+public sealed record WaitingGroupResponse(string Headline, string? ProjectId, string Explanation, string ChatModel);
+
+/// <summary>
 /// Research cards group Overleaf projects that belong to one research line (drafts, slides, follow-ups of the same work).
 /// Only summaries of included projects are sent; the remote service keeps no copy.
 /// </summary>
@@ -85,6 +94,21 @@ public static class ResearchThemes
         var seen = new HashSet<string>(StringComparer.Ordinal);
         return groups.All(group => group?.CardIds is { Count: >= 2 } ids && ids.All(id => id is not null && known.Contains(id) && seen.Add(id)));
     }
+
+    public const int MaxThreads = 12, MaxPoints = 3, MaxHeadline = 120;
+
+    public static void ValidateWaiting(WaitingGroupRequest request)
+    {
+        bool Short(string? value, int max) => !string.IsNullOrWhiteSpace(value) && value.Length <= max;
+        if (request is null || !Short(request.Name, 500) || request.Threads is not { Count: > 0 and <= MaxThreads } ||
+            request.Threads.Any(thread => thread is null || !Short(thread.Title, 500) || thread.Points is not { Count: <= MaxPoints } ||
+                thread.Points.Any(point => !Short(point, 1000))) || request.Projects is not { Count: <= MaxCandidates })
+            throw new ResearchFailure(400, "invalid_waiting_group", "The Housekeeping group request is invalid.");
+        if (request.Projects.Count != 0) ValidateMatch(new("group", new("t", "d", [], []), request.Projects));
+    }
+
+    /// <summary>A headline is one plain line of at most <see cref="MaxHeadline"/> characters.</summary>
+    public static bool ValidHeadline(string? headline) => !string.IsNullOrWhiteSpace(headline) && headline.Length <= MaxHeadline && !headline.Contains('\n');
 
     public const int MaxBlurb = 1400;
 

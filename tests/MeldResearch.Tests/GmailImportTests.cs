@@ -228,12 +228,12 @@ public sealed class GmailImportTests
             request.Subject == "Teaching survey" ? "Teaching survey" : request.Subject.Split(' ')[0] + " work",
             [.. request.Messages.Select(message => new EmailBullet("Point: " + message.Text, [new ResearchCitation(request.Subject, message.Text,
                 EvidenceVersion.Current, new EmailEvidence(message.Id, message.From, message.SentAt))]))], false, null, "Fits no project.", "chat");
-        // Waiting threads join the group with the same first word (the survey misses its group, so regrouping combines it);
-        // against the projects, only the grant group looks like the social learning project.
-        mail.Remote.Match = request => request.Waiting
-            ? request.ProjectName == "Teaching survey" ? null
-                : request.Candidates.FirstOrDefault(candidate => candidate.Title.Split(' ')[0] == request.ProjectName.Split(' ')[0])?.Id
-            : request.ProjectName.StartsWith("Grant", StringComparison.Ordinal) ? Card : null;
+        // Waiting threads join the group with the same first word (the survey misses its group, so regrouping combines it).
+        mail.Remote.Match = request => request.Waiting && request.ProjectName != "Teaching survey"
+            ? request.Candidates.FirstOrDefault(candidate => candidate.Title.Split(' ')[0] == request.ProjectName.Split(' ')[0])?.Id : null;
+        // Each changed group gets a headline from all its threads; only the grant group looks like the social learning project.
+        mail.Remote.Describe = request => (string.Join(" + ", request.Threads.Select(thread => thread.Title.Split(' ')[^1])),
+            request.Threads.Any(thread => thread.Title.StartsWith("Grant", StringComparison.Ordinal)) && request.Projects.Count != 0 ? Card : null);
         mail.Remote.Regroup = request => [.. request.Cards.GroupBy(card => card.Title.Split(' ')[0]).Where(group => group.Count() > 1)
             .Select(group => new ThemeGroup([.. group.Select(card => card.Id)], "Same topic."))];
         return mail;
@@ -255,20 +255,26 @@ public sealed class GmailImportTests
         // One regrouping pass combines the survey with the other teaching thread, into the older group.
         var regroup = Assert.Single(mail.Remote.Regroups);
         Assert.True(regroup.Waiting);
-        Assert.Equal(new Dictionary<string, string> { ["g1"] = "Grant work", ["g2"] = "Grant work", ["h1"] = "Teaching work", ["h2"] = "Teaching work" },
-            GroupNames(mail));
         Assert.Equal(2, mail.Store.State.HousekeepingGroups!.Count);
-        // Each group is compared (strictly) with the projects once: the grant group is suggested for the social learning project.
-        var strict = mail.Remote.Matches.Where(request => !request.Waiting && !request.Loose).ToArray();
-        Assert.Equal(["Grant work", "Teaching work"], strict.Select(request => request.ProjectName).Order());
+        // Then one call per group writes a headline from all its threads (newest first) and compares it with the projects:
+        // the grant group is suggested for the social learning project. No other model call compares groups with projects.
+        Assert.Equal(2, mail.Remote.Describes.Count);
+        Assert.Equal(["Grant work", "Teaching work"], mail.Remote.Describes.Select(request => request.Name).Order());
+        var teachingRequest = mail.Remote.Describes.Single(request => request.Name == "Teaching work");
+        Assert.Equal(["Teaching survey", "Teaching allocation code"], teachingRequest.Threads.Select(thread => thread.Title));
+        Assert.Equal(["Point: The workload survey went out."], teachingRequest.Threads[0].Points);
+        Assert.Equal(Card, Assert.Single(teachingRequest.Projects).Id);
+        Assert.DoesNotContain(mail.Remote.Matches, request => !request.Waiting && !request.Loose);
+        Assert.Equal(new Dictionary<string, string> { ["g1"] = "letters + budget", ["g2"] = "letters + budget", ["h1"] = "survey + code", ["h2"] = "survey + code" },
+            GroupNames(mail));
         var groups = GmailImporter.Groups(mail.Store.State, Account.Id).ToDictionary(group => group.Name);
-        Assert.Equal((Card, "Social learning"), (groups["Grant work"].SuggestedCardId, groups["Grant work"].SuggestedCardTitle));
-        Assert.Null(groups["Teaching work"].SuggestedCardId);
+        Assert.Equal((Card, "Social learning"), (groups["letters + budget"].SuggestedCardId, groups["letters + budget"].SuggestedCardTitle));
+        Assert.Null(groups["survey + code"].SuggestedCardId);
         Assert.All(GmailImporter.Threads(mail.Store.State, Account.Id), thread => Assert.NotNull(thread.GroupId));
         // Nothing is due any more: no further calls, nothing is a project yet.
-        int calls = mail.Remote.Matches.Count + mail.Remote.Regroups.Count;
+        int calls = mail.Remote.Matches.Count + mail.Remote.Regroups.Count + mail.Remote.Describes.Count;
         await Run(mail.Importer);
-        Assert.Equal(calls, mail.Remote.Matches.Count + mail.Remote.Regroups.Count);
+        Assert.Equal(calls, mail.Remote.Matches.Count + mail.Remote.Regroups.Count + mail.Remote.Describes.Count);
         Assert.Empty(mail.Remote.DetailRequests);
     }
 
@@ -286,18 +292,22 @@ public sealed class GmailImportTests
         Assert.True(survey.GroupPinned);
         var own = mail.Store.State.HousekeepingGroups!.Single(group => group.Id == survey.GroupId);
         Assert.Equal(("Teaching survey", true), (own.Name, own.Held));
-        // Renaming keeps a name; a third thread moved into the user's group joins it.
+        // Renaming keeps a name; a third thread moved into the user's group joins it. The groups the threads left take the
+        // name of their oldest remaining thread at once, before any call.
         await mail.Importer.RenameGroupAsync(own.Id, "Workload survey", None);
         await mail.Importer.DecideAsync(new(Address, "g2", "group", GroupId: own.Id), None);
         Assert.Equal(new Dictionary<string, string> { ["g1"] = "Grant work", ["g2"] = "Workload survey", ["h1"] = "Teaching work", ["h2"] = "Workload survey" },
             GroupNames(mail));
 
-        // Regrouping never pulls the moved threads back: the user's group is held and the others gained nothing.
+        // Regrouping never pulls the moved threads back: the user's group is held and the others gained nothing. The changed
+        // groups get new headlines; the one the user named keeps its name.
         int regroups = mail.Remote.Regroups.Count;
         await Run(mail.Importer);
         Assert.Equal(regroups, mail.Remote.Regroups.Count);
         Assert.Equal(3, mail.Store.State.HousekeepingGroups!.Count);
         Assert.True(GmailImporter.Groups(mail.Store.State, Account.Id).Single(group => group.Id == own.Id).Held);
+        Assert.Equal(new Dictionary<string, string> { ["g1"] = "budget", ["g2"] = "Workload survey", ["h1"] = "code", ["h2"] = "Workload survey" },
+            GroupNames(mail));
 
         // Create project: one new project from all the group's threads, named after the group; their messages fill its details.
         await mail.Importer.DecideGroupAsync(own.Id, new("new"), None);
@@ -313,7 +323,7 @@ public sealed class GmailImportTests
         Assert.Equal(Card, mail.Store.State.GmailThreads!.Single(thread => thread.Id == "g1").CardId);
         await mail.Importer.DecideGroupAsync(teaching, new("dismiss"), None);
         var skipped = mail.Store.State.Themes!.Single(theme => theme.Skipped == true);
-        Assert.Equal("Teaching work", skipped.Name);
+        Assert.Equal("code", skipped.Name);
         Assert.True(GmailImporter.Threads(mail.Store.State, Account.Id).Single(thread => thread.Id == "h1").Skipped);
         Assert.Empty(mail.Store.State.HousekeepingGroups!);
         Assert.Empty(GmailImporter.Groups(mail.Store.State, Account.Id));

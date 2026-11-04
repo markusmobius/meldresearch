@@ -174,7 +174,7 @@ that backend requires real Google OAuth configuration. No synthetic identity is
 available in Live mode.
 
 The source manifest now uses the supplied Chrome draft public key:
-**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.6.8**, wire protocol **2**.
+**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.6.9**, wire protocol **2**.
 It is a public identity key, not a signing secret.
 
 Until the private listing is approved, remove the old development-ID unpacked
@@ -619,11 +619,13 @@ so the user decides on a whole group at once: **Create project** (one new projec
 from all its threads, named after the group), **Add to project**, or **Skip all**
 (one skipped project). Each newly waiting thread is matched once against the groups
 (only the threads' titles and preview points are sent, not the emails); after
-groups gain threads, one regrouping pass combines related groups. A group takes the
-name the thread's first check suggested and shows its threads' preview points, so
-naming and describing groups costs no call; groups have no details or summary until
-the user keeps one. Each group is also compared strictly with the research projects,
-and a match is offered as **Looks like …, Add to it**. Per thread, **Move to group**
+groups gain threads, one regrouping pass combines related groups. A group shows its
+threads' preview points and has no details or summary until the user keeps one.
+Whenever a group's threads change, its name falls back at once (no call) to the name
+the first check suggested for its oldest thread; then one call per changed group
+(`/api/research/housekeeping-group`) writes a short headline from all its threads and
+compares the group strictly with the research projects, offering a match as **Looks
+like …, Add to it**. A name the user gave a group is never replaced. Per thread, **Move to group**
 or **New group** splits a group (no model call); moved threads stay pinned, and
 groups the user made, renamed or arranged are never combined automatically. Removed
 Overleaf files are listed by the project they came from. Each thread commits

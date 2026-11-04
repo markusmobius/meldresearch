@@ -180,7 +180,9 @@ internal sealed record GmailThreadRecord(Guid AccountId, string Address, string 
 /// is never combined by regrouping. SuggestedCardId: an existing research project the group looks like (strict rule),
 /// shown for one-click confirmation, with SuggestionReason; SuggestedFor records which members and projects it was
 /// checked for. Checked lists the members the last regrouping pass saw, so only groups that gained threads are compared
-/// again. Groups hold no details or summary; keeping one turns it into a research project.
+/// again. NamedFor records which threads the name was written for: when the threads change, the name falls back at once
+/// to the suggested name of the oldest remaining thread, and a headline written from all threads (in the same call as the
+/// project check) replaces it. Groups hold no details or summary; keeping one turns it into a research project.
 /// </summary>
 internal sealed record HousekeepingGroup(Guid AccountId, string Id, string Name, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? Named = null,
@@ -188,7 +190,8 @@ internal sealed record HousekeepingGroup(Guid AccountId, string Id, string Name,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SuggestedCardId = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SuggestionReason = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SuggestedFor = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? Checked = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? Checked = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? NamedFor = null);
 
 /// <summary>One fact from a thread with its quoted evidence; Newsworthy when it was part of a step forward.</summary>
 internal sealed record GmailBullet(Guid Id, string Text, IReadOnlyList<ResearchCitation> Evidence, DateTimeOffset SentAt, DateTimeOffset AddedAt,

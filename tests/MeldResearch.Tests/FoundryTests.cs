@@ -439,6 +439,18 @@ public sealed class FoundryTests
         Assert.Contains("2026-03-01", sent);
         reply = JsonSerializer.Serialize(new { explanation = "Too much.", details = new[] { new { text = "Prices are fixed.", from = new[] { "d" } } } }, ResearchJson.Options);
         Assert.Equal("invalid_detail_review", (await Assert.ThrowsAsync<ResearchFailure>(() => foundry.ReviewDetailsAsync(review, CancellationToken.None))).Code);
+
+        // A Housekeeping group: one headline line without quotes, and a project only if it is one of those offered.
+        var group = new WaitingGroupRequest("NBER paper drafting", [new("Literature review slides shared", ["The user shared the slides."]),
+            new("Memory paper drafting", [])], [new(new string('a', 32), "Memory paper", "A paper on memory.", [])]);
+        reply = JsonSerializer.Serialize(new { headline = "\"Memory paper:\nliterature review and first draft\"", projectId = new string('a', 32), explanation = "Same paper." }, ResearchJson.Options);
+        var described = await foundry.DescribeWaitingGroupAsync(group, CancellationToken.None);
+        Assert.Equal(("Memory paper: literature review and first draft", new string('a', 32)), (described.Headline, described.ProjectId));
+        Assert.Contains("Literature review slides shared", sent);
+        reply = JsonSerializer.Serialize(new { headline = "Memory paper", projectId = new string('f', 32), explanation = "Invented." }, ResearchJson.Options);
+        Assert.Null((await foundry.DescribeWaitingGroupAsync(group, CancellationToken.None)).ProjectId);
+        reply = JsonSerializer.Serialize(new { headline = " ", projectId = (string?)null, explanation = "" }, ResearchJson.Options);
+        Assert.Equal("invalid_waiting_group", (await Assert.ThrowsAsync<ResearchFailure>(() => foundry.DescribeWaitingGroupAsync(group, CancellationToken.None))).Code);
     }
 
     private sealed class MergedComparer : IEqualityComparer<DetailMerged>

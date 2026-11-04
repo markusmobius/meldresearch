@@ -5,10 +5,11 @@ namespace MeldResearch.LocalBackend.Services.Research;
 /// <summary>
 /// Housekeeping (formerly Private updates): email threads that fit none of the user's research projects wait in groups about
 /// the same topic, people or kind of work, so the user decides on a whole group at once. Grouping is loose and costs one
-/// small call per newly waiting thread plus one regrouping pass when groups gained threads; a group's name and preview
-/// points come from the threads' first email check, so naming and describing a group costs nothing. Each group is also
-/// compared (strictly) with the research projects, and a match is shown as a suggestion the user confirms. Groups the user
-/// made or renamed, or that hold a thread the user moved there, are never combined by regrouping.
+/// small call per newly waiting thread plus one regrouping pass when groups gained threads. When a group's threads change,
+/// its name falls back at once to the suggested name of its oldest thread; then one call per changed group writes a
+/// headline from all its threads and compares the group (strictly) with the research projects, a match being shown as a
+/// suggestion the user confirms. Groups the user made or renamed, or that hold a thread the user moved there, are never
+/// combined by regrouping, and a name the user gave is never replaced.
 /// </summary>
 internal static class Housekeeping
 {
@@ -31,10 +32,34 @@ internal static class Housekeeping
         group.Held == true || group.Named == true || Members(state, group).Any(item => item.GroupPinned == true);
 
     /// <summary>
-    /// Threads that stopped waiting leave their group, a thread whose group is gone waits to be grouped again, and groups
-    /// left without threads go. Null when nothing needs cleaning.
+    /// Threads that stopped waiting leave their group, a thread whose group is gone waits to be grouped again, groups left
+    /// without threads go, and a group whose threads changed since its name was written takes its oldest thread's name until
+    /// a new headline is written. Null when nothing needs cleaning.
     /// </summary>
     public static LocalResearchState? Cleaned(LocalResearchState state, Guid account)
+    {
+        var tidied = Tidied(state, account);
+        var current = tidied ?? state;
+        bool renamed = false;
+        var groups = (current.HousekeepingGroups ?? []).Select(group =>
+        {
+            if (group.AccountId != account || group.Named == true || group.NamedFor == MembersPrint(current, group) ||
+                Provisional(current, group) is not { } name || name == group.Name) return group;
+            renamed = true;
+            return group with { Name = name, UpdatedAt = DateTimeOffset.UtcNow };
+        }).ToArray();
+        return renamed ? current with { HousekeepingGroups = groups } : tidied;
+    }
+
+    /// <summary>The name a group shows until a headline is written for its threads: its oldest thread's suggested name.</summary>
+    public static string? Provisional(LocalResearchState state, HousekeepingGroup group) =>
+        Members(state, group).MinBy(item => item.LastSentAt) is { } oldest ? NameOf(oldest) : null;
+
+    /// <summary>Which threads (and how far their mail goes) a group holds; its headline is written for this.</summary>
+    public static string MembersPrint(LocalResearchState state, HousekeepingGroup group) =>
+        ResearchEvidence.Hash(string.Join("|", Members(state, group).Select(item => Key(item) + "@" + item.LastMessageId).Order(StringComparer.Ordinal)));
+
+    private static LocalResearchState? Tidied(LocalResearchState state, Guid account)
     {
         var groups = Groups(state, account);
         var ids = groups.Select(group => group.Id).ToHashSet(StringComparer.Ordinal);
@@ -78,11 +103,15 @@ internal static class Housekeeping
 
     /// <summary>What a group's suggestion was checked for: its threads (and their latest mail) and the user's research projects.</summary>
     public static string Fingerprint(LocalResearchState state, HousekeepingGroup group) =>
-        ResearchEvidence.Hash(string.Join("|", Members(state, group).Select(item => Key(item) + "@" + item.LastMessageId).Order(StringComparer.Ordinal)) +
-            "#" + ThemePlan.Signature(state, group.AccountId));
+        MembersPrint(state, group) + "#" + ThemePlan.Signature(state, group.AccountId);
+
+    /// <summary>The group's threads as described for its headline and project check: titles and latest points, newest first.</summary>
+    public static IReadOnlyList<WaitingThread> Threads(IEnumerable<GmailThreadRecord> members) =>
+        [.. members.Take(ResearchThemes.MaxThreads).Select(item => new WaitingThread(Trim(string.IsNullOrWhiteSpace(item.Headline ?? item.Subject) ? "(no subject)" : (item.Headline ?? item.Subject).Trim(), 500),
+            [.. item.Bullets.TakeLast(ResearchThemes.MaxPoints).Select(bullet => Trim(bullet.Text, 1000)).Where(text => text.Trim().Length != 0)]))];
 
     /// <summary>
-    /// A group whose suggestion is due: grouping and regrouping are done, the research projects are settled (no project is
+    /// A group whose headline and project check are due: grouping and regrouping are done, the research projects are settled (no project is
     /// being read or placed), and its threads or the projects changed since it was last compared.
     /// </summary>
     public static HousekeepingGroup? SuggestDue(LocalResearchState state, Guid account, Func<HousekeepingGroup, bool>? ready = null)

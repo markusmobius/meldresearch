@@ -64,6 +64,8 @@ internal interface IResearchRemote
     Task<ThemeMergeResponse> SummarizeCardAsync(string token, CardSummaryRequest request, CancellationToken ct);
     /// <summary>Embeds 1-20 texts with the server's Foundry embedding deployment (to order the project chooser).</summary>
     Task<ResearchEmbeddingResponse> EmbedAsync(string token, ResearchEmbeddingRequest request, CancellationToken ct);
+    /// <summary>A Housekeeping group's headline, and the research project it is the same work as (if any).</summary>
+    Task<WaitingGroupResponse> DescribeWaitingGroupAsync(string token, WaitingGroupRequest request, CancellationToken ct);
     Task<SyncListResponse> SyncListAsync(string token, CancellationToken ct);
     Task<SyncLinksResponse> SyncLinksAsync(string token, SyncLinksRequest request, CancellationToken ct);
     Task SyncDeleteAllAsync(string token, CancellationToken ct);
@@ -189,6 +191,8 @@ internal sealed class ResearchRemote(ResearchOptions options, IHttpClientFactory
         CallAsync<DetailReviewResponse>("api/research/detail-review", HttpMethod.Post, request, token, ct);
     public Task<ThemeMergeResponse> SummarizeCardAsync(string token, CardSummaryRequest request, CancellationToken ct) =>
         CallAsync<ThemeMergeResponse>("api/research/card-summary", HttpMethod.Post, request, token, ct);
+    public Task<WaitingGroupResponse> DescribeWaitingGroupAsync(string token, WaitingGroupRequest request, CancellationToken ct) =>
+        CallAsync<WaitingGroupResponse>("api/research/housekeeping-group", HttpMethod.Post, request, token, ct);
     public Task<ResearchEmbeddingResponse> EmbedAsync(string token, ResearchEmbeddingRequest request, CancellationToken ct) =>
         CallAsync<ResearchEmbeddingResponse>("api/research/embeddings", HttpMethod.Post, request, token, ct);
     public Task<CardBlurbResponse> DescribeCardAsync(string token, CardBlurbRequest request, CancellationToken ct) =>

@@ -65,7 +65,8 @@ instruction file. Start with the [README](README.md) for setup and release detai
   unchanged. Gmail plan and decisions: card-first placement, Housekeeping for
   the rest (loosely grouped, [Housekeeping](apps/LocalBackend/Services/Research/Housekeeping.cs):
   one match per newly waiting thread, a regroup pass only when groups gained threads,
-  project suggestions only, never automatic; user-made, renamed or arranged groups
+  one headline + project-suggestion call per changed group (suggestions only, never
+  automatic; a provisional name from the oldest thread meanwhile; user names kept); user-made, renamed or arranged groups
   are never regrouped; the project chooser is ordered by local, unsynced Foundry
   embeddings made once per changed card/group/project/file, never at chooser open),
   threads the user wrote in, 30-day first import, Overleaf stays
@@ -263,7 +264,7 @@ Use .NET 10, Node 24/npm and PowerShell 7. Run from this repository's root, e.g.
   restore the removed application Playwright approach. Use the normal browser
   and connector; never execute downloaded TeX.
 - Current Chrome identity: `pejcljoimoeklelcfbfddnkimlkjgfhe`; extension version
-  `0.6.8`, native protocol `2`. Identity derives from the public manifest key,
+  `0.6.9`, native protocol `2`. Identity derives from the public manifest key,
   not a secret signing key. Update related identity/handshake checks together;
   compatible extension releases need not have identical version numbers.
 - Bump the connector manifest version whenever extension files change: installed

@@ -502,6 +502,15 @@ public sealed class ResearchCoordinatorTests
             lock (Reviews) Reviews.Add(request);
             return Task.FromResult((Review ?? (item => new([.. item.Details.Select(detail => new DetailMerged(detail.Text, [detail.Id]))], "Unchanged.", "chat")))(request));
         }
+        public List<WaitingGroupRequest> Describes { get; } = [];
+        /// <summary>A Housekeeping group's headline and matching project; by default "Headline: " and the newest thread's title, no project.</summary>
+        public Func<WaitingGroupRequest, (string Headline, string? ProjectId)>? Describe { get; set; }
+        public Task<WaitingGroupResponse> DescribeWaitingGroupAsync(string token, WaitingGroupRequest request, CancellationToken ct)
+        {
+            lock (Describes) Describes.Add(request);
+            var (headline, project) = Describe?.Invoke(request) ?? ("Headline: " + request.Threads[0].Title, null);
+            return Task.FromResult(new WaitingGroupResponse(headline, project, "Synthetic.", "chat"));
+        }
         public List<ResearchEmbeddingRequest> Embeds { get; } = [];
         public string EmbeddingModel { get; set; } = "embed-test";
         /// <summary>A stand-in embedding: each lowercase word adds to one of 64 dimensions, so shared words mean closeness.</summary>

@@ -167,7 +167,7 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
             else if (Housekeeping.SuggestDue(state, account, group => !Blocked(SuggestKey(group), now)) is { } group)
             {
                 key = SuggestKey(group);
-                await SuggestAsync(credential, group, ct);
+                await DescribeAsync(credential, group, ct);
             }
             else return false;
         }
@@ -207,7 +207,8 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
             else all.Add(target = Housekeeping.NewGroup(account, name, now));
             joined = index >= 0;
             item = item with { GroupId = target.Id, UpdatedAt = now };
-            return current with { HousekeepingGroups = all, GmailThreads = [.. Others(current, account, item.Address, item.Id), item] };
+            var next = current with { HousekeepingGroups = all, GmailThreads = [.. Others(current, account, item.Address, item.Id), item] };
+            return Housekeeping.Cleaned(next, account) ?? next;
         }, ct);
         logger.LogInformation(joined ? "A waiting Gmail thread joined a related Housekeeping group." : "A waiting Gmail thread starts a Housekeeping group.");
     }
@@ -252,39 +253,46 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
                 };
                 combined += others.Count;
             }
-            // Groups compared and unchanged meanwhile are not compared again until they gain threads.
-            return next with
+            // Groups compared and unchanged meanwhile are not compared again until they gain threads; combined groups take a provisional name.
+            next = next with
             {
                 HousekeepingGroups = [.. next.HousekeepingGroups!.Select(group => group.AccountId == account && Unchanged(next, group)
                     ? group with { Checked = [.. Housekeeping.Members(next, group).Select(Housekeeping.Key).Order(StringComparer.Ordinal)] } : group)]
             };
+            return Housekeeping.Cleaned(next, account) ?? next;
         }, ct);
         logger.LogInformation("Compared the Housekeeping groups: {Count} combined.", combined);
     }
 
     /// <summary>
-    /// Compares a Housekeeping group with the research projects (strictly: the same piece of work or core question). A match
-    /// is only suggested; the user confirms it. No call when there are no projects.
+    /// One call per changed Housekeeping group: a headline written from all its threads (replacing the provisional name,
+    /// unless the user named the group) and a strict comparison with the research projects, whose match is only suggested;
+    /// the user confirms it. No call for a group the user named when there are no projects.
     /// </summary>
-    private async Task SuggestAsync(LinkedCredential credential, HousekeepingGroup group, CancellationToken ct)
+    private async Task DescribeAsync(LinkedCredential credential, HousekeepingGroup group, CancellationToken ct)
     {
         var account = credential.Account.Id;
         var state = await store.ReadAsync(ct);
-        string print = Housekeeping.Fingerprint(state, group);
-        var members = Housekeeping.Members(state, group);
+        string print = Housekeeping.Fingerprint(state, group), members = Housekeeping.MembersPrint(state, group);
+        var threads = Housekeeping.Members(state, group);
         var cards = Cards(state, account);
-        var match = cards.Count == 0 || members.Count == 0 ? null
-            : await remote.MatchThemeAsync(credential.Token, new(group.Name, Housekeeping.Profile(group.Name, members), cards), ct);
+        var described = threads.Count == 0 || group.Named == true && cards.Count == 0 ? null
+            : await remote.DescribeWaitingGroupAsync(credential.Token, new(group.Name, Housekeeping.Threads(threads), cards), ct);
         await store.ChangeAsync(current =>
         {
             var item = Housekeeping.Groups(current, account).FirstOrDefault(candidate => candidate.Id == group.Id);
             if (current.Credential?.Account.Id != account || item is null || Housekeeping.Fingerprint(current, item) != print) return current;
-            string? reason = match?.ThemeId is null ? null : Trim(match.Explanation, 300);
-            var updated = item with { SuggestedCardId = match?.ThemeId, SuggestionReason = reason, SuggestedFor = print, UpdatedAt = clock.GetUtcNow() };
+            string? cardId = described?.ProjectId;
+            var updated = item with
+            {
+                Name = item.Named != true && described is not null ? described.Headline : item.Name, NamedFor = members,
+                SuggestedCardId = cardId, SuggestionReason = cardId is null ? null : Trim(described!.Explanation, 300), SuggestedFor = print,
+                UpdatedAt = clock.GetUtcNow()
+            };
             return current with { HousekeepingGroups = [.. current.HousekeepingGroups!.Select(candidate => candidate == item ? updated : candidate)] };
         }, ct);
-        logger.LogInformation(match?.ThemeId is null ? "A Housekeeping group looks like none of the research projects." :
-            "A Housekeeping group looks like an existing research project; it is suggested.");
+        logger.LogInformation(described?.ProjectId is null ? "A Housekeeping group was named; it looks like none of the research projects." :
+            "A Housekeeping group was named; it looks like an existing research project, which is suggested.");
     }
 
     /// <summary>
@@ -693,7 +701,10 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
                     {
                         string groupName = request.Name?.Trim() ?? "";
                         if (groupName.Length > Housekeeping.MaxName) throw new ResearchFailure(400, "invalid_group_name", "Give the group a name of at most 120 characters.");
-                        all.Add(target = Housekeeping.NewGroup(account, groupName.Length == 0 ? Housekeeping.NameOf(item) : groupName, now, held: true));
+                        target = Housekeeping.NewGroup(account, groupName.Length == 0 ? Housekeeping.NameOf(item) : groupName, now, held: true);
+                        // A name the user typed is theirs: never replaced by a headline.
+                        if (groupName.Length != 0) target = target with { Named = true };
+                        all.Add(target);
                     }
                     current = current with { HousekeepingGroups = all };
                     item = item with { GroupId = target.Id, GroupPinned = true };
