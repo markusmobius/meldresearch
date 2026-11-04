@@ -174,7 +174,7 @@ that backend requires real Google OAuth configuration. No synthetic identity is
 available in Live mode.
 
 The source manifest now uses the supplied Chrome draft public key:
-**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.6.6**, wire protocol **2**.
+**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.6.7**, wire protocol **2**.
 It is a public identity key, not a signing secret.
 
 Until the private listing is approved, remove the old development-ID unpacked
@@ -219,7 +219,7 @@ About me shows one card per **research project**, built as specified in
   each with its **sources**: an Overleaf document at a content hash, or a Gmail
   thread up to a message. Select a detail to see its sources and the cited lines;
   **Remove** takes a source off every detail of the card (a detail left without
-  sources is deleted) and puts it in **Private updates**, where the user adds it to
+  sources is deleted) and puts it in **Housekeeping**, where the user adds it to
   another project or skips it.
 - **c) Changelog**: every source that updated the project, with what it added,
   revised or removed, newest first and loaded while scrolling. The feed's
@@ -288,11 +288,11 @@ How Overleaf is read:
   five minutes without the server.
 - **Skipped work.** Work that is not the user's own research (for example helping a
   family member) can be skipped: a card (**Skip — not my research** in its Projects
-  tab) or an email thread (Skip in Private updates). Skipped cards move to About me →
+  tab) or an email thread (Skip in Housekeeping). Skipped cards move to About me →
   Skipped, leave the feed, and their Overleaf projects pause. They are grouped
   generously and without confirmation; new threads that belong to a skipped project
   are skipped too. **Bring back** returns a card; **Unskip** returns a thread to
-  Private updates.
+  Housekeeping.
 - **Log.** More → Log shows the local app's own activity (checks, progress per file,
   grouping, updates, warnings and errors), newest first, with level and source
   filters, as in Project Meld. Entries name projects by Overleaf id (the page shows
@@ -595,9 +595,23 @@ earlier ones as context) are one detail step (`POST /api/research/detail-step`,
 kind `gmail`) that adds, revises or removes the card's details, cites the
 messages' lines verbatim and adds one changelog entry; only messages after the
 last one folded are sent ([OVERLEAF.md](OVERLEAF.md) §12). Unassigned threads wait
-in the feed's **Private updates** column, where the user skips them, adds them to
-a card or starts a new project (a card of its own); Meld never starts one itself.
-Removing a thread as a source of a card sends it back there. Each thread commits
+in the feed's **Housekeeping** column, where Meld never starts a project itself;
+removing a thread as a source of a card sends it back there.
+
+**Housekeeping** ([Housekeeping](apps/LocalBackend/Services/Research/Housekeeping.cs))
+groups the waiting threads loosely (the same topic, people, event or kind of work),
+so the user decides on a whole group at once: **Create project** (one new project
+from all its threads, named after the group), **Add to project**, or **Skip all**
+(one skipped project). Each newly waiting thread is matched once against the groups
+(only the threads' titles and preview points are sent, not the emails); after
+groups gain threads, one regrouping pass combines related groups. A group takes the
+name the thread's first check suggested and shows its threads' preview points, so
+naming and describing groups costs no call; groups have no details or summary until
+the user keeps one. Each group is also compared strictly with the research projects,
+and a match is offered as **Looks like …, Add to it**. Per thread, **Move to group**
+or **New group** splits a group (no model call); moved threads stay pinned, and
+groups the user made, renamed or arranged are never combined automatically. Removed
+Overleaf files are listed by the project they came from. Each thread commits
 atomically, so an unchanged mailbox makes no model call, also after a restart. With encrypted sync the
 threads and `LastImportAt` merge across computers, and a lease
 (`LeaseBy`/`LeaseUntil`, 15 minutes, renewed per thread) is pushed before any

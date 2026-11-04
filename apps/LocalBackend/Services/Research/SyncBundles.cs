@@ -30,7 +30,8 @@ internal sealed record ProfileBundle(int Version, IReadOnlyList<ProjectDecision>
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ThemesVersion = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<ChangelogEntry>? Changelog = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<PendingFile>? PendingFiles = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? SkippedProjects = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? SkippedProjects = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<HousekeepingGroup>? HousekeepingGroups = null);
 
 /// <summary>
 /// Builds and applies sync bundles. Fingerprints ignore texts (determined by the hashes) and save times, so they change only
@@ -79,7 +80,8 @@ internal static class SyncBundles
             NullIfEmpty([.. (state.Changelog ?? []).Where(entry => entry.AccountId == account).OrderByDescending(entry => entry.RecordedAt)
                 .Take(MaxSyncedChangelog).OrderBy(entry => entry.Id)]),
             NullIfEmpty([.. (state.PendingFiles ?? []).Where(file => file.AccountId == account).OrderBy(file => file.ProjectId).ThenBy(file => file.Path)]),
-            state.SkippedProjects is { Count: > 0 } skipped ? [.. skipped.Order(StringComparer.Ordinal)] : null);
+            state.SkippedProjects is { Count: > 0 } skipped ? [.. skipped.Order(StringComparer.Ordinal)] : null,
+            NullIfEmpty([.. Housekeeping.Groups(state, account).OrderBy(group => group.Id, StringComparer.Ordinal)]));
 
     private static IReadOnlyList<T>? NullIfEmpty<T>(IReadOnlyList<T> items) => items.Count == 0 ? null : items;
 
@@ -217,6 +219,7 @@ internal static class SyncBundles
                 ? [.. (state.Researchers ?? []).Where(item => item.AccountId != account), researcher] : state.Researchers,
             GmailAccounts = MergeGmail(state.GmailAccounts, bundle.GmailAccounts, account),
             GmailThreads = MergeThreads(state.GmailThreads, bundle.GmailThreads, account),
+            HousekeepingGroups = Housekeeping.Merge(state.HousekeepingGroups, bundle.HousekeepingGroups, account),
             ThemesVersion = Math.Max(state.ThemesVersion, bundle.ThemesVersion ?? 0),
             // Changelog entries from both computers; the same entry once (the one recorded last).
             Changelog = bundle.Changelog is null ? state.Changelog : [.. (state.Changelog ?? []).Concat(bundle.Changelog.Where(entry => entry.AccountId == account))

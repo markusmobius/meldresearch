@@ -12,7 +12,8 @@ namespace MeldResearch.LocalBackend.Services.Research;
 /// per-account offset of up to ten minutes) it lists the threads the user wrote in during the import window and reads only
 /// the threads with new mail, oldest first, and of those only the new messages (earlier ones are background). A thread seen
 /// for the first time is placed by Foundry: skipped (not work), put on one of the user's research projects, or left in
-/// Private updates (with a short preview) where the user decides; no project is created without the user. A thread on a
+/// Housekeeping (with a short preview), grouped loosely with related waiting threads (<see cref="Housekeeping"/>), where the
+/// user decides on a whole group; no project is created without the user. A thread on a
 /// project is a source of that project's details (OVERLEAF.md §12): its new messages are one update step. Quotes are checked
 /// against the email text. Each step commits on its own, so a restart continues where it stopped, and an unchanged mailbox
 /// makes no model call. With encrypted sync the threads are synced, and a lease in the synced profile makes other computers
@@ -71,7 +72,17 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
     public bool HasWork(LocalResearchState state, Guid account, DateTimeOffset now) =>
         state.GmailVersion < Version ||
         Eligible(state, account).Any(mail => !Blocked(mail.Address, now) && (_runs.ContainsKey(mail.Address) || Due(mail, now))) ||
-        SkipDue(state, account, now) is not null || FoldDue(state, account, now) is not null;
+        SkipDue(state, account, now) is not null || FoldDue(state, account, now) is not null || HousekeepingDue(state, account, now);
+
+    /// <summary>Housekeeping work: tidy groups, group a waiting thread, compare groups once more, or check a group against the projects.</summary>
+    private bool HousekeepingDue(LocalResearchState state, Guid account, DateTimeOffset now) =>
+        Housekeeping.Cleaned(state, account) is not null || Housekeeping.GroupDue(state, account, item => !Blocked(GroupKey(item), now)) is not null ||
+        !Blocked(RegroupKey, now) && Housekeeping.RegroupDue(state, account) ||
+        Housekeeping.SuggestDue(state, account, group => !Blocked(SuggestKey(group), now)) is not null;
+
+    private static string GroupKey(GmailThreadRecord item) => $"group|{item.Address}|{item.Id}";
+    private const string RegroupKey = "regroup";
+    private static string SuggestKey(HousekeepingGroup group) => $"suggest|{group.Id}";
 
     /// <summary>
     /// Continues the running import (or starts one that is due) for one account by up to <see cref="ThreadsPerStep"/> threads,
@@ -135,7 +146,145 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
             }
             return HasWork(await store.ReadAsync(ct), account, clock.GetUtcNow());
         }
-        return false;
+        if (Housekeeping.Cleaned(state, account) is not null)
+        {
+            await store.ChangeAsync(current => current.Credential?.Account.Id == account && Housekeeping.Cleaned(current, account) is { } cleaned ? cleaned : current, ct);
+            return HasWork(await store.ReadAsync(ct), account, clock.GetUtcNow());
+        }
+        string? key = null;
+        try
+        {
+            if (Housekeeping.GroupDue(state, account, item => !Blocked(GroupKey(item), now)) is { } waiting)
+            {
+                key = GroupKey(waiting);
+                await GroupWaitingAsync(credential, waiting, ct);
+            }
+            else if (!Blocked(RegroupKey, now) && Housekeeping.RegroupDue(state, account))
+            {
+                key = RegroupKey;
+                await RegroupWaitingAsync(credential, ct);
+            }
+            else if (Housekeeping.SuggestDue(state, account, group => !Blocked(SuggestKey(group), now)) is { } group)
+            {
+                key = SuggestKey(group);
+                await SuggestAsync(credential, group, ct);
+            }
+            else return false;
+        }
+        catch (Exception error) when (error is ResearchFailure { Code: not "research_state_changed" } or HttpRequestException ||
+            error is TaskCanceledException && !ct.IsCancellationRequested)
+        {
+            _retryAt[key!] = clock.GetUtcNow() + RetryAfter;
+            logger.LogWarning("Housekeeping grouping failed ({Type}); it is retried shortly.", error is ResearchFailure failure ? failure.Code : error.GetType().Name);
+        }
+        return HasWork(await store.ReadAsync(ct), account, clock.GetUtcNow());
+    }
+
+    /// <summary>
+    /// Puts a waiting thread in a Housekeeping group: the one Foundry finds related (loosely: the same topic, people or kind
+    /// of work), else a new group named after the project the thread's first check suggested. No call when there are no
+    /// groups yet.
+    /// </summary>
+    private async Task GroupWaitingAsync(LinkedCredential credential, GmailThreadRecord thread, CancellationToken ct)
+    {
+        var account = credential.Account.Id;
+        var state = await store.ReadAsync(ct);
+        var groups = Housekeeping.Groups(state, account).Where(group => Housekeeping.Members(state, group).Count != 0)
+            .OrderByDescending(group => group.UpdatedAt).Take(ResearchThemes.MaxCandidates).ToArray();
+        string name = Housekeeping.NameOf(thread);
+        var match = groups.Length == 0 ? null : await remote.MatchThemeAsync(credential.Token,
+            new(name, Housekeeping.Profile(name, [thread]), [.. groups.Select(group => Housekeeping.Candidate(state, group))], Waiting: true), ct);
+        bool joined = false;
+        await store.ChangeAsync(current =>
+        {
+            var item = Item(current, account, thread.Address, thread.Id);
+            if (current.Credential?.Account.Id != account || item is not { Status: GmailThreadRecord.Pending, GroupId: null }) return current;
+            var now = clock.GetUtcNow();
+            var all = (current.HousekeepingGroups ?? []).ToList();
+            int index = match?.ThemeId is { } id ? all.FindIndex(group => group.AccountId == account && group.Id == id) : -1;
+            HousekeepingGroup target;
+            if (index >= 0) all[index] = target = all[index] with { UpdatedAt = now };
+            else all.Add(target = Housekeeping.NewGroup(account, name, now));
+            joined = index >= 0;
+            item = item with { GroupId = target.Id, UpdatedAt = now };
+            return current with { HousekeepingGroups = all, GmailThreads = [.. Others(current, account, item.Address, item.Id), item] };
+        }, ct);
+        logger.LogInformation(joined ? "A waiting Gmail thread joined a related Housekeeping group." : "A waiting Gmail thread starts a Housekeeping group.");
+    }
+
+    /// <summary>
+    /// Compares the Housekeeping groups once more (groups form one thread at a time) and combines related ones into the group
+    /// with the most threads. Groups the user made, renamed or arranged are left out; groups that changed meanwhile are not
+    /// combined and are compared again next time.
+    /// </summary>
+    private async Task RegroupWaitingAsync(LinkedCredential credential, CancellationToken ct)
+    {
+        var account = credential.Account.Id;
+        var state = await store.ReadAsync(ct);
+        var loose = Housekeeping.Loose(state, account).Where(group => Housekeeping.Members(state, group).Count != 0)
+            .OrderByDescending(group => group.UpdatedAt).Take(ResearchThemes.MaxCandidates).ToArray();
+        var seen = loose.ToDictionary(group => group.Id, group => Housekeeping.Members(state, group).Select(Housekeeping.Key).ToHashSet(StringComparer.Ordinal),
+            StringComparer.Ordinal);
+        IReadOnlyList<ThemeGroup> sets = loose.Length < 2 ? [] : (await remote.RegroupThemesAsync(credential.Token,
+            new([.. loose.Select(group => Housekeeping.Candidate(state, group))], Waiting: true), ct)).Groups;
+        int combined = 0;
+        await store.ChangeAsync(current =>
+        {
+            if (current.Credential?.Account.Id != account) return current;
+            var now = clock.GetUtcNow();
+            bool Unchanged(LocalResearchState at, HousekeepingGroup group) => seen.TryGetValue(group.Id, out var keys) && !Housekeeping.Held(at, group) &&
+                Housekeeping.Members(at, group).Select(Housekeeping.Key).ToHashSet(StringComparer.Ordinal).SetEquals(keys);
+            var next = current;
+            foreach (var set in sets)
+            {
+                var members = Housekeeping.Groups(next, account).Where(group => set.CardIds.Contains(group.Id) && Unchanged(next, group)).ToArray();
+                if (members.Length < 2) continue;
+                var target = members.OrderByDescending(group => Housekeeping.Members(next, group).Count).ThenBy(group => group.CreatedAt).First();
+                var others = members.Where(group => group != target).Select(group => group.Id).ToHashSet(StringComparer.Ordinal);
+                // The target now holds the others' threads; it counts as seen with all of them.
+                seen[target.Id] = [.. members.SelectMany(group => seen[group.Id])];
+                next = next with
+                {
+                    GmailThreads = [.. next.GmailThreads!.Select(item => item.AccountId == account && item.GroupId is { } id && others.Contains(id)
+                        ? item with { GroupId = target.Id, UpdatedAt = now } : item)],
+                    HousekeepingGroups = [.. next.HousekeepingGroups!.Where(group => group.AccountId != account || !others.Contains(group.Id))
+                        .Select(group => group.AccountId == account && group.Id == target.Id ? group with { UpdatedAt = now } : group)]
+                };
+                combined += others.Count;
+            }
+            // Groups compared and unchanged meanwhile are not compared again until they gain threads.
+            return next with
+            {
+                HousekeepingGroups = [.. next.HousekeepingGroups!.Select(group => group.AccountId == account && Unchanged(next, group)
+                    ? group with { Checked = [.. Housekeeping.Members(next, group).Select(Housekeeping.Key).Order(StringComparer.Ordinal)] } : group)]
+            };
+        }, ct);
+        logger.LogInformation("Compared the Housekeeping groups: {Count} combined.", combined);
+    }
+
+    /// <summary>
+    /// Compares a Housekeeping group with the research projects (strictly: the same piece of work or core question). A match
+    /// is only suggested; the user confirms it. No call when there are no projects.
+    /// </summary>
+    private async Task SuggestAsync(LinkedCredential credential, HousekeepingGroup group, CancellationToken ct)
+    {
+        var account = credential.Account.Id;
+        var state = await store.ReadAsync(ct);
+        string print = Housekeeping.Fingerprint(state, group);
+        var members = Housekeeping.Members(state, group);
+        var cards = Cards(state, account);
+        var match = cards.Count == 0 || members.Count == 0 ? null
+            : await remote.MatchThemeAsync(credential.Token, new(group.Name, Housekeeping.Profile(group.Name, members), cards), ct);
+        await store.ChangeAsync(current =>
+        {
+            var item = Housekeeping.Groups(current, account).FirstOrDefault(candidate => candidate.Id == group.Id);
+            if (current.Credential?.Account.Id != account || item is null || Housekeeping.Fingerprint(current, item) != print) return current;
+            string? reason = match?.ThemeId is null ? null : Trim(match.Explanation, 300);
+            var updated = item with { SuggestedCardId = match?.ThemeId, SuggestionReason = reason, SuggestedFor = print, UpdatedAt = clock.GetUtcNow() };
+            return current with { HousekeepingGroups = [.. current.HousekeepingGroups!.Select(candidate => candidate == item ? updated : candidate)] };
+        }, ct);
+        logger.LogInformation(match?.ThemeId is null ? "A Housekeeping group looks like none of the research projects." :
+            "A Housekeeping group looks like an existing research project; it is suggested.");
     }
 
     /// <summary>
@@ -528,17 +677,130 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
                     current = current with { Themes = [.. current.Themes ?? [], created] };
                     item = item with { Status = GmailThreadRecord.Assigned, CardId = created.Id, StreamId = null };
                     break;
+                case "group":
+                    // Housekeeping: the user moves a waiting thread to another group, or to a new group of its own. It is pinned there.
+                    if (item.Status != GmailThreadRecord.Pending)
+                        throw new ResearchFailure(409, "gmail_thread_not_waiting", "Only threads in Housekeeping can be moved between groups.");
+                    var all = (current.HousekeepingGroups ?? []).ToList();
+                    HousekeepingGroup target;
+                    if (request.GroupId is { } groupId)
+                    {
+                        int index = all.FindIndex(group => group.AccountId == account && group.Id == groupId);
+                        if (index < 0) throw new ResearchFailure(404, "housekeeping_group_not_found", "That group no longer exists. Reload and try again.");
+                        all[index] = target = all[index] with { UpdatedAt = now };
+                    }
+                    else
+                    {
+                        string groupName = request.Name?.Trim() ?? "";
+                        if (groupName.Length > Housekeeping.MaxName) throw new ResearchFailure(400, "invalid_group_name", "Give the group a name of at most 120 characters.");
+                        all.Add(target = Housekeeping.NewGroup(account, groupName.Length == 0 ? Housekeeping.NameOf(item) : groupName, now, held: true));
+                    }
+                    current = current with { HousekeepingGroups = all };
+                    item = item with { GroupId = target.Id, GroupPinned = true };
+                    break;
                 default:
                     throw new ResearchFailure(400, "invalid_thread_decision", "Choose a thread and what to do with it.");
             }
             item = item with { UpdatedAt = now, FoldedMessageId = null, FoldedSentAt = null };
-            return current with { GmailThreads = [.. Others(current, account, item.Address, item.Id), item] };
+            if (request.Action != "group") item = item with { GroupId = null, GroupPinned = null };
+            var next = current with { GmailThreads = [.. Others(current, account, item.Address, item.Id), item] };
+            return Housekeeping.Cleaned(next, account) ?? next;
         }, ct);
         logger.LogInformation("A Gmail thread was {Action} by the user.", request.Action switch
         {
-            "dismiss" => "skipped", "unskip" => "brought back to Private updates", "project" => "added to a research project",
-            _ => "made into a new research project"
+            "dismiss" => "skipped", "unskip" => "brought back to Housekeeping", "project" => "added to a research project",
+            "group" => "moved to another Housekeeping group", _ => "made into a new research project"
         });
+    }
+
+    /// <summary>
+    /// The user's choice for a whole Housekeeping group: a new research project from all its threads ("new", named Name or
+    /// the group's name), adding them all to research project CardId ("project"), or skipping them all ("dismiss": one
+    /// skipped project, grouped with related skipped work later). The threads' messages then fill that project's details.
+    /// </summary>
+    public async Task DecideGroupAsync(string groupId, HousekeepingGroupDecisionRequest request, CancellationToken ct)
+    {
+        if (!ResearchThemes.IsThemeId(groupId) || request is null)
+            throw new ResearchFailure(400, "invalid_group_decision", "Choose a group and what to do with it.");
+        int count = 0;
+        await store.ChangeAsync(current =>
+        {
+            var credential = current.Credential is { } linked && linked.ExpiresAt > clock.GetUtcNow() ? linked
+                : throw new ResearchFailure(401, "meld_account_required", "Sign in with Google first.");
+            var account = credential.Account.Id;
+            var group = Housekeeping.Groups(current, account).FirstOrDefault(item => item.Id == groupId);
+            var members = group is null ? [] : Housekeeping.Members(current, group);
+            if (members.Count == 0) throw new ResearchFailure(404, "housekeeping_group_not_found", "This group is no longer waiting for a decision.");
+            var now = clock.GetUtcNow();
+            string cardId;
+            switch (request.Action)
+            {
+                case "new":
+                    string name = request.Name?.Trim() is { Length: > 0 } chosen ? chosen : group!.Name;
+                    if (name.Length > 120) throw new ResearchFailure(400, "invalid_project_name", "Give the new project a name of at most 120 characters.");
+                    var created = ThemePlan.NewCard(account, [], now, name: name);
+                    current = current with { Themes = [.. current.Themes ?? [], created] };
+                    cardId = created.Id;
+                    break;
+                case "project":
+                    cardId = ThemePlan.Active(current, account).FirstOrDefault(theme => theme.Id == request.CardId)?.Id
+                        ?? throw new ResearchFailure(404, "research_card_not_found", "That research project no longer exists.");
+                    break;
+                case "dismiss":
+                    var skipped = ThemePlan.NewCard(account, [], now, skipped: true, name: group!.Name);
+                    current = current with { Themes = [.. current.Themes ?? [], skipped] };
+                    cardId = skipped.Id;
+                    break;
+                default:
+                    throw new ResearchFailure(400, "invalid_group_decision", "Choose a group and what to do with it.");
+            }
+            var keys = members.Select(Housekeeping.Key).ToHashSet(StringComparer.Ordinal);
+            count = keys.Count;
+            var next = current with
+            {
+                GmailThreads = [.. current.GmailThreads!.Select(item => item.AccountId == account && item.Status == GmailThreadRecord.Pending &&
+                    keys.Contains(Housekeeping.Key(item))
+                    ? item with
+                    {
+                        Status = GmailThreadRecord.Assigned, CardId = cardId, StreamId = null, GroupId = null, GroupPinned = null,
+                        FoldedMessageId = null, FoldedSentAt = null, UpdatedAt = now
+                    } : item)]
+            };
+            return Housekeeping.Cleaned(next, account) ?? next;
+        }, ct);
+        logger.LogInformation("A Housekeeping group of {Count} thread(s) was {Action} by the user.", count, request.Action switch
+        {
+            "new" => "made into a new research project", "project" => "added to a research project", _ => "skipped"
+        });
+    }
+
+    /// <summary>Renames a Housekeeping group; a renamed group keeps its name and is never combined by regrouping.</summary>
+    public async Task RenameGroupAsync(string groupId, string? name, CancellationToken ct)
+    {
+        string chosen = name?.Trim() ?? "";
+        if (!ResearchThemes.IsThemeId(groupId) || chosen.Length is 0 or > Housekeeping.MaxName)
+            throw new ResearchFailure(400, "invalid_group_name", "Give the group a name of at most 120 characters.");
+        await store.ChangeAsync(current =>
+        {
+            var account = current.Credential?.Account.Id ?? throw new ResearchFailure(401, "meld_account_required", "Sign in with Google first.");
+            var group = Housekeeping.Groups(current, account).FirstOrDefault(item => item.Id == groupId)
+                ?? throw new ResearchFailure(404, "housekeeping_group_not_found", "That group no longer exists. Reload and try again.");
+            var renamed = group with { Name = chosen, Named = true, UpdatedAt = clock.GetUtcNow() };
+            return current with { HousekeepingGroups = [.. current.HousekeepingGroups!.Select(item => item == group ? renamed : item)] };
+        }, ct);
+    }
+
+    /// <summary>The account's Housekeeping groups that hold waiting threads, with the research project each looks like.</summary>
+    public static IReadOnlyList<HousekeepingGroupResponse> Groups(LocalResearchState state, Guid? account)
+    {
+        if (account is not { } id) return [];
+        var active = ThemePlan.Active(state, id);
+        return [.. Housekeeping.Groups(state, id).Where(group => Housekeeping.Members(state, group).Count != 0).Select(group =>
+        {
+            var card = group.SuggestedCardId is { } cardId ? active.FirstOrDefault(theme => theme.Id == cardId && theme.Profile is not null) : null;
+            return new HousekeepingGroupResponse(group.Id, group.Name, group.Named == true, Housekeeping.Held(state, group), card?.Id,
+                card is null ? null : CardTitle(state, card), card is null ? null : group.SuggestionReason);
+        })];
     }
 
     /// <summary>
@@ -555,12 +817,12 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
             return new GmailThreadResponse(item.Address, item.Id, item.Subject, item.Headline ?? item.Subject, item.Status, card?.Id,
                 card is null ? null : CardTitle(state, card), item.Suggested,
                 [.. item.Bullets.Select(bullet => new GmailBulletResponse(bullet.Id, bullet.Text, bullet.SentAt, bullet.Newsworthy, bullet.Evidence))],
-                item.LastSentAt, item.NewsAt, skipped);
+                item.LastSentAt, item.NewsAt, skipped, item.Status == GmailThreadRecord.Pending ? item.GroupId : null);
         }
         var mine = (state.GmailThreads ?? []).Where(item => item.AccountId == id).ToArray();
         bool Skipped(GmailThreadRecord item) => item.Status == GmailThreadRecord.Dismissed ||
             item.Status == GmailThreadRecord.Assigned && OnSkippedCard(state, id, item.CardId);
-        // Private updates (threads waiting for a decision), and the skipped ones for About me → Skipped; threads on projects
+        // Housekeeping (threads waiting for a decision), and the skipped ones for About me → Skipped; threads on projects
         // appear through their projects' changelogs.
         var waiting = mine.Where(item => item.Status == GmailThreadRecord.Pending).OrderByDescending(item => item.LastSentAt).Take(MaxFeedThreads)
             .Select(item => Response(item, false));
@@ -571,7 +833,7 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
     private static bool OnSkippedCard(LocalResearchState state, Guid account, string? cardId) =>
         cardId is not null && ThemePlan.Themes(state, account).Any(theme => theme.Skipped == true && theme.Id == cardId);
 
-    /// <summary>Removes a thread's sources from the details of the project it is on (it is moving, skipped or back in Private updates).</summary>
+    /// <summary>Removes a thread's sources from the details of the project it is on (it is moving, skipped or back in Housekeeping).</summary>
     private static LocalResearchState Detach(LocalResearchState state, Guid account, GmailThreadRecord item, DateTimeOffset now)
     {
         if (item.CardId is not { } cardId || ThemePlan.Themes(state, account).FirstOrDefault(theme => theme.Id == cardId) is not { } card) return state;

@@ -36,7 +36,8 @@ internal sealed class GmailConnector(IResearchStore store, IResearchRemote remot
         var accounts = (state.GmailAccounts ?? []).Where(item => item.AccountId == account && !item.Removed)
             .OrderBy(item => item.Address, StringComparer.OrdinalIgnoreCase)
             .Select(item => Response(item, state, importer)).ToArray();
-        return new(_configuration?.Configured ?? false, WindowDays, ConsentVersion, accounts, _lastError, GmailImporter.Threads(state, account));
+        return new(_configuration?.Configured ?? false, WindowDays, ConsentVersion, accounts, _lastError, GmailImporter.Threads(state, account),
+            GmailImporter.Groups(state, account));
     }
 
     /// <summary>Whether Meld's server offers Gmail (cached for ten minutes; refreshed by the status poll).</summary>

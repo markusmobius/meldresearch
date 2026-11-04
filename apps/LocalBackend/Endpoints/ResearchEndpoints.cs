@@ -77,7 +77,7 @@ internal static class ResearchEndpoints
         {
             await research.RemoveSourceAsync(themeId, request.Key, ct);
             return TypedResults.NoContent();
-        }).WithName("RemoveResearchSource").WithSummary("Remove a source from a research project; it goes to Private updates.");
+        }).WithName("RemoveResearchSource").WithSummary("Remove a source from a research project; it goes to Housekeeping.");
         group.MapGet("/themes/{themeId}/changelog", async Task<Ok<ChangelogPageResponse>> (
             string themeId, DateTimeOffset? before, Guid? after, int? limit, ResearchCoordinator research, CancellationToken ct) =>
             TypedResults.Ok(await research.ChangelogAsync(themeId, before, after, limit ?? 30, ct)))
@@ -170,7 +170,21 @@ internal static class ResearchEndpoints
             await importer.DecideAsync(request, ct);
             research.RequestWork();
             return TypedResults.NoContent();
-        }).WithName("DecideGmailThread").WithSummary("Ignore a Gmail thread, put it on a research card, or start a new research project for it.");
+        }).WithName("DecideGmailThread").WithSummary("Ignore a Gmail thread, put it on a research card, start a new research project for it, or move it between Housekeeping groups.");
+        group.MapPost("/gmail/groups/{groupId}/decision", async Task<NoContent> (string groupId, HousekeepingGroupDecisionRequest request,
+            GmailImporter importer, ResearchCoordinator research, CancellationToken ct) =>
+        {
+            await importer.DecideGroupAsync(groupId, request, ct);
+            research.RequestWork();
+            return TypedResults.NoContent();
+        }).WithName("DecideHousekeepingGroup").WithSummary("Make a Housekeeping group a research project, add it to one, or skip it.");
+        group.MapPut("/gmail/groups/{groupId}", async Task<NoContent> (string groupId, HousekeepingGroupRenameRequest request,
+            GmailImporter importer, ResearchCoordinator research, CancellationToken ct) =>
+        {
+            await importer.RenameGroupAsync(groupId, request?.Name, ct);
+            research.RequestSync();
+            return TypedResults.NoContent();
+        }).WithName("RenameHousekeepingGroup").WithSummary("Rename a Housekeeping group.");
         group.MapPost("/gmail/accounts/{address}/check", async Task<Ok<GmailAccountResponse>> (string address, GmailConnector gmail, CancellationToken ct) =>
             TypedResults.Ok(await gmail.CheckAsync(address, ct)))
             .WithName("CheckGmailAccount").WithSummary("Count the threads written in during the import window (no mail content is read).");

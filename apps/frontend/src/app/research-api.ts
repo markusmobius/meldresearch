@@ -73,7 +73,7 @@ export interface ResearchStatus {
   gmail?: GmailStatus | null;
   /** The feed's Updates: changelog entries that changed a research project's details, newest first (the latest 100). */
   changes?: ReadonlyArray<ResearchChange> | null; totalChanges?: number;
-  /** Files the user removed as a source of a project, waiting in Private updates. */
+  /** Files the user removed as a source of a project, waiting in Housekeeping. */
   pendingFiles?: ReadonlyArray<PendingFile> | null;
   /** Projects edited within this many days need an include/exclude choice and are read; the same window for both. */
   recentDays?: number;
@@ -116,8 +116,19 @@ export interface GmailAccount {
 }
 export interface GmailStatus {
   configured: boolean; windowDays: number; consentVersion: string; accounts: ReadonlyArray<GmailAccount>; lastError: string | null;
-  /** Recorded threads for the feed: assigned ones with newsworthy progress, and pending ones waiting for the user. */
+  /** Recorded threads: those waiting in Housekeeping (pending) and the skipped ones. */
   threads?: ReadonlyArray<GmailThread> | null;
+  /** Housekeeping groups of waiting threads. */
+  groups?: ReadonlyArray<HousekeepingGroup> | null;
+}
+/**
+ * A Housekeeping group: waiting threads about the same topic, people or kind of work, decided on at once. named: the user
+ * renamed it; held: the user made or arranged it (never combined automatically). suggestedCard*: an existing research
+ * project it looks like, offered for one-click confirmation.
+ */
+export interface HousekeepingGroup {
+  id: string; name: string; named: boolean; held: boolean;
+  suggestedCardId?: string | null; suggestedCardTitle?: string | null; suggestionReason?: string | null;
 }
 export interface GmailBullet { id: string; text: string; sentAt: string; newsworthy: boolean; evidence: ReadonlyArray<ResearchCitation>; }
 /**
@@ -129,12 +140,14 @@ export interface GmailThread {
   cardTitle: string | null; suggested: string | null; bullets: ReadonlyArray<GmailBullet>; lastSentAt: string; newsAt: string | null;
   /** Skipped by the user (or on a skipped project): shown in About me → Skipped, not in the feed. */
   skipped?: boolean;
+  /** The Housekeeping group of a waiting thread; null while it is being grouped. */
+  groupId?: string | null;
 }
 /**
- * dismiss: skip the thread (it joins skipped work); unskip: back to Private updates; project: put it on research card
- * cardId; new: a new research project named name.
+ * dismiss: skip the thread (it joins skipped work); unskip: back to Housekeeping; project: put it on research card cardId;
+ * new: a new research project named name; group: move a waiting thread to Housekeeping group groupId (null: a new group).
  */
-export type GmailThreadAction = 'dismiss' | 'unskip' | 'project' | 'new';
+export type GmailThreadAction = 'dismiss' | 'unskip' | 'project' | 'new' | 'group';
 /** A data download being prepared, ready (url works until expiresAt, five minutes) or failed. */
 export interface ExportStatus {
   id: string; state: 'preparing' | 'ready' | 'failed'; startedAt: string; readyAt: string | null; expiresAt: string | null;
@@ -211,7 +224,7 @@ export class ResearchApi {
   setThemeAnchor(themeId: string, projectId: string): Promise<void> {
     return firstValueFrom(this.http.put<void>(`/api/research/themes/${encodeURIComponent(themeId)}/anchor`, { projectId }));
   }
-  /** Removes a source from every detail of a research project; it goes to Private updates. */
+  /** Removes a source from every detail of a research project; it goes to Housekeeping. */
   removeSource(themeId: string, key: string): Promise<void> {
     return firstValueFrom(this.http.post<void>(`/api/research/themes/${encodeURIComponent(themeId)}/sources/remove`, { key }));
   }
@@ -221,7 +234,7 @@ export class ResearchApi {
     if (last) { query.set('after', last.id); query.set('before', last.at); }
     return firstValueFrom(this.http.get<ChangelogPage>(`/api/research/themes/${encodeURIComponent(themeId)}/changelog?${query}`));
   }
-  /** A removed file from Private updates: add it to research project cardId, or leave it out (dismiss). */
+  /** A removed file from Housekeeping: add it to research project cardId, or leave it out (dismiss). */
   decidePendingFile(file: Pick<PendingFile, 'projectId' | 'path'>, action: 'project' | 'dismiss', cardId?: string): Promise<void> {
     return firstValueFrom(this.http.post<void>('/api/research/files/decision',
       { projectId: file.projectId, path: file.path, action, cardId: cardId ?? null }));
@@ -256,10 +269,19 @@ export class ResearchApi {
   connectGmail(consentVersion: string): Promise<{ authorizationUrl: string; expiresAt: string }> {
     return firstValueFrom(this.http.post<{ authorizationUrl: string; expiresAt: string }>('/api/research/gmail/connect', { consentVersion }));
   }
-  /** Where a recorded Gmail thread belongs: ignore it, a research card, or a new research project. */
-  decideGmailThread(thread: Pick<GmailThread, 'address' | 'id'>, action: GmailThreadAction, cardId?: string, name?: string): Promise<void> {
+  /** Where a recorded Gmail thread belongs: ignore it, a research card, a new research project, or another Housekeeping group. */
+  decideGmailThread(thread: Pick<GmailThread, 'address' | 'id'>, action: GmailThreadAction, cardId?: string, name?: string,
+    groupId?: string | null): Promise<void> {
     return firstValueFrom(this.http.post<void>('/api/research/gmail/threads/decision',
-      { address: thread.address, threadId: thread.id, action, cardId: cardId ?? null, name: name ?? null }));
+      { address: thread.address, threadId: thread.id, action, cardId: cardId ?? null, name: name ?? null, groupId: groupId ?? null }));
+  }
+  /** A whole Housekeeping group: a new research project (named name, else the group's), added to research project cardId, or skipped. */
+  decideHousekeepingGroup(groupId: string, action: 'new' | 'project' | 'dismiss', cardId?: string, name?: string): Promise<void> {
+    return firstValueFrom(this.http.post<void>(`/api/research/gmail/groups/${encodeURIComponent(groupId)}/decision`,
+      { action, cardId: cardId ?? null, name: name ?? null }));
+  }
+  renameHousekeepingGroup(groupId: string, name: string): Promise<void> {
+    return firstValueFrom(this.http.put<void>(`/api/research/gmail/groups/${encodeURIComponent(groupId)}`, { name }));
   }
   /** Imports new mail from a connected Gmail account now (also if it was imported recently). */
   importGmail(address: string): Promise<void> {

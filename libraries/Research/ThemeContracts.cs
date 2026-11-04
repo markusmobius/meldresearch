@@ -10,9 +10,12 @@ public sealed record ThemeCandidate(string Id, string Title, string Description,
 /// <summary>
 /// Asks whether a newly imported project continues one of the user's existing research cards. Loose: the cards are work the
 /// user skipped as not their own (for example helping a family member); sharing a person or a topic is enough there.
+/// Waiting: the candidates are Housekeeping groups of email threads that wait for the user's decision, and the item is one
+/// such thread; the same topic, people, event or kind of work is enough.
 /// </summary>
 public sealed record ThemeMatchRequest(string ProjectName, ProjectProfile Profile, IReadOnlyList<ThemeCandidate> Candidates,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Loose = false);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Loose = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Waiting = false);
 
 /// <summary>The matching card's id, or null to start a new card.</summary>
 public sealed record ThemeMatchResponse(string? ThemeId, string Explanation, string ChatModel);
@@ -27,8 +30,12 @@ public sealed record ThemeMergeResponse(ProjectProfile Profile, string ChatModel
 public sealed record CardBlurbRequest(ProjectProfile Profile);
 public sealed record CardBlurbResponse(string Blurb, string ChatModel);
 
-/// <summary>All of the user's research cards, to find cards that belong to one research programme.</summary>
-public sealed record ThemeRegroupRequest(IReadOnlyList<ThemeCandidate> Cards);
+/// <summary>
+/// All of the user's research cards, to find cards that belong to one research programme. Waiting: the cards are Housekeeping
+/// groups of waiting email threads, combined loosely (the same topic, people, event or kind of work).
+/// </summary>
+public sealed record ThemeRegroupRequest(IReadOnlyList<ThemeCandidate> Cards,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Waiting = false);
 /// <summary>A set of cards to combine into one; cards in no group stay as they are.</summary>
 public sealed record ThemeGroup(IReadOnlyList<string> CardIds, string Explanation);
 public sealed record ThemeRegroupResponse(IReadOnlyList<ThemeGroup> Groups, string ChatModel);

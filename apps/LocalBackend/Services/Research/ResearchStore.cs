@@ -106,7 +106,7 @@ internal sealed record ChangelogEntry(Guid Id, Guid AccountId, string CardId, Da
 internal sealed record DetailChange(string Op, string DetailId, string? Before, string? After);
 
 /// <summary>
-/// An Overleaf file the user removed as a source of a research project (OVERLEAF.md §10). It waits in Private updates until
+/// An Overleaf file the user removed as a source of a research project (OVERLEAF.md §10). It waits in Housekeeping until
 /// the user adds it to another project (TargetCardId: folded there once) or skips it; its own project ignores it meanwhile.
 /// </summary>
 internal sealed record PendingFile(Guid AccountId, string ProjectId, string ProjectName, string Path, string Sha256, string FromCardId,
@@ -120,7 +120,8 @@ internal sealed record LocalResearchState(int Version, LinkedCredential? Credent
     string? ThemesRegroupedFor = null, SyncState? Sync = null, IReadOnlyList<GmailAccountState>? GmailAccounts = null,
     string? DeviceId = null, IReadOnlyList<GmailThreadRecord>? GmailThreads = null, int GmailVersion = 0, int ThemesVersion = 0,
     IReadOnlyList<ChangelogEntry>? Changelog = null, IReadOnlyList<PendingFile>? PendingFiles = null,
-    IReadOnlyList<string>? SkippedProjects = null);
+    IReadOnlyList<string>? SkippedProjects = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<HousekeepingGroup>? HousekeepingGroups = null);
 
 /// <summary>
 /// A Gmail account connected for read-only access. RefreshToken is Google's long-lived grant; it is kept only in this encrypted
@@ -146,7 +147,7 @@ internal sealed record GmailThreadState(string Id, string HistoryId, string Last
 /// <summary>
 /// One Gmail thread as Meld recorded it: a list of preview bullets that grows as mail arrives. Status: assigned (a source of
 /// research card CardId: its mail up to FoldedMessageId is folded into the card's details), pending (work, but the user
-/// decides where it goes: Private updates), skipped (not work; looked at again only when new mail arrives) or dismissed
+/// decides where it goes: Housekeeping, in group GroupId; GroupPinned when the user put it there), skipped (not work; looked at again only when new mail arrives) or dismissed
 /// (the user chose to ignore it for good). StreamId belongs to the earlier email streams and is no longer set.
 /// HistoryId is Gmail's version of the thread when it was last analyzed ("" while a long thread is analyzed in parts) and
 /// LastMessageId/LastSentAt the last message analyzed, so only later messages are new. Headline and NewsAt are set when the
@@ -157,10 +158,29 @@ internal sealed record GmailThreadRecord(Guid AccountId, string Address, string 
     string? StreamId = null, string? Headline = null, DateTimeOffset? NewsAt = null, string? Suggested = null, string? Explanation = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? CardId = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? FoldedMessageId = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateTimeOffset? FoldedSentAt = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateTimeOffset? FoldedSentAt = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? GroupId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? GroupPinned = null)
 {
     public const string Assigned = "assigned", Pending = "pending", Skipped = "skipped", Dismissed = "dismissed";
 }
+
+/// <summary>
+/// A Housekeeping group: waiting email threads (GmailThreadRecord.GroupId) about the same topic, people or kind of work, so
+/// the user decides on them at once. Name comes from the first thread's suggested project (Named: the user renamed it, so
+/// it is never renamed). Held: the user made it; a held group, a renamed one, or one holding a thread the user moved there
+/// is never combined by regrouping. SuggestedCardId: an existing research project the group looks like (strict rule),
+/// shown for one-click confirmation, with SuggestionReason; SuggestedFor records which members and projects it was
+/// checked for. Checked lists the members the last regrouping pass saw, so only groups that gained threads are compared
+/// again. Groups hold no details or summary; keeping one turns it into a research project.
+/// </summary>
+internal sealed record HousekeepingGroup(Guid AccountId, string Id, string Name, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? Named = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? Held = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SuggestedCardId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SuggestionReason = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SuggestedFor = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? Checked = null);
 
 /// <summary>One fact from a thread with its quoted evidence; Newsworthy when it was part of a step forward.</summary>
 internal sealed record GmailBullet(Guid Id, string Text, IReadOnlyList<ResearchCitation> Evidence, DateTimeOffset SentAt, DateTimeOffset AddedAt,

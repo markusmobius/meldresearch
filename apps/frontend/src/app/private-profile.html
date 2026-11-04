@@ -65,7 +65,7 @@
                                   </span>
                                   <button mat-button type="button" class="remove-source" [disabled]="!!working()" (click)="removeSource(card, source)"
                                     [attr.aria-label]="'Remove ' + source.label + ' from this project'"
-                                    title="Remove this source from the project; it goes to Private updates"><mat-icon>remove_circle_outline</mat-icon>Remove</button>
+                                    title="Remove this source from the project; it goes to Housekeeping"><mat-icon>remove_circle_outline</mat-icon>Remove</button>
                                 </div>
                                 @for (quote of quotes(detail, source); track $index) { <blockquote>{{ quote }}</blockquote> }
                               </li>
@@ -76,7 +76,7 @@
                     }
                   </ul>
                   <p class="hint">Select a detail to see its sources. Removing a source takes it off every detail of this project and puts it in
-                    <a href="/#feed">Private updates</a>, where you can add it to another project.</p>
+                    <a href="/#feed">Housekeeping</a>, where you can add it to another project.</p>
                 } @else {
                   <p class="muted empty">No details yet.</p>
                 }

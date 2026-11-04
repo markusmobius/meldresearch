@@ -40,7 +40,7 @@ public sealed record ChangeResponse(Guid Id, string CardId, string? CardTitle, D
     IReadOnlyList<string> Documents, IReadOnlyList<DetailChangeResponse> Changes);
 public sealed record DetailChangeResponse(string Op, string DetailId, string? Before, string? After);
 public sealed record ChangelogPageResponse(IReadOnlyList<ChangeResponse> Entries, bool More);
-/// <summary>A file removed as a source of a research project, waiting in Private updates.</summary>
+/// <summary>A file removed as a source of a research project, waiting in Housekeeping.</summary>
 public sealed record PendingFileResponse(string ProjectId, string ProjectName, string Path, string FromCardId, string? FromCardTitle, DateTimeOffset RemovedAt);
 public sealed record RemoveSourceRequest(string Key);
 /// <summary>Action: "project" (fold it into research card CardId once) or "dismiss" (leave it out).</summary>
@@ -51,21 +51,32 @@ public sealed record PendingFileDecisionRequest(string ProjectId, string Path, s
 /// connection attempt did not complete (shown once on return from Google).
 /// </summary>
 public sealed record GmailStatusResponse(bool Configured, int WindowDays, string ConsentVersion, IReadOnlyList<GmailAccountResponse> Accounts,
-    string? LastError, IReadOnlyList<GmailThreadResponse>? Threads = null);
+    string? LastError, IReadOnlyList<GmailThreadResponse>? Threads = null, IReadOnlyList<HousekeepingGroupResponse>? Groups = null);
 
 /// <summary>
-/// A recorded Gmail thread for the feed: assigned ones with newsworthy progress (Updates column, on research card CardId) and
-/// pending ones (Private updates column, where the user decides). Title is the headline, else the subject.
+/// A recorded Gmail thread: pending ones wait in Housekeeping (in group GroupId; null while it is being grouped), skipped
+/// ones are listed in About me → Skipped. Title is the headline, else the subject.
 /// </summary>
 public sealed record GmailThreadResponse(string Address, string Id, string Subject, string Title, string Status, string? CardId,
     string? CardTitle, string? Suggested, IReadOnlyList<GmailBulletResponse> Bullets, DateTimeOffset LastSentAt, DateTimeOffset? NewsAt,
-    bool Skipped = false);
+    bool Skipped = false, string? GroupId = null);
+/// <summary>
+/// A Housekeeping group of waiting threads. Named: the user renamed it; Held: the user made or arranged it (regrouping leaves
+/// it alone). SuggestedCardId/Title: an existing research project it looks like, with the reason, for one-click confirmation.
+/// </summary>
+public sealed record HousekeepingGroupResponse(string Id, string Name, bool Named, bool Held, string? SuggestedCardId = null,
+    string? SuggestedCardTitle = null, string? SuggestionReason = null);
+/// <summary>For a whole Housekeeping group: "new" (a research project named Name, else the group's name), "project" (add to CardId) or "dismiss".</summary>
+public sealed record HousekeepingGroupDecisionRequest(string Action, string? CardId = null, string? Name = null);
+public sealed record HousekeepingGroupRenameRequest(string Name);
 public sealed record GmailBulletResponse(Guid Id, string Text, DateTimeOffset SentAt, bool Newsworthy, IReadOnlyList<ResearchCitation> Evidence);
 /// <summary>
-/// The user's choice for a thread: "dismiss" (skip it: it joins the skipped work in About me), "unskip" (back to Private
-/// updates), "project" (put it on research card CardId) or "new" (a new research project named Name).
+/// The user's choice for a thread: "dismiss" (skip it: it joins the skipped work in About me), "unskip" (back to
+/// Housekeeping), "project" (put it on research card CardId), "new" (a new research project named Name) or "group" (move a
+/// waiting thread to Housekeeping group GroupId, or to a new group named Name when GroupId is null).
 /// </summary>
-public sealed record GmailThreadDecisionRequest(string Address, string ThreadId, string Action, string? CardId = null, string? Name = null);
+public sealed record GmailThreadDecisionRequest(string Address, string ThreadId, string Action, string? CardId = null, string? Name = null,
+    string? GroupId = null);
 /// <summary>
 /// Status: connected, reconnect (Google withdrew the grant) or error. Threads: threads written in during the window.
 /// Analyzed: threads analyzed so far; Workstreams: lines of work found in this account; Importing: the import running now;

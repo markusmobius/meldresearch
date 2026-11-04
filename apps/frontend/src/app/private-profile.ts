@@ -49,7 +49,7 @@ type Tab = 'details' | 'changelog' | 'projects';
 /**
  * About me → My projects, ported from Project Meld's overview: one card per research project with its title, a two-sentence
  * summary and its Overleaf projects. A card expands in place to its details (at most 30 sentences, each with its sources; a
- * source can be removed, which sends it to Private updates), its changelog (every source that updated it, newest first,
+ * source can be removed, which sends it to Housekeeping), its changelog (every source that updated it, newest first,
  * loaded while scrolling) and its projects (main paper, move, merge, skip). Stored on this computer only.
  */
 @Component({
@@ -170,7 +170,7 @@ export class PrivateProfile {
     this.changelogs.update(map => new Map(map).set(themeId, view));
   }
 
-  /** Removes a source from the whole research project; it waits in Private updates. */
+  /** Removes a source from the whole research project; it waits in Housekeeping. */
   async removeSource(card: ProfileCard, source: DetailSource): Promise<void> {
     if (!card.themeId || this.working()) return;
     await this.act(`source:${source.key}`, () => this.api.removeSource(card.themeId!, source.key));
@@ -180,7 +180,7 @@ export class PrivateProfile {
     if (!card.themeId) return;
     if (await this.act(card.id, () => this.api.skipTheme(card.themeId!, skipped)) && skipped) this.expandedId.set(null);
   }
-  /** Brings one skipped email thread back to Private updates. */
+  /** Brings one skipped email thread back to Housekeeping. */
   async unskip(thread: GmailThread): Promise<void> {
     await this.act(`${thread.address}|${thread.id}`, () => this.api.decideGmailThread(thread, 'unskip'));
   }

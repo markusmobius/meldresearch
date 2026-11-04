@@ -20,8 +20,6 @@
 .feed-card-title { margin: 0 0 5px; font-size: 0.91rem; font-weight: 700; line-height: 1.35; color: #1e293b; }
 .feed-card-open { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; overflow: hidden; cursor: pointer; }
 .feed-card-open:hover { color: #0f766e; }
-.feed-card-body { margin: 0; font-size: 0.8rem; line-height: 1.45; color: #475569; }
-.feed-clamp { display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .feed-card-actions { display: flex; align-items: center; gap: 4px; margin-top: 7px; }
 .feed-action { flex-shrink: 0; white-space: nowrap; height: 30px !important; padding: 0 6px !important; min-width: 0 !important; font-size: 0.75rem !important; color: #145749 !important; }
 .feed-action mat-icon { width: 16px; height: 16px; font-size: 16px; }
@@ -58,8 +56,30 @@ li.op-remove { color: #94a3b8; }
 .change-detail li { line-height: 1.5; }
 .change-detail .was { display: block; margin-top: 2px; font-size: 0.85em; color: #94a3b8; }
 .file-path { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.85rem; }
+/* Housekeeping: a group of waiting threads (or removed files), decided on at once; each thread can be moved or skipped. */
+.group-card .feed-card-head .feed-kind { color: #64748b; }
+.grouping-tag { padding: 0 6px; border-radius: 4px; background: #f1f5f9; color: #64748b; font-size: 0.68rem; font-weight: 600; }
+.group-title { display: flex; align-items: center; gap: 2px; }
+.rename-group { --mdc-icon-button-state-layer-size: 28px; width: 28px !important; height: 28px !important; padding: 4px !important; color: #94a3b8; }
+.rename-group mat-icon { font-size: 16px; width: 16px; height: 16px; }
+.group-threads { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.group-threads > li { display: flex; flex-wrap: wrap; align-items: center; gap: 0 6px; padding: 2px 0; border-top: 1px solid rgba(15, 23, 42, .06); }
+.group-threads > li:first-child { border-top: 0; }
+.group-thread-title { all: unset; flex: 1; min-width: 0; cursor: pointer; font-size: 0.8rem; line-height: 1.4; color: #1e293b;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+span.group-thread-title { cursor: default; }
+.group-thread-title:hover { color: #0a6655; text-decoration: underline; }
+.group-thread-title:focus-visible { outline: 2px solid #0a6655; outline-offset: 2px; border-radius: 2px; }
+.group-thread-date { flex: none; font-size: 0.7rem; color: #94a3b8; }
+.group-thread-menu { --mdc-icon-button-state-layer-size: 28px; flex: none; width: 28px !important; height: 28px !important; padding: 4px !important; color: #64748b; }
+.group-thread-menu mat-icon { font-size: 18px; width: 18px; height: 18px; }
+.group-threads > li > .thread-bullets { flex-basis: 100%; margin: 2px 0 4px; }
+.group-more button { height: 26px !important; font-size: 0.75rem !important; }
+.group-suggestion { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin: 6px 0 0; padding: 4px 8px; border-radius: 6px;
+  background: #ecfdf5; color: #166534; font-size: 0.76rem; }
+.group-suggestion mat-icon { font-size: 16px; width: 16px; height: 16px; }
+.accept-suggestion { height: 26px !important; font-size: 0.75rem !important; margin-left: auto; }
 .pending-card { border-left-color: var(--column-accent); background: #fdf8ec; }
-.feed-address { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #64748b; }
 .thread-suggestion { margin: 6px 0 0; font-size: 0.75rem; color: #64748b; }
 .thread-name { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
 .thread-name mat-form-field { flex: 1 1 200px; font-size: 0.85rem; }

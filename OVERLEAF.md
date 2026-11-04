@@ -241,7 +241,7 @@ A **renamed** document is a removal plus an addition.
 The user can click a bullet, see its sources and remove one.
 
 - The citation is removed from the bullet; a bullet without sources is deleted.
-- An Overleaf **file** source goes to **Private updates** (like an email thread):
+- An Overleaf **file** source goes to **Housekeeping** (like an email thread):
   *"sections/model.tex of overleaf_pcm"*. There the user can:
   - **add it to another project** — its current version is folded into that
     card once, as an update;
@@ -274,8 +274,9 @@ threads; their sources all edit the same 30 bullets.
 Email follows the same schema. A thread assigned to a card is a source,
 `gmail:<address>/<thread>@<lastMessageId>`. Its new messages are one update step
 on the card's details, using the same operations as §7.5, and one changelog
-entry. Unassigned threads stay in Private updates with their short preview,
-until the user decides. Email streams (the `gmail-…` card members) are no longer
+entry. Unassigned threads stay in Housekeeping with their short preview, grouped
+loosely with related waiting threads, until the user decides on the thread or its
+whole group (README, Gmail → Housekeeping). Email streams (the `gmail-…` card members) are no longer
 needed: threads attach to cards directly.
 
 ## 13. Fresh start
@@ -341,7 +342,7 @@ project, and the email import for every connected account.
    count as roots.
 3. Slide decks are roots like any other document.
 4. Removing a source removes it from the whole card (every bullet that cites it)
-   and sends it to Private updates. **Add to project** folds that file's current
+   and sends it to Housekeeping. **Add to project** folds that file's current
    version into the chosen card once; the file stays out of its own project's
    card. **Skip** leaves it out.
 5. A failed step is retried rather than skipped, so a model or server failure

@@ -157,7 +157,7 @@ public sealed class GmailImportTests
             mail.Store.State.Changelog!.Where(entry => entry.Kind == ChangelogEntry.Gmail).Select(entry => entry.Title));
         // Email streams are gone: no Gmail members on cards.
         Assert.DoesNotContain(mail.Store.State.Projects, project => project.Source == ResearchSources.Gmail);
-        // Private updates: only the thread waiting for a decision.
+        // Housekeeping: only the thread waiting for a decision.
         Assert.Equal(["g1"], GmailImporter.Threads(mail.Store.State, Account.Id).Select(thread => thread.Id));
 
         // Nothing changed: Import now lists the threads but reads none and makes no model call.
@@ -213,6 +213,131 @@ public sealed class GmailImportTests
         Assert.Equal("research_card_not_found", (await Assert.ThrowsAsync<ResearchFailure>(() =>
             mail.Importer.DecideAsync(new(Address, "t3", "project", CardId: new string('f', 32)), None))).Code);
     }
+    /// <summary>Four threads that fit no project: two about a grant, two about teaching.</summary>
+    private static Mail Housekept()
+    {
+        var mail = Setup();
+        var now = mail.Clock.UtcNow;
+        mail.Google.Mailbox = [
+            new("g1", "1", "Grant renewal budget", [Mine(now, "g11", 12, "I finalized the renewal budget.")]),
+            new("h1", "1", "Teaching allocation code", [Mine(now, "h11", 10, "The V3 allocation code is attached.")]),
+            new("g2", "1", "Grant reviewer letters", [Mine(now, "g21", 8, "Tanya will collect the letters.")]),
+            new("h2", "1", "Teaching survey", [Mine(now, "h21", 5, "The workload survey went out.")])];
+        // Placement leaves all four waiting, suggesting a name from the subject.
+        mail.Remote.EmailStep = request => new(EmailSteps.Unassigned, null,
+            request.Subject == "Teaching survey" ? "Teaching survey" : request.Subject.Split(' ')[0] + " work",
+            [.. request.Messages.Select(message => new EmailBullet("Point: " + message.Text, [new ResearchCitation(request.Subject, message.Text,
+                EvidenceVersion.Current, new EmailEvidence(message.Id, message.From, message.SentAt))]))], false, null, "Fits no project.", "chat");
+        // Waiting threads join the group with the same first word (the survey misses its group, so regrouping combines it);
+        // against the projects, only the grant group looks like the social learning project.
+        mail.Remote.Match = request => request.Waiting
+            ? request.ProjectName == "Teaching survey" ? null
+                : request.Candidates.FirstOrDefault(candidate => candidate.Title.Split(' ')[0] == request.ProjectName.Split(' ')[0])?.Id
+            : request.ProjectName.StartsWith("Grant", StringComparison.Ordinal) ? Card : null;
+        mail.Remote.Regroup = request => [.. request.Cards.GroupBy(card => card.Title.Split(' ')[0]).Where(group => group.Count() > 1)
+            .Select(group => new ThemeGroup([.. group.Select(card => card.Id)], "Same topic."))];
+        return mail;
+    }
+
+    private static Dictionary<string, string> GroupNames(Mail mail) =>
+        mail.Store.State.GmailThreads!.Where(thread => thread.Status == GmailThreadRecord.Pending)
+            .ToDictionary(thread => thread.Id, thread => mail.Store.State.HousekeepingGroups!.Single(group => group.Id == thread.GroupId).Name);
+
+    [Fact]
+    public async Task WaitingThreadsAreGroupedLooselyRegroupedOnceAndComparedWithTheProjects()
+    {
+        var mail = Housekept();
+        await Run(mail.Importer);
+        // Oldest first: the first thread starts a group without a call, each later one is matched once (loosely) against the groups.
+        var waiting = mail.Remote.Matches.Where(request => request.Waiting).ToArray();
+        Assert.Equal(["Teaching work", "Grant work", "Teaching survey"], waiting.Select(request => request.ProjectName));
+        Assert.Contains("Point: The V3 allocation code is attached.", waiting[0].Profile.Description);
+        // One regrouping pass combines the survey with the other teaching thread, into the older group.
+        var regroup = Assert.Single(mail.Remote.Regroups);
+        Assert.True(regroup.Waiting);
+        Assert.Equal(new Dictionary<string, string> { ["g1"] = "Grant work", ["g2"] = "Grant work", ["h1"] = "Teaching work", ["h2"] = "Teaching work" },
+            GroupNames(mail));
+        Assert.Equal(2, mail.Store.State.HousekeepingGroups!.Count);
+        // Each group is compared (strictly) with the projects once: the grant group is suggested for the social learning project.
+        var strict = mail.Remote.Matches.Where(request => !request.Waiting && !request.Loose).ToArray();
+        Assert.Equal(["Grant work", "Teaching work"], strict.Select(request => request.ProjectName).Order());
+        var groups = GmailImporter.Groups(mail.Store.State, Account.Id).ToDictionary(group => group.Name);
+        Assert.Equal((Card, "Social learning"), (groups["Grant work"].SuggestedCardId, groups["Grant work"].SuggestedCardTitle));
+        Assert.Null(groups["Teaching work"].SuggestedCardId);
+        Assert.All(GmailImporter.Threads(mail.Store.State, Account.Id), thread => Assert.NotNull(thread.GroupId));
+        // Nothing is due any more: no further calls, nothing is a project yet.
+        int calls = mail.Remote.Matches.Count + mail.Remote.Regroups.Count;
+        await Run(mail.Importer);
+        Assert.Equal(calls, mail.Remote.Matches.Count + mail.Remote.Regroups.Count);
+        Assert.Empty(mail.Remote.DetailRequests);
+    }
+
+    [Fact]
+    public async Task TheUserSplitsRenamesAndDecidesOnWholeGroupsAndRegroupingNeverUndoesIt()
+    {
+        var mail = Housekept();
+        await Run(mail.Importer);
+        string teaching = mail.Store.State.GmailThreads!.Single(thread => thread.Id == "h1").GroupId!;
+        string grant = mail.Store.State.GmailThreads!.Single(thread => thread.Id == "g1").GroupId!;
+
+        // Splitting: the survey moves to a new group of its own, named after its suggestion; it is pinned there.
+        await mail.Importer.DecideAsync(new(Address, "h2", "group"), None);
+        var survey = mail.Store.State.GmailThreads!.Single(thread => thread.Id == "h2");
+        Assert.True(survey.GroupPinned);
+        var own = mail.Store.State.HousekeepingGroups!.Single(group => group.Id == survey.GroupId);
+        Assert.Equal(("Teaching survey", true), (own.Name, own.Held));
+        // Renaming keeps a name; a third thread moved into the user's group joins it.
+        await mail.Importer.RenameGroupAsync(own.Id, "Workload survey", None);
+        await mail.Importer.DecideAsync(new(Address, "g2", "group", GroupId: own.Id), None);
+        Assert.Equal(new Dictionary<string, string> { ["g1"] = "Grant work", ["g2"] = "Workload survey", ["h1"] = "Teaching work", ["h2"] = "Workload survey" },
+            GroupNames(mail));
+
+        // Regrouping never pulls the moved threads back: the user's group is held and the others gained nothing.
+        int regroups = mail.Remote.Regroups.Count;
+        await Run(mail.Importer);
+        Assert.Equal(regroups, mail.Remote.Regroups.Count);
+        Assert.Equal(3, mail.Store.State.HousekeepingGroups!.Count);
+        Assert.True(GmailImporter.Groups(mail.Store.State, Account.Id).Single(group => group.Id == own.Id).Held);
+
+        // Create project: one new project from all the group's threads, named after the group; their messages fill its details.
+        await mail.Importer.DecideGroupAsync(own.Id, new("new"), None);
+        var created = mail.Store.State.Themes!.Single(theme => theme.Name == "Workload survey");
+        Assert.All(mail.Store.State.GmailThreads!.Where(thread => thread.Id is "g2" or "h2"),
+            thread => Assert.Equal((GmailThreadRecord.Assigned, created.Id, (string?)null), (thread.Status, thread.CardId, thread.GroupId)));
+        Assert.DoesNotContain(mail.Store.State.HousekeepingGroups!, group => group.Id == own.Id);
+        await Run(mail.Importer);
+        Assert.Equal(2, mail.Store.State.Themes!.Single(theme => theme.Id == created.Id).Details!.Count);
+
+        // Add to project (the suggested one), and Skip all: one skipped project for the whole group.
+        await mail.Importer.DecideGroupAsync(grant, new("project", CardId: Card), None);
+        Assert.Equal(Card, mail.Store.State.GmailThreads!.Single(thread => thread.Id == "g1").CardId);
+        await mail.Importer.DecideGroupAsync(teaching, new("dismiss"), None);
+        var skipped = mail.Store.State.Themes!.Single(theme => theme.Skipped == true);
+        Assert.Equal("Teaching work", skipped.Name);
+        Assert.True(GmailImporter.Threads(mail.Store.State, Account.Id).Single(thread => thread.Id == "h1").Skipped);
+        Assert.Empty(mail.Store.State.HousekeepingGroups!);
+        Assert.Empty(GmailImporter.Groups(mail.Store.State, Account.Id));
+
+        Assert.Equal("housekeeping_group_not_found", (await Assert.ThrowsAsync<ResearchFailure>(() =>
+            mail.Importer.DecideGroupAsync(teaching, new("new"), None))).Code);
+        Assert.Equal("gmail_thread_not_waiting", (await Assert.ThrowsAsync<ResearchFailure>(() =>
+            mail.Importer.DecideAsync(new(Address, "g1", "group"), None))).Code);
+    }
+
+    [Fact]
+    public void GroupsFromTwoComputersMergeByTheLaterChangeAndEmptyGroupsGo()
+    {
+        var at = DateTimeOffset.UtcNow;
+        var local = new HousekeepingGroup(Account.Id, new string('a', 32), "Grant work", at, at);
+        var renamed = local with { Name = "Grant renewal", Named = true, UpdatedAt = at.AddMinutes(1) };
+        var other = new HousekeepingGroup(Account.Id, new string('b', 32), "Teaching work", at, at);
+        var merged = Housekeeping.Merge([local], [renamed, other], Account.Id)!;
+        Assert.Equal(["Grant renewal", "Teaching work"], merged.Select(group => group.Name).Order());
+        var thread = new GmailThreadRecord(Account.Id, Address, "g1", "Grant", GmailThreadRecord.Pending, "1", "m", at, at, [], GroupId: local.Id);
+        var cleaned = Housekeeping.Cleaned(new LocalResearchState(1, Credential, null, null, [], [], GmailThreads: [thread], HousekeepingGroups: merged), Account.Id)!;
+        Assert.Equal([local.Id], cleaned.HousekeepingGroups!.Select(group => group.Id));
+    }
+
     [Fact]
     public async Task SkippedThreadsBecomeSkippedProjectsGroupedGenerouslyAndNewMailOfThemIsSkippedToo()
     {
@@ -255,7 +380,7 @@ public sealed class GmailImportTests
         Assert.Equal(skipped.Id, mail.Store.State.GmailThreads!.Single(thread => thread.Id == "g2").CardId);
         Assert.True(GmailImporter.Threads(mail.Store.State, Account.Id).Single(thread => thread.Id == "g2").Skipped);
 
-        // Unskipping a thread brings it back to Private updates, and its sources leave the skipped project.
+        // Unskipping a thread brings it back to Housekeeping, and its sources leave the skipped project.
         await mail.Importer.DecideAsync(new(Address, "t3", "unskip"), None);
         var back = mail.Store.State.GmailThreads!.Single(thread => thread.Id == "t3");
         Assert.Equal((GmailThreadRecord.Pending, (string?)null), (back.Status, back.CardId));

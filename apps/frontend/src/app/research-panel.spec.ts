@@ -9,6 +9,7 @@ describe('Research Updates onboarding', () => {
   const api = {
     status: vi.fn(), link: vi.fn(), unlink: vi.fn(), monitor: vi.fn(),
     forget: vi.fn(), sync: vi.fn(), demoChange: vi.fn(), decideGmailThread: vi.fn(), decidePendingFile: vi.fn(),
+    decideHousekeepingGroup: vi.fn(), renameHousekeepingGroup: vi.fn(),
   };
   const base: ResearchStatus = {
     account: { id: 'account-one', name: 'Synthetic researcher', email: 'researcher@example.invalid' },
@@ -117,65 +118,135 @@ describe('Research Updates onboarding', () => {
     fixture.destroy();
   });
 
-  it('lets the user decide email threads and removed files in Private updates', async () => {
-    const card = 'a'.repeat(32), other = 'b'.repeat(32);
-    const bullet = (id: string, text: string) => ({ id, text, sentAt: '2026-11-01T10:00:00Z', newsworthy: false, evidence: [] });
-    const profile = (title: string) => ({ title, description: 'd', contributions: [], topics: [] });
-    api.status.mockResolvedValue({ ...base,
-      themes: [{ id: card, profile: profile('Weekly feedback study'), projectIds: [], updating: false },
-        { id: other, profile: profile('Pricing'), projectIds: [], updating: false }],
-      pendingFiles: [{ projectId, projectName: 'feedback-paper', path: 'appendix/old-pilot.tex', fromCardId: card,
-        fromCardTitle: 'Weekly feedback study', removedAt: '2026-11-03T00:00:00Z' }],
-      gmail: { configured: true, windowDays: 30, consentVersion: 'gmail-2026-11', lastError: null,
-        accounts: [{ address: 'me@example.invalid', status: 'connected', error: null, threads: 3, checkedAt: null, connectedAt: '2026-11-01T00:00:00Z' }],
-        threads: [{ address: 'me@example.invalid', id: 'g1', subject: 'Grant budget', title: 'Grant budget', status: 'pending', cardId: null, cardTitle: null,
-          suggested: 'Grant renewal', lastSentAt: '2026-10-20T00:00:00Z', newsAt: null, bullets: [bullet('g', 'The user finalized the budget.')] }] } });
-    api.decideGmailThread.mockResolvedValue(undefined);
-    api.decidePendingFile.mockResolvedValue(undefined);
-    const fixture = await screen('home');
-    const element: HTMLElement = fixture.nativeElement;
-    const column = element.querySelector('#feed-private')!;
-    expect(column.querySelector('h2')?.textContent).toContain('Private updates');
-    expect(column.querySelector('.feed-count')?.textContent).toBe('2');
-    const [file, waiting] = [...column.querySelectorAll('.pending-card')];
-    // Newest first: the removed file, then the thread.
-    expect(file.classList).toContain('file-card');
-    expect(file.querySelector('.file-path')?.textContent).toBe('appendix/old-pilot.tex');
-    expect(file.textContent).toContain('Removed from Weekly feedback study');
-    file.querySelector<HTMLButtonElement>('.add-file')!.click();
-    fixture.detectChanges();
-    await fixture.whenStable();
-    // The project it was removed from is not offered.
-    const targets = [...document.querySelectorAll<HTMLButtonElement>('.mat-mdc-menu-item')];
-    expect(targets.map(item => item.textContent?.trim())).toEqual(['topicPricing']);
-    targets[0].click();
-    await vi.waitFor(() => expect(api.decidePendingFile).toHaveBeenCalledWith(expect.objectContaining({ path: 'appendix/old-pilot.tex' }), 'project', other));
-    await vi.waitFor(() => expect(fixture.componentInstance.deciding()).toBeNull());
-    fixture.detectChanges();
-    file.querySelector<HTMLButtonElement>('.skip-file')!.click();
-    await vi.waitFor(() => expect(api.decidePendingFile).toHaveBeenLastCalledWith(expect.objectContaining({ projectId }), 'dismiss', undefined));
-    await vi.waitFor(() => expect(fixture.componentInstance.deciding()).toBeNull());
-    fixture.detectChanges();
+  const card = 'a'.repeat(32), other = 'b'.repeat(32), grant = 'c'.repeat(32), teaching = 'd'.repeat(32);
+  const bullet = (id: string, text: string) => ({ id, text, sentAt: '2026-11-01T10:00:00Z', newsworthy: false, evidence: [] });
+  const profile = (title: string) => ({ title, description: 'd', contributions: [], topics: [] });
+  const waiting = (id: string, title: string, at: string, groupId: string | null, suggested: string | null = null) => ({
+    address: 'me@example.invalid', id, subject: title, title, status: 'pending' as const, cardId: null, cardTitle: null, suggested,
+    lastSentAt: at, newsAt: null, bullets: [bullet(id + 'b', 'Point of ' + title + '.')], groupId });
+  const housekeeping = (): ResearchStatus => ({ ...base,
+    themes: [{ id: card, profile: profile('Weekly feedback study'), projectIds: [], updating: false },
+      { id: other, profile: profile('Pricing'), projectIds: [], updating: false }],
+    pendingFiles: [
+      { projectId, projectName: 'feedback-paper', path: 'appendix/old-pilot.tex', fromCardId: card, fromCardTitle: 'Weekly feedback study', removedAt: '2026-11-03T00:00:00Z' },
+      { projectId, projectName: 'feedback-paper', path: 'appendix/notes.tex', fromCardId: card, fromCardTitle: 'Weekly feedback study', removedAt: '2026-11-02T00:00:00Z' }],
+    gmail: { configured: true, windowDays: 30, consentVersion: 'gmail-2026-11', lastError: null,
+      accounts: [{ address: 'me@example.invalid', status: 'connected', error: null, threads: 3, checkedAt: null, connectedAt: '2026-11-01T00:00:00Z' }],
+      groups: [{ id: grant, name: 'Grant renewal', named: false, held: false, suggestedCardId: other, suggestedCardTitle: 'Pricing', suggestionReason: 'Same grant.' },
+        { id: teaching, name: 'Teaching allocation', named: false, held: false }],
+      threads: [
+        waiting('g1', 'Grant budget', '2026-10-20T00:00:00Z', grant), waiting('g2', 'Reviewer letters', '2026-10-22T00:00:00Z', grant),
+        ...[1, 2, 3, 4, 5].map(index => waiting('t' + index, 'Teaching thread ' + index, `2026-10-0${index}T00:00:00Z`, teaching)),
+        waiting('n1', 'Shared link', '2026-10-01T00:00:00Z', null, 'Gemini link')] } });
 
-    expect(waiting.textContent).toContain('Suggested project: Grant renewal');
-    waiting.querySelector<HTMLButtonElement>('.new-thread')!.click();
+  it('groups Housekeeping: threads by group, removed files by project, newest first', async () => {
+    api.status.mockResolvedValue(housekeeping());
+    const fixture = await screen('home');
+    const column: HTMLElement = fixture.nativeElement.querySelector('#feed-private');
+    expect(column.querySelector('h2')?.textContent).toContain('Housekeeping');
+    expect(fixture.nativeElement.querySelector('.feed-column-nav')?.textContent).toContain('Housekeeping');
+    // 2 removed files of one project, the grant group, the teaching group and a thread still being grouped: 4 cards.
+    expect(column.querySelector('.feed-count')?.textContent).toBe('4');
+    const cards = [...column.querySelectorAll<HTMLElement>('.pending-card')];
+    expect(cards.map(item => item.querySelector('.feed-card-title')?.firstChild?.textContent?.trim())).toEqual(
+      ['Removed from Weekly feedback study', 'Grant renewal', 'Teaching allocation', 'Gemini link']);
+    const [files, grantCard, teachingCard, single] = cards;
+    expect([...files.querySelectorAll('.file-path')].map(item => item.textContent)).toEqual(['appendix/old-pilot.tex', 'appendix/notes.tex']);
+    expect(grantCard.querySelector('.feed-kind')?.textContent).toContain('2 threads');
+    expect([...grantCard.querySelectorAll('.group-thread-title')].map(item => item.textContent)).toEqual(['Reviewer letters', 'Grant budget']);
+    expect(grantCard.querySelector('.group-suggestion')?.textContent).toContain('Looks like Pricing');
+    // A big group shows its newest threads and offers the rest.
+    expect(teachingCard.querySelectorAll('.group-thread-title')).toHaveLength(4);
+    teachingCard.querySelector<HTMLButtonElement>('.group-more button')!.click();
     fixture.detectChanges();
-    const input = waiting.querySelector<HTMLInputElement>('.thread-name input')!;
-    expect(input.value).toBe('Grant renewal');
-    input.value = 'Grant renewal 2027';
-    input.dispatchEvent(new Event('input'));
-    fixture.detectChanges();
-    waiting.querySelector<HTMLButtonElement>('.thread-name button[type="submit"]')!.click();
-    await vi.waitFor(() => expect(api.decideGmailThread).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'g1' }), 'new', undefined, 'Grant renewal 2027'));
-    await vi.waitFor(() => expect(fixture.componentInstance.deciding()).toBeNull());
-    fixture.detectChanges();
-    waiting.querySelector<HTMLButtonElement>('.skip-thread')!.click();
-    await vi.waitFor(() => expect(api.decideGmailThread).toHaveBeenCalledWith(expect.objectContaining({ id: 'g1' }), 'dismiss', undefined, undefined));
+    expect(teachingCard.querySelectorAll('.group-thread-title')).toHaveLength(5);
+    // A thread still being grouped is a card of its own, with its points.
+    expect(single.querySelector('.grouping-tag')?.textContent).toContain('Grouping');
+    expect(single.querySelector('.thread-bullets')?.textContent).toContain('Point of Shared link.');
+    expect(single.querySelector('.rename-group')).toBeNull();
     fixture.destroy();
   });
 
-  it('offers Private updates for a removed file even without Gmail', async () => {
+  it('decides on a whole group at once: create project, add to the suggested one, skip all, rename', async () => {
+    api.status.mockResolvedValue(housekeeping());
+    for (const call of [api.decideHousekeepingGroup, api.renameHousekeepingGroup, api.decideGmailThread, api.decidePendingFile]) call.mockResolvedValue(undefined);
+    const fixture = await screen('home');
+    const column: HTMLElement = fixture.nativeElement.querySelector('#feed-private');
+    const [files, grantCard, teachingCard, single] = [...column.querySelectorAll<HTMLElement>('.pending-card')];
+    const settle = async () => { await vi.waitFor(() => expect(fixture.componentInstance.deciding()).toBeNull()); fixture.detectChanges(); await fixture.whenStable(); };
+
+    grantCard.querySelector<HTMLButtonElement>('.accept-suggestion')!.click();
+    await vi.waitFor(() => expect(api.decideHousekeepingGroup).toHaveBeenCalledWith(grant, 'project', other));
+    await settle();
+
+    teachingCard.querySelector<HTMLButtonElement>('.new-project')!.click();
+    fixture.detectChanges();
+    const input = teachingCard.querySelector<HTMLInputElement>('.thread-name input')!;
+    expect(input.value).toBe('Teaching allocation');
+    input.value = 'Teaching algorithm';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    teachingCard.querySelector<HTMLButtonElement>('.thread-name button[type="submit"]')!.click();
+    await vi.waitFor(() => expect(api.decideHousekeepingGroup).toHaveBeenCalledWith(teaching, 'new', undefined, 'Teaching algorithm'));
+    await settle();
+
+    teachingCard.querySelector<HTMLButtonElement>('.rename-group')!.click();
+    fixture.detectChanges();
+    const rename = teachingCard.querySelector<HTMLInputElement>('.thread-name input')!;
+    rename.value = 'Teaching';
+    rename.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    teachingCard.querySelector<HTMLButtonElement>('.thread-name button[type="submit"]')!.click();
+    await vi.waitFor(() => expect(api.renameHousekeepingGroup).toHaveBeenCalledWith(teaching, 'Teaching'));
+    await settle();
+
+    grantCard.querySelector<HTMLButtonElement>('.skip-group')!.click();
+    await vi.waitFor(() => expect(api.decideHousekeepingGroup).toHaveBeenCalledWith(grant, 'dismiss'));
+    await settle();
+
+    // A thread still being grouped is decided on its own.
+    single.querySelector<HTMLButtonElement>('.skip-group')!.click();
+    await vi.waitFor(() => expect(api.decideGmailThread).toHaveBeenCalledWith(expect.objectContaining({ id: 'n1' }), 'dismiss'));
+    await settle();
+
+    // Removed files: added together to a project other than the one they came from.
+    files.querySelector<HTMLButtonElement>('.add-group')!.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const targets = [...document.querySelectorAll<HTMLButtonElement>('.mat-mdc-menu-item')];
+    expect(targets.map(item => item.textContent?.trim())).toEqual(['topicPricing']);
+    targets[0].click();
+    await vi.waitFor(() => expect(api.decidePendingFile).toHaveBeenCalledTimes(2));
+    expect(api.decidePendingFile).toHaveBeenCalledWith(expect.objectContaining({ path: 'appendix/notes.tex' }), 'project', other);
+    fixture.destroy();
+  });
+
+  it('splits a group: a thread moves to another group or a new one, or goes to a project on its own', async () => {
+    api.status.mockResolvedValue(housekeeping());
+    api.decideGmailThread.mockResolvedValue(undefined);
+    const fixture = await screen('home');
+    const grantCard = fixture.nativeElement.querySelectorAll('#feed-private .pending-card')[1] as HTMLElement;
+    const menuItems = () => [...[...document.querySelectorAll('.mat-mdc-menu-panel')].at(-1)!.querySelectorAll<HTMLButtonElement>('.mat-mdc-menu-item')];
+    const open = async (button: HTMLButtonElement) => { button.click(); fixture.detectChanges(); await fixture.whenStable(); };
+
+    await open(grantCard.querySelectorAll<HTMLButtonElement>('.group-thread-menu')[0]);
+    expect(menuItems().map(item => item.textContent?.trim())).toEqual(
+      ['drive_file_moveMove to group', 'call_splitNew group', 'playlist_addAdd to project', 'closeSkip this thread']);
+    menuItems()[1].click();
+    await vi.waitFor(() => expect(api.decideGmailThread).toHaveBeenCalledWith(expect.objectContaining({ id: 'g2' }), 'group', undefined, undefined, null));
+    await vi.waitFor(() => expect(fixture.componentInstance.deciding()).toBeNull());
+    fixture.detectChanges();
+
+    await open(grantCard.querySelectorAll<HTMLButtonElement>('.group-thread-menu')[1]);
+    await open(menuItems()[0]);
+    // Other groups only, not its own.
+    expect(menuItems().map(item => item.textContent?.trim())).toEqual(['folder_openTeaching allocation']);
+    menuItems()[0].click();
+    await vi.waitFor(() => expect(api.decideGmailThread).toHaveBeenCalledWith(expect.objectContaining({ id: 'g1' }), 'group', undefined, undefined, teaching));
+    fixture.destroy();
+  });
+
+  it('offers Housekeeping for a removed file even without Gmail', async () => {
     api.status.mockResolvedValue({ ...base, pendingFiles: [{ projectId, projectName: 'p', path: 'a.tex', fromCardId: 'c', fromCardTitle: null,
       removedAt: '2026-11-03T00:00:00Z' }] });
     const fixture = await screen('home');

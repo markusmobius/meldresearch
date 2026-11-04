@@ -561,8 +561,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
 
     /// <summary>
     /// The user removes a source from a research project (OVERLEAF.md §10): every citation of it leaves the card's details
-    /// (details left without one are removed). An Overleaf file waits in Private updates and its project ignores it; an email
-    /// thread returns to Private updates.
+    /// (details left without one are removed). An Overleaf file waits in Housekeeping and its project ignores it; an email
+    /// thread returns to Housekeeping.
     /// </summary>
     public async Task RemoveSourceAsync(string themeId, string key, CancellationToken ct)
     {
@@ -1038,7 +1038,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             SkippedProjects = skipped.Length == 0 ? null : skipped,
             // Threads the user skipped stay skipped; everything else is imported again.
             GmailThreads = [.. (state.GmailThreads ?? []).Where(thread => thread.Status == GmailThreadRecord.Dismissed)
-                .Select(thread => thread with { StreamId = null, CardId = null, FoldedMessageId = null, FoldedSentAt = null })],
+                .Select(thread => thread with { StreamId = null, CardId = null, FoldedMessageId = null, FoldedSentAt = null, GroupId = null, GroupPinned = null })],
+            HousekeepingGroups = null,
             GmailAccounts = state.GmailAccounts?.Select(account => account with
             {
                 LastImportAt = null, ImportVersion = null, LeaseBy = null, LeaseUntil = null, Processed = null
