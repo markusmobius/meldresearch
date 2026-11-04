@@ -46,15 +46,23 @@
 
       @if (view() === 'about-me') {
         <div class="page-container about-me">
-          <!-- Project Meld's About me tabs. A Public profile tab joins between these once approved public contributions exist. -->
+          <!-- Project Meld's About me tabs. A Public profile tab joins after Private profile once approved public contributions exist. -->
           <mat-tab-group class="profile-tabs" animationDuration="0ms" [disablePagination]="true" mat-stretch-tabs
-            [selectedIndex]="aboutTab() === 'publications' ? 1 : 0" (selectedIndexChange)="aboutTab.set($event === 1 ? 'publications' : 'private')">
+            [selectedIndex]="aboutIndex()" (selectedIndexChange)="selectAbout($event)">
             <mat-tab label="Private profile"><ng-template matTabContent>
               <app-private-profile [status]="research()" (changed)="researchChanged()"></app-private-profile>
             </ng-template></mat-tab>
             <mat-tab label="Publications"><ng-template matTabContent>
               <app-publications [researcher]="research()?.researcher ?? null"></app-publications>
             </ng-template></mat-tab>
+            @if (skippedCount()) {
+              <mat-tab labelClass="skipped-tab">
+                <ng-template mat-tab-label><mat-icon class="skipped-tab-icon">visibility_off</mat-icon>Skipped ({{ skippedCount() }})</ng-template>
+                <ng-template matTabContent>
+                  <app-private-profile section="skipped" [status]="research()" (changed)="researchChanged()"></app-private-profile>
+                </ng-template>
+              </mat-tab>
+            }
           </mat-tab-group>
         </div>
       }

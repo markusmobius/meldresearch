@@ -48,6 +48,19 @@ interface ChangelogView { entries: ReadonlyArray<ResearchChange>; more: boolean;
 
 const BUSY = new Set(['importing', 'queued', 'waiting', 'checking']);
 type Tab = 'details' | 'changelog' | 'projects';
+/** Cards, and the threads of an open skipped card, are shown in pages of this size; more load while scrolling. */
+const PAGE = 20;
+
+/** The entries of About me → Skipped: skipped cards with something on them, plus one for skipped threads still being grouped. */
+export function skippedCount(status: ResearchStatus | null): number {
+  if (!status) return 0;
+  const enabled = new Set(status.projects.filter(project => project.enabled).map(project => project.projectId));
+  const threads = (status.gmail?.threads ?? []).filter(thread => thread.skipped);
+  const cards = (status.themes ?? []).filter(theme => theme.skipped && (theme.projectIds.some(id => enabled.has(id))
+    || (theme.details ?? []).length || threads.some(thread => thread.cardId === theme.id))).length;
+  return cards + (threads.some(thread => !thread.cardId) ? 1 : 0);
+}
+const mailTime = (thread: GmailThread): number => (thread.lastSentAt ? Date.parse(thread.lastSentAt) : NaN) || 0;
 
 /**
  * About me → My projects, ported from Project Meld's overview: one card per research project with its title, a two-sentence
@@ -63,6 +76,8 @@ type Tab = 'details' | 'changelog' | 'projects';
 })
 export class PrivateProfile {
   readonly status = input<ResearchStatus | null>(null);
+  /** About me → Private profile (the user's research) or About me → Skipped. */
+  readonly section = input<'projects' | 'skipped'>('projects');
   readonly changed = output<void>();
   private readonly api = inject(ResearchApi);
   private readonly dialog = inject(MatDialog);
@@ -82,6 +97,24 @@ export class PrivateProfile {
   readonly skippedCards = computed(() => this.allCards().filter(card => card.skipped));
   /** Skipped threads still being grouped with related skipped work. */
   readonly ungrouped = computed(() => (this.status()?.gmail?.threads ?? []).filter(thread => thread.skipped && !thread.cardId));
+  /** How many cards are shown; grows by a page while the user scrolls. */
+  readonly cardLimit = signal(PAGE);
+  readonly shownCards = computed(() => this.cards().slice(0, this.cardLimit()));
+  /** About me → Skipped: skipped cards and the threads still being grouped, the most recent email first. */
+  readonly skippedList = computed<ReadonlyArray<ProfileCard>>(() => {
+    const list = [...this.skippedCards()];
+    const loose = this.ungrouped();
+    if (loose.length) {
+      list.push({ id: 'ungrouped', themeId: null, title: 'Being grouped\u2026', fullTitle: null, nameChosen: false, summary: null, details: [],
+        members: [], anchorId: null, reason: null, skipped: true, threads: loose, updating: false, progress: null, lastChanged: null });
+    }
+    const latest = (card: ProfileCard) => Math.max(card.lastChanged ?? 0, ...card.threads.map(mailTime));
+    return list.map(card => ({ card, at: latest(card) })).sort((a, b) => b.at - a.at).map(item => item.card);
+  });
+  readonly shownSkipped = computed(() => this.skippedList().slice(0, this.cardLimit()));
+  /** The skipped card opened to its threads (one at a time), and how many of its threads are shown. */
+  readonly openSkipped = signal<string | null>(null);
+  readonly threadLimit = signal(PAGE);
   private readonly allCards = computed<ReadonlyArray<ProfileCard>>(() => {
     const status = this.status();
     if (!status) return [];
@@ -135,6 +168,22 @@ export class PrivateProfile {
     if (tab === 'changelog' && card.themeId) void this.loadChangelog(card.themeId, true);
   }
   toggleDetail(detail: ResearchDetail): void { this.openDetail.update(open => open === detail.id ? null : detail.id); }
+  showMoreCards(): void { this.cardLimit.update(limit => limit + PAGE); }
+  showMoreThreads(): void { this.threadLimit.update(limit => limit + PAGE); }
+  toggleSkipped(card: ProfileCard): void {
+    this.openSkipped.update(open => open === card.id ? null : card.id);
+    this.threadLimit.set(PAGE);
+  }
+  /** A skipped card's threads, newest first, as far as they are shown. */
+  shownThreads(card: ProfileCard): ReadonlyArray<GmailThread> {
+    return [...card.threads].sort((a, b) => mailTime(b) - mailTime(a)).slice(0, this.threadLimit());
+  }
+  /** What a collapsed skipped card holds, e.g. "1 Overleaf project · 12 email threads". */
+  skippedMeta(card: ProfileCard): string {
+    const count = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
+    return [card.members.length ? count(card.members.length, 'Overleaf project') : '', card.threads.length ? count(card.threads.length, 'email thread') : '']
+      .filter(part => !!part).join(' \u00b7 ');
+  }
 
   /** The card's projects, its main paper first. */
   memberNames(card: ProfileCard): string {

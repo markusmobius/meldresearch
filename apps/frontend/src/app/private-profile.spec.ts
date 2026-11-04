@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
-import { PrivateProfile } from './private-profile';
+import { PrivateProfile, skippedCount } from './private-profile';
 import { ResearchApi, ResearchChange, ResearchDetail, ResearchProject, ResearchStatus } from './research-api';
 
 describe('About me: my projects', () => {
@@ -45,9 +45,10 @@ describe('About me: my projects', () => {
   });
   afterEach(() => document.querySelectorAll('.cdk-overlay-container').forEach(node => node.remove()));
 
-  function render(value: ResearchStatus = grouped()) {
+  function render(value: ResearchStatus = grouped(), section: 'projects' | 'skipped' = 'projects') {
     const fixture = TestBed.createComponent(PrivateProfile);
     fixture.componentRef.setInput('status', value);
+    fixture.componentRef.setInput('section', section);
     fixture.detectChanges();
     return fixture;
   }
@@ -213,30 +214,75 @@ describe('About me: my projects', () => {
     fixture.destroy();
   });
 
-  it('keeps skipped work in its own section, skips a card and brings work back', async () => {
+  it('keeps skipped work in its own section, collapsed, skips a card and brings work back', async () => {
     const value = grouped();
-    const thread = (id: string, cardId: string | null) => ({ address: 'me@example.invalid', id, subject: 'Thesis draft', title: 'Daughter thesis draft ' + id,
-      status: 'pending' as const, cardId, cardTitle: null, suggested: null, bullets: [], lastSentAt: '2026-10-01T00:00:00Z', newsAt: null, skipped: true });
-    const fixture = render({ ...value,
+    const thread = (id: string, cardId: string | null, lastSentAt = '2026-10-01T00:00:00Z') => ({ address: 'me@example.invalid', id, subject: 'Thesis draft',
+      title: 'Daughter thesis draft ' + id, status: 'pending' as const, cardId, cardTitle: null, suggested: null, bullets: [], lastSentAt, newsAt: null, skipped: true });
+    const skippedStatus: ResearchStatus = { ...value,
       themes: value.themes!.map(theme => theme.id === otherCard ? { ...theme, skipped: true } : theme),
-      gmail: { configured: true, windowDays: 30, consentVersion: 'v', accounts: [], lastError: null, threads: [thread('t1', otherCard), thread('t2', null)] } });
+      gmail: { configured: true, windowDays: 30, consentVersion: 'v', accounts: [], lastError: null,
+        threads: [thread('t1', otherCard, '2026-01-01T00:00:00Z'), thread('t2', null, '2030-01-01T00:00:00Z')] } };
+    expect(skippedCount(skippedStatus)).toBe(2);
+    const fixture = render(skippedStatus);
     const element: HTMLElement = fixture.nativeElement;
     expect([...element.querySelectorAll('.project-card h3')].map(title => title.textContent?.trim())).toEqual(['A publisher content marketplace']);
-    const skipped = element.querySelector('.skipped-work')!;
-    expect([...skipped.querySelectorAll('.skipped-title')].map(title => title.textContent?.trim())).toEqual(['Pricing', 'Being grouped…']);
+    expect(element.querySelector('.skipped-work')).toBeNull();
+
+    const view = render(skippedStatus, 'skipped');
+    const skipped: HTMLElement = view.nativeElement.querySelector('.skipped-work')!;
+    expect(view.nativeElement.querySelector('.project-card')).toBeNull();
+    // The most recent email first; collapsed cards show what they hold, not their threads.
+    expect([...skipped.querySelectorAll('.skipped-title')].map(title => title.textContent?.trim())).toEqual(['Being grouped…', 'Pricing']);
+    expect(skipped.querySelector('.skipped-meta')?.textContent).toContain('1 email thread');
+    expect(skipped.textContent).not.toContain('Daughter thesis draft t1');
+    skipped.querySelectorAll<HTMLButtonElement>('.skipped-toggle')[1].click();
+    view.detectChanges();
     expect(skipped.textContent).toContain('Daughter thesis draft t1');
     skipped.querySelector<HTMLButtonElement>('.unskip-card')!.click();
     await vi.waitFor(() => expect(api.skipTheme).toHaveBeenCalledWith(otherCard, false));
-    await vi.waitFor(() => expect(fixture.componentInstance.working()).toBe(''));
-    skipped.querySelectorAll<HTMLButtonElement>('.unskip-thread')[1].click();
+    await vi.waitFor(() => expect(view.componentInstance.working()).toBe(''));
+    skipped.querySelectorAll<HTMLButtonElement>('.skipped-toggle')[0].click();
+    view.detectChanges();
+    skipped.querySelector<HTMLButtonElement>('.unskip-thread')!.click();
     await vi.waitFor(() => expect(api.decideGmailThread).toHaveBeenCalledWith(expect.objectContaining({ id: 't2' }), 'unskip'));
-    await vi.waitFor(() => expect(fixture.componentInstance.working()).toBe(''));
+    await vi.waitFor(() => expect(view.componentInstance.working()).toBe(''));
+    view.destroy();
 
     const card = await expand(fixture);
     await selectTab(fixture, card, 2);
     card.querySelector<HTMLButtonElement>('.skip-card')!.click();
     await vi.waitFor(() => expect(api.skipTheme).toHaveBeenCalledWith(cardId, true));
     fixture.destroy();
+  });
+
+  it('shows projects and skipped threads in pages of 20, loading more on request', () => {
+    const projects = Array.from({ length: 45 }, (_, i) => project(`p${i}`, `paper-${i}`));
+    const themes = projects.map((item, i) => ({ ...grouped().themes![0], id: `c${i}`, name: `Card ${i}`, projectIds: [item.projectId], anchorId: item.projectId }));
+    const fixture = render({ ...status(projects, []), themes });
+    const element: HTMLElement = fixture.nativeElement;
+    expect(element.querySelectorAll('.project-card')).toHaveLength(20);
+    element.querySelector<HTMLButtonElement>('.more-cards')!.click();
+    fixture.detectChanges();
+    expect(element.querySelectorAll('.project-card')).toHaveLength(40);
+    element.querySelector<HTMLButtonElement>('.more-cards')!.click();
+    fixture.detectChanges();
+    expect(element.querySelectorAll('.project-card')).toHaveLength(45);
+    expect(element.querySelector('.more-cards')).toBeNull();
+    fixture.destroy();
+
+    const threads = Array.from({ length: 25 }, (_, i) => ({ address: 'me@example.invalid', id: `t${i}`, subject: 's', title: `Thread ${i}`, status: 'pending' as const,
+      cardId: null, cardTitle: null, suggested: null, bullets: [], lastSentAt: new Date(Date.UTC(2026, 0, 1 + i)).toISOString(), newsAt: null, skipped: true }));
+    const view = render({ ...grouped(), gmail: { configured: true, windowDays: 30, consentVersion: 'v', accounts: [], lastError: null, threads } }, 'skipped');
+    const skipped: HTMLElement = view.nativeElement;
+    skipped.querySelector<HTMLButtonElement>('.skipped-toggle')!.click();
+    view.detectChanges();
+    const titles = () => [...skipped.querySelectorAll('.skipped-thread-title')].map(title => title.textContent?.trim());
+    expect(titles()).toHaveLength(20);
+    expect(titles()[0]).toBe('Thread 24');
+    skipped.querySelector<HTMLButtonElement>('.more-threads')!.click();
+    view.detectChanges();
+    expect(titles()).toHaveLength(25);
+    view.destroy();
   });
 
   it('shows reading progress for a project that has no card yet', () => {

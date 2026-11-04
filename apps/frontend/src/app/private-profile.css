@@ -101,18 +101,26 @@
 .card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .skip-card { color: #64748b !important; }
 
-/* About me → Skipped. */
-.skipped-work { margin-top: 24px; padding: 14px 16px; border: 1px dashed #cbd5e1; border-radius: 10px; background: #f8fafc; }
-.skipped-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 10px; }
-.skipped-card { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 10px; background: #ffffff; }
-.skipped-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
-.skipped-title { font-size: 0.9rem; color: #334155; }
+/* About me → Skipped: collapsed cards, opened one at a time. */
+.skipped-work { padding: 14px 16px; border: 1px dashed #cbd5e1; border-radius: 10px; background: #f8fafc; }
+.skipped-list { display: flex; flex-direction: column; gap: 8px; }
+.skipped-card { display: flex; flex-direction: column; gap: 4px; padding: 6px 10px; border: 1px solid #e2e8f0; border-radius: 10px; background: #ffffff; }
+.skipped-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.skipped-toggle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 4px 0; border: 0; background: none;
+  font: inherit; text-align: left; cursor: pointer; color: inherit; }
+.skipped-chevron { flex: none; color: #64748b; }
+.skipped-name { display: flex; flex-direction: column; min-width: 0; }
+.skipped-title { font-size: 0.9rem; color: #334155; overflow-wrap: anywhere; }
+.skipped-meta { font-size: 0.75rem; color: #64748b; }
+.skipped-body { display: flex; flex-direction: column; gap: 4px; padding: 0 0 6px 30px; }
 .card-source { display: flex; align-items: center; gap: 4px; color: #64748b; font-size: 0.75rem; overflow-wrap: anywhere; }
 .card-source mat-icon { width: 14px; height: 14px; font-size: 14px; flex: none; }
 .skipped-description { margin: 2px 0 0; font-size: 0.8rem; line-height: 1.45; color: #64748b; }
 .skipped-threads { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .skipped-threads li { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: #475569; }
 .skipped-thread-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skipped-thread-date { flex: none; font-size: 0.75rem; color: #94a3b8; }
+.more-state { display: flex; justify-content: center; padding: 8px 0; }
 .thread-mail { flex: none; font-size: 15px; width: 15px; height: 15px; color: #b42336; }
 .unskip-thread, .unskip-card { flex: none; height: 28px !important; font-size: 12px !important; }
 .unskip-card mat-icon { font-size: 16px; width: 16px; height: 16px; }

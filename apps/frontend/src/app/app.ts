@@ -13,7 +13,7 @@ import { LocalPage, MeldToolbar } from './meld-toolbar';
 import { ProjectSelection } from './project-selection';
 import { ResearcherSetup } from './researcher-setup';
 import { PublicationsList } from './publications';
-import { PrivateProfile } from './private-profile';
+import { PrivateProfile, skippedCount } from './private-profile';
 import { MeldLog } from './meld-log';
 import { EncryptedSync } from './encrypted-sync';
 import { BackupData } from './backup-data';
@@ -25,6 +25,7 @@ import { includedCount, researcherDone, undecidedRecent } from './project-decisi
 
 export type SetupTab = 'meld' | 'sync' | 'backup' | 'overleaf' | 'gmail' | 'openalex';
 export type OverleafTab = 'connection' | 'projects';
+export type AboutTab = 'private' | 'publications' | 'skipped';
 /** The account ID for which this browser has connected Overleaf at least once; later Overleaf outages keep the feed. */
 const overleafConfirmedKey = 'meldresearch.overleafConnectedFor';
 function readOverleafConfirmed(): string | null {
@@ -180,8 +181,15 @@ export class App implements OnInit {
   readonly openAlexDone = computed(() => researcherDone(this.research()));
   readonly overleafDone = computed(() => this.overleafReady() && !this.connectorStale() && this.includedProjects() > 0 && !this.undecided().length);
   readonly setupComplete = computed(() => this.syncDone() && this.overleafReady() && !this.connectorStale() && this.includedProjects() > 0);
-  /** About me tabs, as in Project Meld: Private profile, Public profile (once there is one) and Publications. */
-  readonly aboutTab = signal<'private' | 'publications'>('private');
+  /**
+   * About me tabs, as in Project Meld: Private profile, Public profile (once there is one) and Publications, then a quieter
+   * Skipped tab while anything is skipped.
+   */
+  readonly aboutTab = signal<AboutTab>('private');
+  readonly skippedCount = computed(() => skippedCount(this.research()));
+  readonly aboutTabs = computed<ReadonlyArray<AboutTab>>(() => this.skippedCount() ? ['private', 'publications', 'skipped'] : ['private', 'publications']);
+  readonly aboutIndex = computed(() => Math.max(0, this.aboutTabs().indexOf(this.aboutTab())));
+  selectAbout(index: number): void { this.aboutTab.set(this.aboutTabs().at(index) ?? 'private'); }
   /**
    * During setup a step opens only when every step before it is finished (later steps are greyed out); once setup is
    * complete every step stays open.

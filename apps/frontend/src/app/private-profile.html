@@ -1,3 +1,4 @@
+@if (section() === 'projects') {
 <section class="private-profile" aria-labelledby="private-profile-heading">
   <div class="about-head">
     <h2 id="private-profile-heading">My projects</h2>
@@ -5,7 +6,7 @@
   </div>
   @if (error() && !expandedId()) { <p class="alert" role="alert">{{ error() }}</p> }
 
-  @for (card of cards(); track card.id) {
+  @for (card of shownCards(); track card.id) {
     <article class="project-card" [class.expanded]="expandedId() === card.id">
       <div class="project-summary-area" (click)="toggle(card)">
         <div class="project-head">
@@ -182,47 +183,70 @@
   } @empty {
     <p class="muted empty">Include Overleaf projects under <a href="/#account">Account &rarr; Overleaf &rarr; Projects</a> to build your private profile.</p>
   }
+  @if (cards().length > cardLimit()) {
+    @for (mark of [cardLimit()]; track mark) {
+      <div class="more-state" (appInView)="showMoreCards()">
+        <button mat-button type="button" class="more-cards" (click)="showMoreCards()">Show more projects</button>
+      </div>
+    }
+  }
 </section>
-
-@if (skippedCards().length || ungrouped().length) {
-  <section class="skipped-work" aria-labelledby="skipped-heading">
-    <div class="about-head">
-      <h2 id="skipped-heading">Skipped</h2>
-      <span class="about-note"><mat-icon>visibility_off</mat-icon>Work that is not your own research (for example helping someone). It stays out
-        of your profile and feed, and new email about it is skipped too. Bring anything back at any time.</span>
-    </div>
-    <div class="skipped-list">
-      @for (card of skippedCards(); track card.id) {
-        <article class="skipped-card">
-          <div class="skipped-head">
-            <strong class="skipped-title">{{ card.title }}</strong>
+} @else {
+<section class="skipped-work" aria-labelledby="skipped-heading">
+  <div class="about-head">
+    <h2 id="skipped-heading">Skipped</h2>
+    <span class="about-note"><mat-icon>visibility_off</mat-icon>Work that is not your own research (for example helping someone). It stays out
+      of your profile and feed, and new email about it is skipped too. Bring anything back at any time.</span>
+  </div>
+  @if (error()) { <p class="alert" role="alert">{{ error() }}</p> }
+  <div class="skipped-list">
+    @for (card of shownSkipped(); track card.id) {
+      <article class="skipped-card" [class.open]="openSkipped() === card.id">
+        <div class="skipped-head">
+          <button type="button" class="skipped-toggle" (click)="toggleSkipped(card)" [attr.aria-expanded]="openSkipped() === card.id"
+            [attr.aria-controls]="'skipped-' + card.id">
+            <mat-icon class="skipped-chevron">{{ openSkipped() === card.id ? 'expand_less' : 'expand_more' }}</mat-icon>
+            <span class="skipped-name"><strong class="skipped-title">{{ card.title }}</strong>
+              <span class="skipped-meta">{{ skippedMeta(card) }}</span></span>
+          </button>
+          @if (card.themeId) {
             <button mat-button type="button" class="unskip-card" [disabled]="!!working()" (click)="skip(card, false)"
               [attr.aria-label]="'Bring ' + card.title + ' back to my projects'"><mat-icon>undo</mat-icon>Bring back</button>
-          </div>
-          @if (card.members.length) { <span class="card-source"><mat-icon>description</mat-icon>{{ memberNames(card) }}</span> }
-          @if (card.summary) { <p class="skipped-description">{{ card.summary }}</p> }
-          @if (card.threads.length) {
-            <ul class="skipped-threads">
-              @for (thread of card.threads; track thread.address + thread.id) {
-                <li><mat-icon class="thread-mail">mail</mat-icon><span class="skipped-thread-title" [title]="thread.subject">{{ thread.title }}</span>
-                  <button mat-button type="button" class="unskip-thread" [disabled]="!!working()" (click)="unskip(thread)">Unskip</button></li>
-              }
-            </ul>
           }
-        </article>
-      }
-      @if (ungrouped().length) {
-        <article class="skipped-card">
-          <strong class="skipped-title">Being grouped&hellip;</strong>
-          <ul class="skipped-threads">
-            @for (thread of ungrouped(); track thread.address + thread.id) {
-              <li><mat-icon class="thread-mail">mail</mat-icon><span class="skipped-thread-title">{{ thread.title }}</span>
-                <button mat-button type="button" class="unskip-thread" [disabled]="!!working()" (click)="unskip(thread)">Unskip</button></li>
+        </div>
+        @if (openSkipped() === card.id) {
+          <div class="skipped-body" [id]="'skipped-' + card.id">
+            @if (card.members.length) { <span class="card-source"><mat-icon>description</mat-icon>{{ memberNames(card) }}</span> }
+            @if (card.summary) { <p class="skipped-description">{{ card.summary }}</p> }
+            @if (card.threads.length) {
+              <ul class="skipped-threads">
+                @for (thread of shownThreads(card); track thread.address + thread.id) {
+                  <li><mat-icon class="thread-mail">mail</mat-icon><span class="skipped-thread-title" [title]="thread.subject">{{ thread.title }}</span>
+                    <span class="skipped-thread-date">{{ thread.lastSentAt | date:'MMM d' }}</span>
+                    <button mat-button type="button" class="unskip-thread" [disabled]="!!working()" (click)="unskip(thread)">Unskip</button></li>
+                }
+              </ul>
+              @if (card.threads.length > threadLimit()) {
+                @for (mark of [threadLimit()]; track mark) {
+                  <div class="more-state" (appInView)="showMoreThreads()">
+                    <button mat-button type="button" class="more-threads" (click)="showMoreThreads()">Show more threads</button>
+                  </div>
+                }
+              }
             }
-          </ul>
-        </article>
-      }
-    </div>
-  </section>
+          </div>
+        }
+      </article>
+    } @empty {
+      <p class="muted empty">Nothing is skipped.</p>
+    }
+  </div>
+  @if (skippedList().length > cardLimit()) {
+    @for (mark of [cardLimit()]; track mark) {
+      <div class="more-state" (appInView)="showMoreCards()">
+        <button mat-button type="button" class="more-cards" (click)="showMoreCards()">Show more</button>
+      </div>
+    }
+  }
+</section>
 }
-

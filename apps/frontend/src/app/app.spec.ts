@@ -462,6 +462,19 @@ describe('Overleaf connection screen', () => {
     fixture.detectChanges();
     await fixture.whenStable();
     expect(element.querySelector('app-publications')).not.toBeNull();
+
+    // Skipped work adds a quieter last tab.
+    const skippedThread = { address: 'me@example.invalid', id: 't1', subject: 's', title: 'Thesis help', status: 'pending', cardId: null, cardTitle: null,
+      suggested: null, bullets: [], lastSentAt: '2026-10-01T00:00:00Z', newsAt: null, skipped: true };
+    fixture.componentInstance.research.set(researchStatus(true, {
+      gmail: { configured: true, windowDays: 30, consentVersion: 'v', accounts: [], lastError: null, threads: [skippedThread] } }) as never);
+    fixture.componentInstance.aboutTab.set('skipped');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const tabs = [...element.querySelectorAll('.profile-tabs [role="tab"]')];
+    expect(tabs[2].classList).toContain('skipped-tab');
+    expect(tabs[2].textContent).toContain('Skipped (1)');
+    expect(element.querySelector('.skipped-work')?.textContent).toContain('Being grouped');
     fixture.destroy();
   });
 

@@ -307,8 +307,10 @@ How Overleaf is read:
   five minutes without the server.
 - **Skipped work.** Work that is not the user's own research (for example helping a
   family member) can be skipped: a card (**Skip — not my research** in its Projects
-  tab) or an email thread (Skip in Housekeeping). Skipped cards move to About me →
-  Skipped, leave the feed, and their Overleaf projects pause. They are grouped
+  tab) or an email thread (Skip in Housekeeping). Skipped cards move to the About me →
+  Skipped tab (a small grey last tab, shown only while something is skipped; cards are
+  collapsed, the most recent email first, and threads load 20 at a time), leave the
+  feed, and their Overleaf projects pause. They are grouped
   generously and without confirmation; new threads that belong to a skipped project
   are skipped too. **Bring back** returns a card; **Unskip** returns a thread to
   Housekeeping.

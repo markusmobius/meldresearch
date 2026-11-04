@@ -211,7 +211,9 @@ Use .NET 10, Node 24/npm and PowerShell 7. Run from this repository's root, e.g.
   During setup later steps stay greyed out
   until the previous step is finished. Projects owns include/exclude choices, consent,
   monitoring and project summaries (no manual ZIP download UI); About me has Project Meld's tabs: Private profile
-  (research cards), Public profile (only once one exists) and Publications.
+  (research cards), Public profile (only once one exists) and Publications, then a quieter
+  Skipped tab only while something is skipped. Cards (and a skipped card's threads) show
+  20 at a time and load more while scrolling.
   Backup: Download my data (a ZIP of readable, unencrypted JSON built from the
   sync bundles) and Upload data (merge, then sync uploads). Meld account holds
   Leave Meld Research (typed DELETE; deletes the remote
