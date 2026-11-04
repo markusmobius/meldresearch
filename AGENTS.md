@@ -66,7 +66,9 @@ instruction file. Start with the [README](README.md) for setup and release detai
   the rest (loosely grouped, [Housekeeping](apps/LocalBackend/Services/Research/Housekeeping.cs):
   one match per newly waiting thread, a regroup pass only when groups gained threads,
   one headline + project-suggestion call per changed group (suggestions only, never
-  automatic; a provisional name from the oldest thread meanwhile; user names kept); user-made, renamed or arranged groups
+  automatic; a provisional name from the oldest thread meanwhile; user names kept),
+  batched 3–7 word thread titles; cards show a 2–5 word short name written by the
+  summary call (`ChosenName` from the user wins, the full paper title stays beneath); user-made, renamed or arranged groups
   are never regrouped; the project chooser is ordered by local, unsynced Foundry
   embeddings made once per changed card/group/project/file, never at chooser open),
   threads the user wrote in, 30-day first import, Overleaf stays
@@ -264,7 +266,7 @@ Use .NET 10, Node 24/npm and PowerShell 7. Run from this repository's root, e.g.
   restore the removed application Playwright approach. Use the normal browser
   and connector; never execute downloaded TeX.
 - Current Chrome identity: `pejcljoimoeklelcfbfddnkimlkjgfhe`; extension version
-  `0.6.9`, native protocol `2`. Identity derives from the public manifest key,
+  `0.6.10`, native protocol `2`. Identity derives from the public manifest key,
   not a secret signing key. Update related identity/handshake checks together;
   compatible extension releases need not have identical version numbers.
 - Bump the connector manifest version whenever extension files change: installed

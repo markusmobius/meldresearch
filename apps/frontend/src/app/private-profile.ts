@@ -30,7 +30,8 @@ export class InView implements OnInit, OnDestroy {
 
 /** One research project: a card with its Overleaf projects, or a project still being read before it gets a card. */
 interface ProfileCard {
-  id: string; themeId: string | null; title: string;
+  /** title: the short name (or the user's name); fullTitle: the main paper's full title when it differs. */
+  id: string; themeId: string | null; title: string; fullTitle: string | null; nameChosen: boolean;
   /** The two-sentence summary, written from the details. */
   summary: string | null; details: ReadonlyArray<ResearchDetail>; members: ReadonlyArray<ResearchProject>;
   /** The member the card's title comes from (its main paper), and why its projects were grouped. */
@@ -71,6 +72,9 @@ export class PrivateProfile {
   readonly openDetail = signal<string | null>(null);
   readonly changelogs = signal<ReadonlyMap<string, ChangelogView>>(new Map());
   readonly working = signal('');
+  /** The card being renamed, and the name being typed. */
+  readonly renaming = signal<string | null>(null);
+  readonly nameDraft = signal('');
   readonly error = signal('');
   /** The cards of the profile: the user's own research. */
   readonly cards = computed(() => this.allCards().filter(card => !card.skipped));
@@ -98,7 +102,8 @@ export class PrivateProfile {
       if (!members.length && !details.length && !threads.length) continue;
       members.forEach(member => placed.add(member.projectId));
       cards.push({
-        id: theme.id, themeId: theme.id, title: theme.profile?.title ?? members[0]?.name ?? 'Research project',
+        id: theme.id, themeId: theme.id, title: theme.name || theme.profile?.title || members[0]?.name || 'Research project',
+        fullTitle: theme.name && theme.profile?.title && theme.profile.title !== theme.name ? theme.profile.title : null, nameChosen: !!theme.nameChosen,
         summary: theme.profile?.description || null, details, members, anchorId: theme.anchorId ?? null, reason: theme.reason ?? null,
         skipped: !!theme.skipped, threads, updating: theme.updating, progress: members.find(member => BUSY.has(member.phase)) ?? null,
         lastChanged: latest(theme.projectIds, details),
@@ -107,7 +112,7 @@ export class PrivateProfile {
     // Projects still being read, before their first details give them a card.
     for (const project of shown.filter(item => !placed.has(item.projectId))) {
       cards.push({
-        id: project.projectId, themeId: null, title: project.name, summary: null, details: [], members: [project], anchorId: null, reason: null,
+        id: project.projectId, themeId: null, title: project.name, fullTitle: null, nameChosen: false, summary: null, details: [], members: [project], anchorId: null, reason: null,
         skipped: false, threads: [], updating: false, progress: BUSY.has(project.phase) ? project : null, lastChanged: latest([project.projectId], []),
       });
     }
@@ -191,6 +196,16 @@ export class PrivateProfile {
   async makeMain(card: ProfileCard, project: ResearchProject): Promise<void> {
     if (!card.themeId) return;
     await this.act(card.id, () => this.api.setThemeAnchor(card.themeId!, project.projectId));
+  }
+  startRenaming(card: ProfileCard): void {
+    this.error.set('');
+    this.nameDraft.set(card.title);
+    this.renaming.set(card.id);
+  }
+  /** Saves the user's own name for a project (empty: back to its short name). */
+  async rename(card: ProfileCard, name = this.nameDraft()): Promise<void> {
+    if (!card.themeId) return;
+    if (await this.act(card.id, () => this.api.renameTheme(card.themeId!, name.trim()))) this.renaming.set(null);
   }
   /** Opens the project chooser (wide, closest first; select, then confirm). */
   private choose(data: ChooserData): Promise<ChooserResult> {

@@ -21,7 +21,7 @@ describe('About me: my projects', () => {
   ];
   const api = {
     moveToTheme: vi.fn(), mergeTheme: vi.fn(), setThemeAnchor: vi.fn(), skipTheme: vi.fn(), decideGmailThread: vi.fn(),
-    removeSource: vi.fn(), changelog: vi.fn(), choices: vi.fn(),
+    removeSource: vi.fn(), changelog: vi.fn(), choices: vi.fn(), renameTheme: vi.fn(),
   };
   const status = (projects: ResearchProject[], themes: ResearchStatus['themes']): ResearchStatus => ({
     account: { id: 'a', name: 'R', email: 'r@example.invalid' }, credentialExpiresAt: null, pendingLink: null, accountError: null,
@@ -40,7 +40,7 @@ describe('About me: my projects', () => {
   });
   beforeEach(() => {
     vi.resetAllMocks();
-    for (const call of [api.moveToTheme, api.mergeTheme, api.setThemeAnchor, api.skipTheme, api.decideGmailThread, api.removeSource]) call.mockResolvedValue(undefined);
+    for (const call of [api.moveToTheme, api.mergeTheme, api.setThemeAnchor, api.skipTheme, api.decideGmailThread, api.removeSource, api.renameTheme]) call.mockResolvedValue(undefined);
     TestBed.configureTestingModule({ providers: [provideNoopAnimations(), { provide: ResearchApi, useValue: api }] });
   });
   afterEach(() => document.querySelectorAll('.cdk-overlay-container').forEach(node => node.remove()));
@@ -77,6 +77,32 @@ describe('About me: my projects', () => {
     // Collapsed: no details, no long description blocks.
     expect(element.querySelector('.project-details')).toBeNull();
     expect(element.querySelector('img')).toBeNull();
+  });
+
+  it('heads a card with its short name, shows the full paper title beneath it, and renames it', async () => {
+    const value = grouped();
+    const fixture = render({ ...value, themes: value.themes!.map(theme => theme.id === cardId
+      ? { ...theme, name: 'Publisher Content Marketplace (PCM)', profile: { ...theme.profile!, title: 'Paying for Information, Not for Clicks: A Block-Level Marketplace' } }
+      : theme) });
+    const element: HTMLElement = fixture.nativeElement;
+    const card = element.querySelectorAll<HTMLElement>('.project-card')[0];
+    expect(card.querySelector('h3')?.textContent?.trim()).toBe('Publisher Content Marketplace (PCM)');
+    expect(card.querySelector('.project-fulltitle')?.textContent).toBe('Paying for Information, Not for Clicks: A Block-Level Marketplace');
+    // A card whose short name is its title shows no second line.
+    expect(element.querySelectorAll<HTMLElement>('.project-card')[1].querySelector('.project-fulltitle')).toBeNull();
+
+    card.querySelector<HTMLButtonElement>('.rename-project')!.click();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.expandedId()).toBeNull();
+    const input = card.querySelector<HTMLInputElement>('.rename-input')!;
+    expect(input.value).toBe('Publisher Content Marketplace (PCM)');
+    expect(card.textContent).not.toContain('Reset');
+    input.value = 'PCM';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    card.querySelector<HTMLButtonElement>('.rename-save')!.click();
+    await vi.waitFor(() => expect(api.renameTheme).toHaveBeenCalledWith(cardId, 'PCM'));
+    await vi.waitFor(() => expect(fixture.componentInstance.renaming()).toBeNull());
   });
 
   it('orders cards by their latest change: a source or an Overleaf edit of a project', () => {

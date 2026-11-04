@@ -76,12 +76,13 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
 
     /// <summary>Housekeeping work: tidy groups, group a waiting thread, compare groups once more, or check a group against the projects.</summary>
     private bool HousekeepingDue(LocalResearchState state, Guid account, DateTimeOffset now) =>
-        Housekeeping.Cleaned(state, account) is not null || Housekeeping.GroupDue(state, account, item => !Blocked(GroupKey(item), now)) is not null ||
+        Housekeeping.Cleaned(state, account) is not null || !Blocked(RetitleKey, now) && Housekeeping.RetitleDue(state, account).Count != 0 ||
+        Housekeeping.GroupDue(state, account, item => !Blocked(GroupKey(item), now)) is not null ||
         !Blocked(RegroupKey, now) && Housekeeping.RegroupDue(state, account) ||
         Housekeeping.SuggestDue(state, account, group => !Blocked(SuggestKey(group), now)) is not null;
 
     private static string GroupKey(GmailThreadRecord item) => $"group|{item.Address}|{item.Id}";
-    private const string RegroupKey = "regroup";
+    private const string RegroupKey = "regroup", RetitleKey = "retitle";
     private static string SuggestKey(HousekeepingGroup group) => $"suggest|{group.Id}";
 
     /// <summary>
@@ -154,7 +155,12 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
         string? key = null;
         try
         {
-            if (Housekeeping.GroupDue(state, account, item => !Blocked(GroupKey(item), now)) is { } waiting)
+            if (!Blocked(RetitleKey, now) && Housekeeping.RetitleDue(state, account) is { Count: > 0 } untitled)
+            {
+                key = RetitleKey;
+                await RetitleAsync(credential, untitled, ct);
+            }
+            else if (Housekeeping.GroupDue(state, account, item => !Blocked(GroupKey(item), now)) is { } waiting)
             {
                 key = GroupKey(waiting);
                 await GroupWaitingAsync(credential, waiting, ct);
@@ -178,6 +184,34 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
             logger.LogWarning("Housekeeping grouping failed ({Type}); it is retried shortly.", error is ResearchFailure failure ? failure.Code : error.GetType().Name);
         }
         return HasWork(await store.ReadAsync(ct), account, clock.GetUtcNow());
+    }
+
+    /// <summary>
+    /// Writes short headlines for up to 12 waiting threads in one call (from their subjects and latest points), so
+    /// Housekeeping shows what each thread is about rather than a vague subject. A thread is titled again only when new mail
+    /// arrives or the title style changes.
+    /// </summary>
+    private async Task RetitleAsync(LinkedCredential credential, IReadOnlyList<GmailThreadRecord> threads, CancellationToken ct)
+    {
+        var account = credential.Account.Id;
+        var request = new ThreadTitlesRequest([.. threads.Select(item => new WaitingThread(Trim(item.Subject is { Length: > 0 } subject ? subject : "(no subject)", 500),
+            [.. item.Bullets.TakeLast(Housekeeping.PointsPerThread).Select(bullet => Trim(bullet.Text, 1000)).Where(text => text.Trim().Length != 0)]))]);
+        var titles = (await remote.TitleThreadsAsync(credential.Token, request, ct)).Titles;
+        if (titles.Count != threads.Count) throw new ResearchFailure(502, "invalid_thread_titles", "Foundry returned unsupported thread titles.");
+        await store.ChangeAsync(current =>
+        {
+            if (current.Credential?.Account.Id != account) return current;
+            var now = clock.GetUtcNow();
+            var written = threads.Select((thread, index) => (Key: Housekeeping.Key(thread), Message: thread.LastMessageId, Title: titles[index]))
+                .ToDictionary(item => item.Key, StringComparer.Ordinal);
+            return current with
+            {
+                GmailThreads = [.. current.GmailThreads!.Select(item => item.AccountId == account && item.Status == GmailThreadRecord.Pending &&
+                    written.TryGetValue(Housekeeping.Key(item), out var title) && title.Message == item.LastMessageId
+                    ? item with { Title = title.Title, TitledFor = Housekeeping.TitleKey(item), UpdatedAt = now } : item)]
+            };
+        }, ct);
+        logger.LogInformation("Titled {Count} waiting Gmail thread(s).", threads.Count);
     }
 
     /// <summary>
@@ -825,7 +859,7 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
         GmailThreadResponse Response(GmailThreadRecord item, bool skipped)
         {
             var card = item.CardId is { } id0 ? themes.FirstOrDefault(theme => theme.Id == id0) : null;
-            return new GmailThreadResponse(item.Address, item.Id, item.Subject, item.Headline ?? item.Subject, item.Status, card?.Id,
+            return new GmailThreadResponse(item.Address, item.Id, item.Subject, item.Title ?? item.Headline ?? item.Subject, item.Status, card?.Id,
                 card is null ? null : CardTitle(state, card), item.Suggested,
                 [.. item.Bullets.Select(bullet => new GmailBulletResponse(bullet.Id, bullet.Text, bullet.SentAt, bullet.Newsworthy, bullet.Evidence))],
                 item.LastSentAt, item.NewsAt, skipped, item.Status == GmailThreadRecord.Pending ? item.GroupId : null);
@@ -940,7 +974,7 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
     private const int CandidateCharacters = 700;
 
     private static string CardTitle(LocalResearchState state, ResearchTheme card) =>
-        card.Profile?.Title ?? state.Projects.FirstOrDefault(project => card.Members.Contains(project.ProjectId))?.Name ?? "Research project";
+        ThemePlan.DisplayTitle(card, state.Projects.FirstOrDefault(project => card.Members.Contains(project.ProjectId))?.Name ?? "Research project");
 
     private bool Blocked(string address, DateTimeOffset now) => _retryAt.TryGetValue(address, out var until) && until > now;
 

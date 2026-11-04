@@ -25,6 +25,7 @@ internal interface IResearchCoordinator
     Task MergeThemeIntoAsync(string themeId, string intoThemeId, CancellationToken ct);
     /// <summary>Chooses the project a research card is described from (its main paper).</summary>
     Task SetAnchorAsync(string themeId, string projectId, CancellationToken ct);
+    Task RenameThemeAsync(string themeId, string? name, CancellationToken ct);
     /// <summary>Skips a research card as not the user's own research, or brings it back into the profile.</summary>
     Task SkipThemeAsync(string themeId, bool skipped, CancellationToken ct);
     void RequestSync();
@@ -165,12 +166,13 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                     [.. (theme.Details ?? []).Select(detail => new DetailResponse(detail.Id, detail.Text, [.. detail.Citations.Select(citation =>
                         new DetailSourceResponse(citation.Source.Key, citation.Source.Kind, citation.Source.Label, citation.Source.Version, citation.Source.At,
                             citation.Quote, citation.Source.Kind == DetailSource.Overleaf
-                                ? projects.FirstOrDefault(project => project.ProjectId == citation.Source.Container)?.Name : citation.Source.Container))]))]);
+                                ? projects.FirstOrDefault(project => project.ProjectId == citation.Source.Container)?.Name : citation.Source.Container))]))],
+                    ThemePlan.DisplayTitle(theme, ""), theme.ChosenName is not null);
             }).ToArray(),
             _sync.Status(state), gmail?.Status(state, importer), changes.Take(100).ToArray(), changes.Length,
             [.. (state.PendingFiles ?? []).Where(file => file.AccountId == account && file.TargetCardId is null).OrderByDescending(file => file.RemovedAt)
                 .Select(file => new PendingFileResponse(file.ProjectId, file.ProjectName, file.Path, file.FromCardId,
-                    state.Themes?.FirstOrDefault(theme => theme.Id == file.FromCardId)?.Profile?.Title, file.RemovedAt))], RecentDays);
+                    state.Themes?.FirstOrDefault(theme => theme.Id == file.FromCardId) is { } from ? ThemePlan.DisplayTitle(from) : null, file.RemovedAt))], RecentDays);
     }
 
     public async Task<AccountLinkResponse> BeginLinkAsync(string callbackUri, CancellationToken ct)
@@ -515,7 +517,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 GmailThreads = current.GmailThreads?.Select(thread => thread.CardId is { } card && ids.Contains(card) ? thread with { CardId = intoId } : thread).ToArray(),
                 PendingFiles = current.PendingFiles?.Select(file => file.TargetCardId is { } card && ids.Contains(card) ? file with { TargetCardId = intoId } : file).ToArray(),
                 Changelog = DetailPlan.Log(log, new(Guid.NewGuid(), account, intoId, at, ChangelogEntry.Merge,
-                    "Combined with " + string.Join(", ", others.Select(theme => theme.Profile?.Title ?? "another project")), null, [], [], null, at))
+                    "Combined with " + string.Join(", ", others.Select(theme => ThemePlan.DisplayTitle(theme, "another project"))), null, [], [], null, at))
             };
         }, ct);
         logger.LogInformation("Combined {Count} research card(s) into one.", cards.Length);
@@ -537,6 +539,23 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         }, ct);
         _themeRetryAt = DateTimeOffset.MinValue;
         Wake();
+    }
+
+    /// <summary>The user's own name for a research project (empty: back to the short name or paper title); it is never replaced.</summary>
+    public async Task RenameThemeAsync(string themeId, string? name, CancellationToken ct)
+    {
+        string chosen = name?.Trim() ?? "";
+        if (!ResearchThemes.IsThemeId(themeId) || chosen.Length > DetailRules.MaxShortName || chosen.Contains('\n'))
+            throw new ResearchFailure(400, "invalid_theme_name", $"Give the project a name of at most {DetailRules.MaxShortName} characters.");
+        var account = RequireCredential(await store.ReadAsync(ct)).Account.Id;
+        await store.ChangeAsync(current =>
+        {
+            if (current.Credential?.Account.Id != account) throw AccountChanged();
+            var theme = ThemePlan.Themes(current, account).FirstOrDefault(item => item.Id == themeId)
+                ?? throw new ResearchFailure(404, "theme_not_found", "That research project no longer exists. Reload and try again.");
+            return current with { Themes = [.. current.Themes!.Select(item => item == theme ? theme with { ChosenName = chosen.Length == 0 ? null : chosen } : item)] };
+        }, ct);
+        RequestSync();
     }
 
     public async Task SkipThemeAsync(string themeId, bool skipped, CancellationToken ct)
@@ -655,7 +674,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     }
 
     private static ChangeResponse Change(ChangelogEntry entry, IReadOnlyList<ResearchTheme> themes, LocalResearchState state) =>
-        new(entry.Id, entry.CardId, themes.FirstOrDefault(theme => theme.Id == entry.CardId)?.Profile?.Title, entry.At, entry.Kind, entry.Title,
+        new(entry.Id, entry.CardId, themes.FirstOrDefault(theme => theme.Id == entry.CardId) is { } card ? ThemePlan.DisplayTitle(card) : null, entry.At, entry.Kind, entry.Title,
             entry.ProjectId is { } project ? state.Projects.FirstOrDefault(item => item.ProjectId == project)?.Name : null, entry.Documents,
             [.. entry.Changes.Select(change => new DetailChangeResponse(change.Op, change.DetailId, change.Before, change.After))]);
 
@@ -679,7 +698,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         // The title is the main paper's, else the name the user gave the project, else Foundry's working title.
         string? title = paper?.Title ?? card.Name;
         var response = await remote.SummarizeDetailsAsync(credential.Token, new(title is null ? null : Trim(title, Papers.MaxTitle),
-            paper?.Abstract, [.. card.Details!.Select(detail => detail.Text)]), ct);
+            paper?.Abstract, [.. card.Details!.Select(detail => detail.Text)], ShortName: true), ct);
         if (!DetailRules.ValidSummary(response))
             throw new ResearchFailure(502, "invalid_detail_summary", "Foundry returned an unsupported project summary. Nothing was changed.");
         var profile = new ProjectProfile(response.Title, response.Summary, [], []);
@@ -691,7 +710,12 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             return current with
             {
                 Themes = [.. current.Themes!.Select(item => item == theme
-                    ? theme with { Profile = profile, Blurb = profile.Description, BlurbFor = ThemePlan.Fingerprint(profile), SummaryFor = print } : item)]
+                    ? theme with
+                    {
+                        Profile = profile, Blurb = profile.Description, BlurbFor = ThemePlan.Fingerprint(profile), SummaryFor = print,
+                        // "" records that the short name was asked for, so an answer without one is not asked again.
+                        ShortName = DetailRules.ValidShortName(response.ShortName) ? response.ShortName : ""
+                    } : item)]
             };
         }, ct);
         logger.LogInformation("A research project's summary was written from its {Count} details.", card.Details!.Count);

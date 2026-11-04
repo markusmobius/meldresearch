@@ -103,7 +103,7 @@ export class ResearchPanel implements OnInit {
   readonly groups = computed(() => this.housekeeping().filter(card => card.group).map(card => card.group!));
   /** Research cards a thread can be put on, by title. */
   readonly cards = computed(() => (this.state()?.themes ?? []).filter(theme => !!theme.profile && !theme.skipped)
-    .map(theme => ({ id: theme.id, title: theme.profile!.title })).sort((a, b) => a.title.localeCompare(b.title)));
+    .map(theme => ({ id: theme.id, title: theme.name || theme.profile!.title })).sort((a, b) => a.title.localeCompare(b.title)));
   /** Included projects with an error or a changed notice, named in the feed so it is clear which ones need attention. */
   readonly attentionProjects = computed(() => (this.state()?.projects ?? [])
     .filter(project => (!!project.error && project.phase !== 'retrying') || project.consentRequired).map(project => project.name));

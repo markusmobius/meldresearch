@@ -94,9 +94,18 @@ internal static class ThemePlan
         return changed ? state with { Themes = themes, Changelog = log } : null;
     }
 
-    /// <summary>A card whose details changed since its summary was written, once its members' cycles and email folds finished.</summary>
+    /// <summary>How a card is shown: the user's name for it, else the name of a project started from email, else its short name, else its title.</summary>
+    public static string DisplayTitle(ResearchTheme theme, string fallback = "Research project") =>
+        theme.ChosenName is { Length: > 0 } chosen ? chosen : theme.Name is { Length: > 0 } name ? name :
+        theme.ShortName is { Length: > 0 } shortName ? shortName : theme.Profile?.Title ?? fallback;
+
+    /// <summary>
+    /// A card whose details changed since its summary was written (or that has no short name yet), once its members' cycles
+    /// and email folds finished.
+    /// </summary>
     public static ResearchTheme? SummaryDue(LocalResearchState state, Guid account) =>
-        Themes(state, account).FirstOrDefault(theme => theme.Details is { Count: > 0 } details && theme.SummaryFor != DetailPlan.Fingerprint(details) &&
+        Themes(state, account).FirstOrDefault(theme => theme.Details is { Count: > 0 } details &&
+            (theme.SummaryFor != DetailPlan.Fingerprint(details) || theme.ShortName is null) &&
             theme.Members.All(member => state.Projects.FirstOrDefault(project => project.AccountId == account && project.ProjectId == member) is not { } project ||
                 Settled(project)) && !FoldPending(state, theme));
 

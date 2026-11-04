@@ -14,6 +14,22 @@ namespace MeldResearch.LocalBackend.Services.Research;
 internal static class Housekeeping
 {
     public const int MaxName = 120, MaxDescription = 1200, ThreadsDescribed = 8, PointsPerThread = 3;
+    /// <summary>
+    /// The style group names and thread titles are written in; raising it names every group and titles every waiting thread
+    /// once more (NameStyle 2, TitleStyle 1: short, punchy names and headlines).
+    /// </summary>
+    public const int NameStyle = 2, TitleStyle = 1;
+
+    /// <summary>What a waiting thread's title was written for: the title style and its last message.</summary>
+    public static string TitleKey(GmailThreadRecord item) => $"{TitleStyle}:{item.LastMessageId}";
+
+    /// <summary>Waiting threads whose title was written in an older style or before their latest mail (up to a batch), oldest first.</summary>
+    public static IReadOnlyList<GmailThreadRecord> RetitleDue(LocalResearchState state, Guid account) =>
+        [.. Waiting(state, account).Where(item => item.TitledFor != TitleKey(item)).OrderBy(item => item.LastSentAt).Take(ResearchThemes.MaxThreads)];
+
+    /// <summary>How a waiting thread is shown: its written title, else its newsworthy headline, else its subject.</summary>
+    public static string TitleOf(GmailThreadRecord item) =>
+        item.Title is { Length: > 0 } title ? title : item.Headline is { Length: > 0 } headline ? headline : item.Subject is { Length: > 0 } subject ? subject : "(no subject)";
 
     public static IReadOnlyList<HousekeepingGroup> Groups(LocalResearchState state, Guid account) =>
         [.. (state.HousekeepingGroups ?? []).Where(group => group.AccountId == account)];
@@ -57,7 +73,7 @@ internal static class Housekeeping
 
     /// <summary>Which threads (and how far their mail goes) a group holds; its headline is written for this.</summary>
     public static string MembersPrint(LocalResearchState state, HousekeepingGroup group) =>
-        ResearchEvidence.Hash(string.Join("|", Members(state, group).Select(item => Key(item) + "@" + item.LastMessageId).Order(StringComparer.Ordinal)));
+        ResearchEvidence.Hash($"style{NameStyle}|" + string.Join("|", Members(state, group).Select(item => Key(item) + "@" + item.LastMessageId).Order(StringComparer.Ordinal)));
 
     private static LocalResearchState? Tidied(LocalResearchState state, Guid account)
     {
@@ -107,7 +123,7 @@ internal static class Housekeeping
 
     /// <summary>The group's threads as described for its headline and project check: titles and latest points, newest first.</summary>
     public static IReadOnlyList<WaitingThread> Threads(IEnumerable<GmailThreadRecord> members) =>
-        [.. members.Take(ResearchThemes.MaxThreads).Select(item => new WaitingThread(Trim(string.IsNullOrWhiteSpace(item.Headline ?? item.Subject) ? "(no subject)" : (item.Headline ?? item.Subject).Trim(), 500),
+        [.. members.Take(ResearchThemes.MaxThreads).Select(item => new WaitingThread(Trim(TitleOf(item).Trim(), 500),
             [.. item.Bullets.TakeLast(ResearchThemes.MaxPoints).Select(bullet => Trim(bullet.Text, 1000)).Where(text => text.Trim().Length != 0)]))];
 
     /// <summary>
@@ -134,7 +150,7 @@ internal static class Housekeeping
     {
         var parts = threads.Take(ThreadsDescribed).Select(item =>
         {
-            string title = item.Headline ?? item.Subject;
+            string title = TitleOf(item);
             var points = item.Bullets.TakeLast(PointsPerThread).Select(bullet => bullet.Text).ToArray();
             return points.Length == 0 ? title + "." : title + ": " + string.Join(' ', points);
         });

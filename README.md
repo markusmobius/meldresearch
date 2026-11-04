@@ -174,7 +174,7 @@ that backend requires real Google OAuth configuration. No synthetic identity is
 available in Live mode.
 
 The source manifest now uses the supplied Chrome draft public key:
-**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.6.9**, wire protocol **2**.
+**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.6.10**, wire protocol **2**.
 It is a public identity key, not a signing secret.
 
 Until the private listing is approved, remove the old development-ID unpacked
@@ -274,10 +274,14 @@ How Overleaf is read:
 - **Cards.** A newly read project gets a card of its own; Foundry then decides with
   strict matching (the same paper or core question; a shared topic, data set or
   method is not enough) whether it belongs on an existing card, and combining two
-  cards merges their details in one call. The card title is the main paper's
-  `\title` ([Papers](libraries/Research/PaperContracts.cs)) and follows it whenever
-  the paper's title changes; when the way papers are read improves (`Papers.Version`),
-  stored papers are read again from their stored text, without a model call.
+  cards merges their details in one call. A card is shown by a **short name** (2–5
+  words, e.g. "Publisher Content Marketplace (PCM)") that the summary call writes along
+  with the summary, with the main paper's full `\title`
+  ([Papers](libraries/Research/PaperContracts.cs)) as a smaller line beneath it;
+  **Rename** (the pencil next to the name) sets the user's own name, which is never
+  replaced. The full title follows the paper whenever its title changes; when the way
+  papers are read improves (`Papers.Version`), stored papers are read again from their
+  stored text, without a model call.
   **Make main paper** chooses another member. A card's **Projects** tab moves a project to another card
   (its sources leave the old card and its trees are read into the new one), merges
   the whole card into another, or skips it. Projects placed by hand are pinned.
@@ -619,11 +623,13 @@ so the user decides on a whole group at once: **Create project** (one new projec
 from all its threads, named after the group), **Add to project**, or **Skip all**
 (one skipped project). Each newly waiting thread is matched once against the groups
 (only the threads' titles and preview points are sent, not the emails); after
-groups gain threads, one regrouping pass combines related groups. A group shows its
+groups gain threads, one regrouping pass combines related groups. Waiting threads
+get a punchy 3–7 word headline (`/api/research/thread-titles`, up to 12 threads per
+call, again only when new mail arrives) instead of a vague subject. A group shows its
 threads' preview points and has no details or summary until the user keeps one.
 Whenever a group's threads change, its name falls back at once (no call) to the name
 the first check suggested for its oldest thread; then one call per changed group
-(`/api/research/housekeeping-group`) writes a short headline from all its threads and
+(`/api/research/housekeeping-group`) writes a 2–5 word name from all its threads and
 compares the group strictly with the research projects, offering a match as **Looks
 like …, Add to it**. A name the user gave a group is never replaced. Per thread, **Move to group**
 or **New group** splits a group (no model call); moved threads stay pinned, and

@@ -49,6 +49,10 @@ public sealed record WaitingThread(string Title, IReadOnlyList<string> Points);
 /// <summary>Headline: at most a few words naming what the threads are about. ProjectId: a matching project (strict rule), or null.</summary>
 public sealed record WaitingGroupResponse(string Headline, string? ProjectId, string Explanation, string ChatModel);
 
+/// <summary>Short news headlines (3-7 words) for waiting threads, one per thread in the same order, from their subjects and points.</summary>
+public sealed record ThreadTitlesRequest(IReadOnlyList<WaitingThread> Threads);
+public sealed record ThreadTitlesResponse(IReadOnlyList<string> Titles, string ChatModel);
+
 /// <summary>
 /// Research cards group Overleaf projects that belong to one research line (drafts, slides, follow-ups of the same work).
 /// Only summaries of included projects are sent; the remote service keeps no copy.
@@ -105,6 +109,14 @@ public static class ResearchThemes
                 thread.Points.Any(point => !Short(point, 1000))) || request.Projects is not { Count: <= MaxCandidates })
             throw new ResearchFailure(400, "invalid_waiting_group", "The Housekeeping group request is invalid.");
         if (request.Projects.Count != 0) ValidateMatch(new("group", new("t", "d", [], []), request.Projects));
+    }
+
+    public static void ValidateTitles(ThreadTitlesRequest request)
+    {
+        if (request?.Threads is not { Count: > 0 and <= MaxThreads } ||
+            request.Threads.Any(thread => thread is null || string.IsNullOrWhiteSpace(thread.Title) || thread.Title.Length > 500 ||
+                thread.Points is not { Count: <= MaxPoints } || thread.Points.Any(point => string.IsNullOrWhiteSpace(point) || point.Length > 1000)))
+            throw new ResearchFailure(400, "invalid_thread_titles", "The thread titles request is invalid.");
     }
 
     /// <summary>A headline is one plain line of at most <see cref="MaxHeadline"/> characters.</summary>

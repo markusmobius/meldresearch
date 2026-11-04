@@ -233,7 +233,7 @@ public sealed class GmailImportTests
             ? request.Candidates.FirstOrDefault(candidate => candidate.Title.Split(' ')[0] == request.ProjectName.Split(' ')[0])?.Id : null;
         // Each changed group gets a headline from all its threads; only the grant group looks like the social learning project.
         mail.Remote.Describe = request => (string.Join(" + ", request.Threads.Select(thread => thread.Title.Split(' ')[^1])),
-            request.Threads.Any(thread => thread.Title.StartsWith("Grant", StringComparison.Ordinal)) && request.Projects.Count != 0 ? Card : null);
+            request.Threads.Any(thread => thread.Title.Contains("Grant", StringComparison.Ordinal)) && request.Projects.Count != 0 ? Card : null);
         mail.Remote.Regroup = request => [.. request.Cards.GroupBy(card => card.Title.Split(' ')[0]).Where(group => group.Count() > 1)
             .Select(group => new ThemeGroup([.. group.Select(card => card.Id)], "Same topic."))];
         return mail;
@@ -261,7 +261,11 @@ public sealed class GmailImportTests
         Assert.Equal(2, mail.Remote.Describes.Count);
         Assert.Equal(["Grant work", "Teaching work"], mail.Remote.Describes.Select(request => request.Name).Order());
         var teachingRequest = mail.Remote.Describes.Single(request => request.Name == "Teaching work");
-        Assert.Equal(["Teaching survey", "Teaching allocation code"], teachingRequest.Threads.Select(thread => thread.Title));
+        // The threads were titled first (one call for all four), so the group is described by those titles.
+        Assert.Equal(["Grant renewal budget", "Teaching allocation code", "Grant reviewer letters", "Teaching survey"],
+            Assert.Single(mail.Remote.Titles).Threads.Select(thread => thread.Title));
+        Assert.Equal(["Title: Teaching survey", "Title: Teaching allocation code"], teachingRequest.Threads.Select(thread => thread.Title));
+        Assert.Equal("Title: Teaching survey", GmailImporter.Threads(mail.Store.State, Account.Id).Single(thread => thread.Id == "h2").Title);
         Assert.Equal(["Point: The workload survey went out."], teachingRequest.Threads[0].Points);
         Assert.Equal(Card, Assert.Single(teachingRequest.Projects).Id);
         Assert.DoesNotContain(mail.Remote.Matches, request => !request.Waiting && !request.Loose);

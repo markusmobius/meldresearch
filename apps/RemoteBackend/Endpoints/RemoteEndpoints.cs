@@ -118,6 +118,13 @@ internal static class RemoteEndpoints
             using var slot = await gate.EnterAsync(account.Id, ct);
             return TypedResults.Ok(await foundry.DescribeWaitingGroupAsync(request, ct));
         }).WithName("DescribeHousekeepingGroup").WithSummary("Name a Housekeeping group of waiting threads and check it against the projects; nothing is stored.");
+        app.MapPost("/api/research/thread-titles", async Task<Ok<ThreadTitlesResponse>> (
+            ThreadTitlesRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, InferenceGate gate, CancellationToken ct) =>
+        {
+            var account = await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            using var slot = await gate.EnterAsync(account.Id, ct);
+            return TypedResults.Ok(await foundry.TitleThreadsAsync(request, ct));
+        }).WithName("TitleThreads").WithSummary("Short headlines for waiting email threads; nothing is stored.");
         app.MapPost("/api/research/card-summary", async Task<Ok<ThemeMergeResponse>> (
             CardSummaryRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, InferenceGate gate, CancellationToken ct) =>
         {

@@ -21,7 +21,7 @@
       <header class="page-header">
         <div class="page-heading">
           <h1 class="page-title"><span class="material-icons site-only" aria-hidden="true">shield</span>Privacy &amp; Controls</h1>
-          <p class="page-subtitle">Last updated: November 2026 &middot; Meld Research and its Overleaf connector, version 0.6.9</p>
+          <p class="page-subtitle">Last updated: November 2026 &middot; Meld Research and its Overleaf connector, version 0.6.10</p>
         </div>
       </header>
 
@@ -68,8 +68,8 @@
                 to a research project becomes one of its sources: its new messages are sent with that project's current details,
                 which the model updates with quotes from the messages, and the change appears in your Updates feed. Threads that fit
                 none of your projects wait in Housekeeping, with a short quoted preview, until you skip them, add them to a project
-                or start a new one; Meld never starts a project on its own. To group related waiting threads, their titles and short
-                previews (not the emails) are sent through Meld's service to Azure AI Foundry together with the names of your
+                or start a new one; Meld never starts a project on its own. To give waiting threads short titles and to group related
+                ones, their subjects, titles and short previews (not the emails) are sent through Meld's service to Azure AI Foundry together with the names of your
                 Housekeeping groups; for each group, its threads' titles and previews are sent once more (and again when they change)
                 to write a short name for it and to compare it with your research projects' titles, summaries and first details to
                 suggest one; you confirm every suggestion. Threads that are not work are skipped. Meld's server does
@@ -87,7 +87,7 @@
                 through the configured Meld service to the configured Azure AI Foundry chat deployment. Later checks send only
                 documents that changed. The details are sent with the dates of their sources. The model returns edits to the
                 details (at most 30 sentences), each citing lines that the service copies from the sent text; a two-sentence summary
-                is then written from the details. At most once a month, a research project's details (with their sources' names and
+                and a short name for the project are then written from the details. At most once a month, a research project's details (with their sources' names and
                 dates, but no source text) are also sent to merge overlapping details and retire plans that newer details overtook. To show the projects of
                 one piece of research (for example a paper, its drafts and slides) as one research project, the summaries and first
                 details of your research projects are also sent to decide which belong together, and combining two of them sends both

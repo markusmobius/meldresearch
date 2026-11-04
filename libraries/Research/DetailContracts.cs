@@ -48,9 +48,14 @@ public sealed record DetailQuote(string Item, int StartLine, int EndLine, string
 public sealed record DetailOp(string Op, string? Id, string? Text, IReadOnlyList<DetailQuote> Add, IReadOnlyList<string> Remove);
 public sealed record DetailStepResponse(IReadOnlyList<DetailOp> Ops, string Explanation, string ChatModel);
 
-/// <summary>A research project's two-sentence summary from its details; the paper's title, when known, is the title.</summary>
-public sealed record DetailSummaryRequest(string? PaperTitle, string? Abstract, IReadOnlyList<string> Details);
-public sealed record DetailSummaryResponse(string Title, string Summary, string ChatModel);
+/// <summary>
+/// A research project's two-sentence summary from its details; the paper's title, when known, is the title. ShortName: also
+/// ask for the project's short name (2-5 words, what it is called in conversation); older clients do not ask and get none.
+/// </summary>
+public sealed record DetailSummaryRequest(string? PaperTitle, string? Abstract, IReadOnlyList<string> Details,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool ShortName = false);
+public sealed record DetailSummaryResponse(string Title, string Summary, string ChatModel,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ShortName = null);
 
 /// <summary>Combines the details of research projects that are one project; each merged detail names the details it came from.</summary>
 public sealed record DetailMergeCard(string Title, IReadOnlyList<DetailInput> Details);
@@ -121,6 +126,12 @@ public static class DetailRules
         }
         if (count > MaxDetails) throw Failed("too_many_details");
     }
+
+    public const int MaxShortName = 60;
+
+    /// <summary>A short name: one line of at most <see cref="MaxShortName"/> characters and at most 8 words.</summary>
+    public static bool ValidShortName(string? name) => !string.IsNullOrWhiteSpace(name) && name.Length <= MaxShortName && !name.Contains('\n') &&
+        name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 8;
 
     public static bool ValidText(string? text) => !string.IsNullOrWhiteSpace(text) && text.Length <= MaxText && !text.Contains('\n');
 

@@ -463,7 +463,7 @@ public sealed class DetailIngestTests
         var source = new DetailSource(DetailSource.Overleaf, members.FirstOrDefault() ?? ProjectId, "main.tex", "v1", "main.tex", DateTimeOffset.UtcNow.AddDays(-id[0]));
         IReadOnlyList<DetailBullet> bullets = [.. details.Select((text, index) => new DetailBullet("d" + index, text, [new(source, "q")]))];
         return new ResearchTheme(Account.Id, id, members, new(title, summary, [], []), null, DateTimeOffset.UtcNow, Details: bullets,
-            SummaryFor: DetailPlan.Fingerprint(bullets));
+            SummaryFor: DetailPlan.Fingerprint(bullets), ShortName: "");
     }
 
     [Fact]
@@ -560,6 +560,38 @@ public sealed class DetailIngestTests
         Assert.Equal("Paying for Information: A Marketplace", store.State.Themes!.Single().Profile!.Title);
         Assert.Equal(calls, remote.Calls + remote.DetailSummaries.Count + remote.Reviews.Count + remote.Matches.Count);
         Assert.Equal("Paying for Information: A Marketplace", (await coordinator.StatusAsync(None)).Themes!.Single().Profile!.Title);
+    }
+
+    [Fact]
+    public async Task ProjectsAreShownByAShortNameUnlessTheUserNamesThem()
+    {
+        var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
+        var remote = new Remote();
+        using var coordinator = Create(store, remote, PaperProject(out _));
+        await Drain(coordinator);
+        // The summary call also asks for the short name; the paper's full title stays the title.
+        Assert.All(remote.DetailSummaries, request => Assert.True(request.ShortName));
+        var card = Assert.Single(store.State.Themes!);
+        Assert.Equal(("Paying for Information", "Short Paying"), (card.Profile!.Title, card.ShortName));
+        var status = await coordinator.StatusAsync(None);
+        Assert.Equal(("Short Paying", false), (status.Themes!.Single().Name, status.Themes!.Single().NameChosen));
+        Assert.All(status.Changes!, change => Assert.Equal("Short Paying", change.CardTitle));
+
+        // A project from before short names gets one once (a summary call), and not again.
+        store.State = store.State with { Themes = [card with { ShortName = null }] };
+        int summaries = remote.DetailSummaries.Count;
+        await Drain(coordinator);
+        await Drain(coordinator);
+        Assert.Equal(summaries + 1, remote.DetailSummaries.Count);
+        Assert.Equal("Short Paying", store.State.Themes!.Single().ShortName);
+
+        // The user's name wins and is never replaced; clearing it goes back to the short name.
+        await coordinator.RenameThemeAsync(card.Id, "  PCM  ", None);
+        Assert.Equal(("PCM", true), ((await coordinator.StatusAsync(None)).Themes!.Single().Name, (await coordinator.StatusAsync(None)).Themes!.Single().NameChosen));
+        Assert.Equal("PCM", Ranking.Choices(store.State, Account.Id, "card", new string('f', 32)).Choices.Single().Title);
+        await coordinator.RenameThemeAsync(card.Id, "", None);
+        Assert.Equal("Short Paying", (await coordinator.StatusAsync(None)).Themes!.Single().Name);
+        Assert.Equal("invalid_theme_name", (await Assert.ThrowsAsync<ResearchFailure>(() => coordinator.RenameThemeAsync(card.Id, new string('x', 61), None))).Code);
     }
 
     [Fact]

@@ -137,9 +137,14 @@ public sealed record LeaveResponse(bool Uninstalling, bool AccountDeleted, strin
 /// A research card. AnchorId is the project it is described from (its main paper); AnchorChosen when the user chose it.
 /// Reason says why the last project was grouped onto it. Skipped: not the user's own research (About me → Skipped).
 /// </summary>
+/// <summary>
+/// A research project (card). Name: how it is shown (the user's name, a short name, else the paper's full title, which is
+/// Profile.Title); NameChosen: the user named it.
+/// </summary>
 public sealed record ResearchThemeResponse(string Id, ProjectProfile? Profile, IReadOnlyList<string> ProjectIds, bool Updating,
     string? Blurb = null, string? AnchorId = null, bool AnchorChosen = false, string? Reason = null, bool Skipped = false,
-    IReadOnlyList<DetailResponse>? Details = null);
+    IReadOnlyList<DetailResponse>? Details = null, string? Name = null, bool NameChosen = false);
+public sealed record ThemeNameRequest(string? Name);
 public sealed record ThemeAnchorRequest(string ProjectId);
 public sealed record ThemeSkipRequest(bool Skipped);
 

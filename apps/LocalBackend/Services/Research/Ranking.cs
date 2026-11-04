@@ -171,7 +171,8 @@ internal static class Ranking
             bool isBest = item.Score is not null && item.Card.Id != suggested && best++ < BestShown;
             var members = item.Card.Members.Select(member => state.Projects.FirstOrDefault(project => project.AccountId == account && project.ProjectId == member)?.Name)
                 .Where(name => name is not null).Select(name => name!).ToArray();
-            return new ChoiceResponse(item.Card.Id, item.Card.Profile!.Title, item.Card.Profile.Description, members, item.Changed, isBest, item.Card.Id == suggested);
+            return new ChoiceResponse(item.Card.Id, ThemePlan.DisplayTitle(item.Card), item.Card.Profile!.Description, members, item.Changed, isBest,
+                item.Card.Id == suggested);
         })], ranked);
     }
 

@@ -451,6 +451,20 @@ public sealed class FoundryTests
         Assert.Null((await foundry.DescribeWaitingGroupAsync(group, CancellationToken.None)).ProjectId);
         reply = JsonSerializer.Serialize(new { headline = " ", projectId = (string?)null, explanation = "" }, ResearchJson.Options);
         Assert.Equal("invalid_waiting_group", (await Assert.ThrowsAsync<ResearchFailure>(() => foundry.DescribeWaitingGroupAsync(group, CancellationToken.None))).Code);
+
+        // Thread titles: one plain line each, in order; a wrong count is rejected.
+        var titlesRequest = new ThreadTitlesRequest([new("updated pdf", ["The user sent the revised paper."]), new("(no subject)", [])]);
+        reply = JsonSerializer.Serialize(new { titles = new[] { "Revised paper sent.", "\"Gemini link shared\"" } }, ResearchJson.Options);
+        Assert.Equal(["Revised paper sent", "Gemini link shared"], (await foundry.TitleThreadsAsync(titlesRequest, CancellationToken.None)).Titles);
+        reply = JsonSerializer.Serialize(new { titles = new[] { "Only one" } }, ResearchJson.Options);
+        Assert.Equal("invalid_thread_titles", (await Assert.ThrowsAsync<ResearchFailure>(() => foundry.TitleThreadsAsync(titlesRequest, CancellationToken.None))).Code);
+
+        // A short name is returned only when asked (older clients do not know the field).
+        reply = JsonSerializer.Serialize(new { title = "x", shortName = "Publisher Content Marketplace (PCM)", summary = "One. Two." }, ResearchJson.Options);
+        Assert.Null((await foundry.SummarizeDetailsAsync(new("Paying for Information", null, ["A."]), CancellationToken.None)).ShortName);
+        Assert.Equal("Publisher Content Marketplace (PCM)",
+            (await foundry.SummarizeDetailsAsync(new("Paying for Information", null, ["A."], ShortName: true), CancellationToken.None)).ShortName);
+        Assert.DoesNotContain("shortName", JsonSerializer.Serialize(new DetailSummaryResponse("t", "s", "chat"), ResearchJson.Options));
     }
 
     private sealed class MergedComparer : IEqualityComparer<DetailMerged>

@@ -185,6 +185,8 @@ export interface ResearchTheme {
   anchorId?: string | null; anchorChosen?: boolean; reason?: string | null;
   /** Skipped as not the user's own research (About me → Skipped). */
   skipped?: boolean;
+  /** How the project is shown: the user's name, else its short name, else the paper's full title (profile.title); nameChosen: the user named it. */
+  name?: string | null; nameChosen?: boolean;
   /** The current state of the research: at most 30 one-sentence details with their sources (profile.description summarizes them). */
   details?: ReadonlyArray<ResearchDetail> | null;
 }
@@ -250,6 +252,10 @@ export class ResearchApi {
   decidePendingFile(file: Pick<PendingFile, 'projectId' | 'path'>, action: 'project' | 'dismiss', cardId?: string): Promise<void> {
     return firstValueFrom(this.http.post<void>('/api/research/files/decision',
       { projectId: file.projectId, path: file.path, action, cardId: cardId ?? null }));
+  }
+  /** The user's own name for a research project (empty: back to its short name). */
+  renameTheme(themeId: string, name: string): Promise<void> {
+    return firstValueFrom(this.http.put<void>(`/api/research/themes/${encodeURIComponent(themeId)}/name`, { name }));
   }
   mergeTheme(themeId: string, intoThemeId: string): Promise<void> {
     return firstValueFrom(this.http.put<void>(`/api/research/themes/${encodeURIComponent(themeId)}/merge`, { intoThemeId }));

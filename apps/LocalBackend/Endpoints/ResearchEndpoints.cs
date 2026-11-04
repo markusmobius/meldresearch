@@ -66,6 +66,12 @@ internal static class ResearchEndpoints
             await service.SetAnchorAsync(themeId, request.ProjectId, ct);
             return TypedResults.NoContent();
         }).WithName("SetResearchThemeAnchor").WithSummary("Choose the project a research card is described from (its main paper).");
+        group.MapPut("/themes/{themeId}/name", async Task<NoContent> (
+            string themeId, ThemeNameRequest request, IResearchCoordinator service, CancellationToken ct) =>
+        {
+            await service.RenameThemeAsync(themeId, request?.Name, ct);
+            return TypedResults.NoContent();
+        }).WithName("RenameResearchTheme").WithSummary("Give a research project your own name (empty: back to its short name).");
         group.MapPut("/themes/{themeId}/skip", async Task<NoContent> (
             string themeId, ThemeSkipRequest request, IResearchCoordinator service, CancellationToken ct) =>
         {

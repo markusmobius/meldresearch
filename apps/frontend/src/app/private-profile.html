@@ -9,10 +9,26 @@
     <article class="project-card" [class.expanded]="expandedId() === card.id">
       <div class="project-summary-area" (click)="toggle(card)">
         <div class="project-head">
-          <h3><button type="button" class="project-toggle" [attr.aria-expanded]="expandedId() === card.id"
-            [attr.aria-controls]="'project-' + card.id">{{ card.title }}</button></h3>
+          @if (renaming() === card.id) {
+            <form class="rename-form" (click)="$event.stopPropagation()" (submit)="$event.preventDefault(); rename(card)">
+              <input class="rename-input" maxlength="60" aria-label="Project name" [value]="nameDraft()" (input)="nameDraft.set($any($event.target).value)" />
+              <button mat-flat-button type="submit" class="rename-save" [disabled]="!!working()">Save</button>
+              @if (card.nameChosen) {
+                <button mat-button type="button" [disabled]="!!working()" (click)="rename(card, '')" title="Use Meld's short name again">Reset</button>
+              }
+              <button mat-button type="button" (click)="renaming.set(null)">Cancel</button>
+            </form>
+          } @else {
+            <h3><button type="button" class="project-toggle" [attr.aria-expanded]="expandedId() === card.id"
+              [attr.aria-controls]="'project-' + card.id">{{ card.title }}</button></h3>
+            @if (card.themeId) {
+              <button mat-icon-button type="button" class="rename-project" (click)="$event.stopPropagation(); startRenaming(card)"
+                [attr.aria-label]="'Rename ' + card.title" title="Rename"><mat-icon>edit</mat-icon></button>
+            }
+          }
           @if (card.lastChanged) { <span class="project-date" title="Latest change">{{ card.lastChanged | date:'MMM d, y' }}</span> }
         </div>
+        @if (card.fullTitle) { <p class="project-fulltitle">{{ card.fullTitle }}</p> }
         @if (card.summary) {
           <p class="project-summary">{{ card.summary }}</p>
         } @else if (card.details.length) {

@@ -74,7 +74,9 @@ internal sealed record ProjectSummaryState(Guid AccountId, string ProjectId, str
 /// Overleaf projects pause, and new email of the same kind is skipped too; SkipGrouped once it was compared (loosely) with
 /// the other skipped cards. ReviewedFor and ReviewedAt record the last review of the details (OVERLEAF.md §8a): which
 /// details it saw, and when, so a card is reviewed at most once per ResearchCoordinator.ReviewInterval and only after it
-/// changed.
+/// changed. ShortName is the short name (2-5 words) the summary step writes with the summary ("" once asked without an
+/// answer); ChosenName is the user's own name for the project. A card is shown as ChosenName, else Name (the name the user
+/// gave a project started from email), else ShortName, else its title (the main paper's full title); see ThemePlan.DisplayTitle.
 /// </summary>
 internal sealed record ResearchTheme(Guid AccountId, string Id, IReadOnlyList<string> Members, ProjectProfile? Profile,
     IReadOnlyDictionary<string, string>? MergedFrom, DateTimeOffset CreatedAt, IReadOnlyList<string>? Pinned = null,
@@ -88,7 +90,9 @@ internal sealed record ResearchTheme(Guid AccountId, string Id, IReadOnlyList<st
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? MatchPending = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Name = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ReviewedFor = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateTimeOffset? ReviewedAt = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateTimeOffset? ReviewedAt = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ShortName = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ChosenName = null);
 
 /// <summary>
 /// One entry of a research project's changelog (OVERLEAF.md §8): a source that updated it (an Overleaf root tree, an email
@@ -160,6 +164,7 @@ internal sealed record GmailThreadState(string Id, string HistoryId, string Last
 /// HistoryId is Gmail's version of the thread when it was last analyzed ("" while a long thread is analyzed in parts) and
 /// LastMessageId/LastSentAt the last message analyzed, so only later messages are new. Headline and NewsAt are set when the
 /// thread made newsworthy progress (it then appears in the Updates feed); Suggested names a project for a pending thread.
+/// Title is a short headline written for a waiting thread (TitledFor: the title style and last message it was written for).
 /// </summary>
 internal sealed record GmailThreadRecord(Guid AccountId, string Address, string Id, string Subject, string Status, string HistoryId,
     string LastMessageId, DateTimeOffset LastSentAt, DateTimeOffset UpdatedAt, IReadOnlyList<GmailBullet> Bullets,
@@ -168,7 +173,9 @@ internal sealed record GmailThreadRecord(Guid AccountId, string Address, string 
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? FoldedMessageId = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateTimeOffset? FoldedSentAt = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? GroupId = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? GroupPinned = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? GroupPinned = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Title = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? TitledFor = null)
 {
     public const string Assigned = "assigned", Pending = "pending", Skipped = "skipped", Dismissed = "dismissed";
 }

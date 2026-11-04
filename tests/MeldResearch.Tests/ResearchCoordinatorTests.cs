@@ -485,7 +485,8 @@ public sealed class ResearchCoordinatorTests
         {
             lock (DetailSummaries) DetailSummaries.Add(request);
             return Task.FromResult(new DetailSummaryResponse(request.PaperTitle ?? "Working title " + request.Details.Count,
-                "A project with " + request.Details.Count + " details. It is ongoing.", "chat"));
+                "A project with " + request.Details.Count + " details. It is ongoing.", "chat",
+                request.ShortName ? "Short " + (request.PaperTitle ?? "project").Split(' ')[0] : null));
         }
         public List<DetailMergeRequest> DetailMerges { get; } = [];
         public Task<DetailMergeResponse> MergeDetailsAsync(string token, DetailMergeRequest request, CancellationToken ct)
@@ -510,6 +511,13 @@ public sealed class ResearchCoordinatorTests
             lock (Describes) Describes.Add(request);
             var (headline, project) = Describe?.Invoke(request) ?? ("Headline: " + request.Threads[0].Title, null);
             return Task.FromResult(new WaitingGroupResponse(headline, project, "Synthetic.", "chat"));
+        }
+        public List<ThreadTitlesRequest> Titles { get; } = [];
+        /// <summary>Thread titles; by default "Title: " and the subject.</summary>
+        public Task<ThreadTitlesResponse> TitleThreadsAsync(string token, ThreadTitlesRequest request, CancellationToken ct)
+        {
+            lock (Titles) Titles.Add(request);
+            return Task.FromResult(new ThreadTitlesResponse([.. request.Threads.Select(thread => "Title: " + thread.Title)], "chat"));
         }
         public List<ResearchEmbeddingRequest> Embeds { get; } = [];
         public string EmbeddingModel { get; set; } = "embed-test";
