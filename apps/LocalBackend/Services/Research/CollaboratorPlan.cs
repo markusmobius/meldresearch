@@ -13,6 +13,11 @@ internal static class CollaboratorPlan
 {
     /// <summary>How collaborators are made; a newer way makes every project's collaborators again.</summary>
     public const int Version = 1;
+    /// <summary>
+    /// How Overleaf editors are read (connector 0.6.11 reports them); a project read another way reads its history again.
+    /// Version 2: editors stored as "none" by an older connector during the update are read again.
+    /// </summary>
+    public const int EditorsVersion = 2;
     /// <summary>At most this many people are kept per email thread.</summary>
     public const int MaxThreadPeople = 50;
 
@@ -105,14 +110,15 @@ internal static class CollaboratorPlan
 
     /// <summary>
     /// A project of the profile whose people changed since its collaborators were made, once what it is made from was read:
-    /// its Overleaf projects' cycles finished (with their editors), its email threads folded and their people read.
+    /// its Overleaf projects' cycles finished, its email threads folded and their people read. Editors are not waited for (a
+    /// project whose history cannot be read would never get collaborators); when they arrive, known people merge without a call.
     /// </summary>
     public static ResearchTheme? Due(LocalResearchState state, Guid account) =>
         ThemePlan.Active(state, account).FirstOrDefault(theme => Ready(state, account, theme) && theme.Collaborators?.For != InputsOf(state, account, theme).Print);
 
     private static bool Ready(LocalResearchState state, Guid account, ResearchTheme theme) =>
         theme.Members.All(member => state.Projects.FirstOrDefault(project => project.AccountId == account && project.ProjectId == member) is not { } project ||
-            ThemePlan.Settled(project) && (project.Editors is not null || !project.IsOverleaf) && project.PaperFor == (project.Baseline is { } baseline ? Papers.ReadFor(baseline.Revision) : project.PaperFor)) &&
+            ThemePlan.Settled(project) && project.PaperFor == (project.Baseline is { } baseline ? Papers.ReadFor(baseline.Revision) : project.PaperFor)) &&
         !ThemePlan.FoldPending(state, theme) &&
         !(state.GmailThreads ?? []).Any(thread => thread.AccountId == account && thread.CardId == theme.Id && thread.Status == GmailThreadRecord.Assigned &&
             thread.People is null && (state.GmailAccounts ?? []).Any(mail => mail.AccountId == account && !mail.Removed && mail.Status == "connected" &&

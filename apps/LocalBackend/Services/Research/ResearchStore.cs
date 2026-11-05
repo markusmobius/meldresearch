@@ -18,7 +18,9 @@ internal sealed record PendingDeviceLink(string DeviceCode, string Verifier, str
 /// profile and Updates like a project but no files, and joins research cards the same way. Paper is the title and abstract
 /// read from the main LaTeX document of the Baseline revision PaperFor (an Overleaf project's anchor for its card).
 /// Owner is who owns the project on Overleaf (Owned: the user does, so it names the user) and Editors who edited it, from
-/// Overleaf's history (empty when unknown; null until read): with the paper's authors they are the project's collaborators.
+/// Overleaf's history: with the paper's authors they are the project's collaborators. EditorsFor is the way of reading
+/// editors (CollaboratorPlan.EditorsVersion) they were read by; until it is current, each check reads the history again (an
+/// older connector or a failed read does not count).
 /// </summary>
 internal sealed record MonitoredProject(Guid AccountId, string ProjectId, string Name, bool Enabled, string ConsentVersion,
     ResearchSnapshot? Snapshot, string? Summary, IReadOnlyList<ResearchFact> Facts, IReadOnlyList<ResearchUpdate> Updates,
@@ -36,7 +38,8 @@ internal sealed record MonitoredProject(Guid AccountId, string ProjectId, string
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? ExcludedDocs = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] OverleafPerson? Owner = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? Owned = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<OverleafPerson>? Editors = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<OverleafPerson>? Editors = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? EditorsFor = null)
 {
     /// <summary>An Overleaf project (Source null or "overleaf"): read from Overleaf file by file. Other sources are not swept.</summary>
     public bool IsOverleaf => Source is null or ResearchSources.Overleaf;

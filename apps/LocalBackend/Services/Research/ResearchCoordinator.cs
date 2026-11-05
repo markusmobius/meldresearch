@@ -1320,15 +1320,16 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 var now = clock.GetUtcNow();
                 var metadata = accessible.FirstOrDefault(item => item.Id == project.ProjectId) ??
                     throw new ResearchFailure(409, "overleaf_project_unavailable", "The project is missing, archived, or no longer accessible. Its saved knowledge was retained.");
-                // Who edited a project is read once for projects read before collaborators were kept (no model call).
-                var editors = project.Editors ?? (project.ImportComplete ? (await source.HistoryAsync(project.ProjectId, token)).Editors ?? [] : null);
+                // Who edited a project is read once (no model call); an older connector or a failed read is asked again next check.
+                var editors = project.ImportComplete && project.EditorsFor != CollaboratorPlan.EditorsVersion
+                    ? (await source.HistoryAsync(project.ProjectId, token)).Editors : null;
                 if (!force && project.ImportComplete && project.Pending is null && project.Error is null &&
                     project.Baseline?.SourceUpdatedAt is { } known && known == metadata.UpdatedAt)
                 {
                     await ChangeProjectAsync(project, item => item with
                     {
                         Name = metadata.Name, LastSweepAt = now, Owner = metadata.Owner ?? item.Owner, Owned = metadata.Owner is null ? item.Owned : metadata.Owned,
-                        Editors = item.Editors ?? editors
+                        Editors = editors ?? item.Editors, EditorsFor = editors is null ? item.EditorsFor : CollaboratorPlan.EditorsVersion
                     }, token);
                     logger.LogInformation("Checked: unchanged on Overleaf since the last check. Nothing was downloaded.");
                     return;
@@ -1351,7 +1352,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                     {
                         Name = metadata.Name, Baseline = manifest, Pending = null, PendingTrees = null, PendingOrder = null, PendingSince = null,
                         LastSweepAt = now, LastSuccessAt = now, UnprocessedFiles = unanalyzed, Explanation = "No supported text changes. No model calls were made.",
-                        Owner = metadata.Owner ?? item.Owner, Owned = metadata.Owner is null ? item.Owned : metadata.Owned, Editors = item.Editors ?? editors
+                        Owner = metadata.Owner ?? item.Owner, Owned = metadata.Owner is null ? item.Owned : metadata.Owned,
+                        Editors = editors ?? item.Editors, EditorsFor = editors is null ? item.EditorsFor : CollaboratorPlan.EditorsVersion
                     }, token);
                     logger.LogInformation("Checked: no supported text changes. No model calls were made.");
                     return;
@@ -1365,7 +1367,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                     Name = metadata.Name, Pending = manifest, PendingTrees = trees, PendingOrder = null, PendingSince = item.PendingSince ?? now,
                     LastSweepAt = now, UnprocessedFiles = unanalyzed,
                     Owner = metadata.Owner ?? item.Owner, Owned = metadata.Owner is null ? item.Owned : metadata.Owned,
-                    Editors = history.Editors ?? item.Editors ?? editors ?? []
+                    Editors = history.Editors ?? editors ?? item.Editors,
+                    EditorsFor = history.Editors is not null || editors is not null ? CollaboratorPlan.EditorsVersion : item.EditorsFor
                 }, token);
                 logger.LogInformation("Queued {Trees} document tree(s) with {Documents} document(s) to read.", trees.Count, trees.Sum(tree => tree.Send.Count));
             });

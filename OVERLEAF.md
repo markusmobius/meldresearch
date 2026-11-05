@@ -294,7 +294,9 @@ shows them in the card's **Collaborators** tab.
    in them or in `\email`/`\thanks` (`PaperInfo.Authors`, `Papers.Version` 4);
    from every email thread on the card: the From, To and Cc names and addresses
    of messages that are not bulk mail (`GmailThreadRecord.People`). Projects and
-   threads read before this keep a one-time read of their editors or headers.
+   threads read before this keep a one-time read of their editors or headers. A
+   history without editors (an older connector, a failed read) does not count as
+   "nobody": the next check asks again (`MonitoredProject.EditorsFor`).
 2. **The user is left out**: their Meld and Gmail addresses, their Meld name, and
    the owner of the Overleaf projects they own.
 3. **Merging.** People with the same address are one mention. When the mentions

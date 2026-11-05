@@ -124,21 +124,28 @@ public sealed class CollaboratorTests
     }
 
     [Fact]
-    public async Task ProjectsReadBeforeCollaboratorsReadTheirEditorsOnce()
+    public async Task EditorsAreReadOnceFromAConnectorThatReportsThemAndAgainUntilThen()
     {
         var source = new Source(Files(("main.tex", "\\documentclass{article}\n\\begin{document}\nText.\n\\end{document}")));
         var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
         var remote = new Remote();
         using var coordinator = Create(store, remote, source);
         await Drain(coordinator);
-        // As an earlier version stored it: no editors.
-        store.State = store.State with { Projects = [.. store.State.Projects.Select(project => project with { Editors = null })] };
-        source.Editors = [new("Lukas Bolte", "lukas@example.invalid")];
+        // An older connector reports no editors: that is not "nobody", so the next check asks again.
+        Assert.Null(store.State.Projects.Single().EditorsFor);
         int reads = source.HistoryReads;
+        await Drain(coordinator, force: true);
+        Assert.Equal(reads + 1, source.HistoryReads);
+        Assert.Null(store.State.Projects.Single().EditorsFor);
+
+        // The current connector: read once, then not again while the project is unchanged.
+        source.Editors = [new("Lukas Bolte", "lukas@example.invalid")];
+        reads = source.HistoryReads;
         await Drain(coordinator, force: true);
         await Drain(coordinator, force: true);
         Assert.Equal(reads + 1, source.HistoryReads);
-        Assert.Equal("lukas@example.invalid", store.State.Projects.Single().Editors!.Single().Email);
+        Assert.Equal((CollaboratorPlan.EditorsVersion, "lukas@example.invalid"),
+            (store.State.Projects.Single().EditorsFor, store.State.Projects.Single().Editors!.Single().Email));
         Assert.Equal("Lukas Bolte", store.State.Themes!.Single().Collaborators!.People.Single().Name);
     }
 }

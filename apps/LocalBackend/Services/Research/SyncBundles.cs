@@ -19,7 +19,8 @@ internal sealed record ProjectBundle(int Version, string ProjectId, string Name,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? ExcludedDocs = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] OverleafPerson? Owner = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? Owned = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<OverleafPerson>? Editors = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<OverleafPerson>? Editors = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? EditorsFor = null);
 
 /// <summary>A research card member that is not an Overleaf project (a Gmail workstream), so other computers can add it.</summary>
 internal sealed record WorkstreamRef(string Id, string Source, string? Parent, string Name);
@@ -52,7 +53,7 @@ internal static class SyncBundles
         new(2, project.ProjectId, project.Name, project.Profile, project.Processed, project.Baseline, project.Pending, project.PendingOrder,
             project.PendingSince, project.ImportComplete, project.LastSweepAt, project.LastSuccessAt, project.Updates, texts, now,
             project.IsOverleaf ? null : project.Source, project.IsOverleaf ? null : project.Parent, project.Paper, project.PaperFor,
-            project.PendingTrees, project.Partial, project.ExcludedDocs, project.Owner, project.Owned, project.Editors);
+            project.PendingTrees, project.Partial, project.ExcludedDocs, project.Owner, project.Owned, project.Editors, project.EditorsFor);
 
     public static string Fingerprint(MonitoredProject project) => Fingerprint(Project(project, new Dictionary<string, string>(), Unsaved));
 
@@ -264,7 +265,8 @@ internal static class SyncBundles
             LastSweepAt = bundle.LastSweepAt, LastSuccessAt = bundle.LastSuccessAt, Updates = bundle.Updates,
             Snapshot = null, Summary = null, Facts = [], ErrorCode = null, Error = null, FailureCount = 0, NextAttemptAt = null,
             SyncedFor = null, Paper = bundle.Paper, PaperFor = bundle.PaperFor, PendingTrees = bundle.PendingTrees, Partial = bundle.Partial,
-            ExcludedDocs = bundle.ExcludedDocs, Owner = bundle.Owner ?? local.Owner, Owned = bundle.Owned ?? local.Owned, Editors = bundle.Editors ?? local.Editors
+            ExcludedDocs = bundle.ExcludedDocs, Owner = bundle.Owner ?? local.Owner, Owned = bundle.Owned ?? local.Owned,
+            Editors = bundle.EditorsFor is not null ? bundle.Editors : local.Editors, EditorsFor = bundle.EditorsFor ?? local.EditorsFor
         };
         return state with { Projects = projects };
     }
@@ -289,7 +291,8 @@ internal static class SyncBundles
                 SyncETag = etag, SyncedFor = Fingerprint(bundle), LastSyncedAt = bundle.SavedAt,
                 Source = local.Source ?? bundle.Source, Parent = local.Parent ?? bundle.Parent, Paper = bundle.Paper, PaperFor = bundle.PaperFor,
                 PendingTrees = bundle.PendingTrees, Partial = bundle.Partial, ExcludedDocs = bundle.ExcludedDocs,
-                Owner = bundle.Owner ?? local.Owner, Owned = bundle.Owned ?? local.Owned, Editors = bundle.Editors ?? local.Editors
+                Owner = bundle.Owner ?? local.Owner, Owned = bundle.Owned ?? local.Owned,
+                Editors = bundle.EditorsFor is not null ? bundle.Editors : local.Editors, EditorsFor = bundle.EditorsFor ?? local.EditorsFor
             };
         return state with { Projects = [.. state.Projects.Select(item => item == local ? adopted : item)] };
     }
