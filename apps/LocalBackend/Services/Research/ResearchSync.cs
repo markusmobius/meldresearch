@@ -157,7 +157,7 @@ internal sealed class ResearchSync(IResearchStore store, IResearchRemote remote,
         try
         {
             await CheckKeyAsync(credential, state, ct);
-            if (_remote.TryGetValue(SyncCrypto.ProfileBlob, out var profileTag) && profileTag != state.Sync!.ProfileETag)
+            if (_remote.TryGetValue(SyncCrypto.ProfileBlob, out var profileTag) && !SameTag(profileTag, state.Sync!.ProfileETag))
             {
                 var blob = await DownloadAsync(credential, SyncCrypto.ProfileBlob, ct);
                 if (blob is not null)
@@ -171,7 +171,7 @@ internal sealed class ResearchSync(IResearchStore store, IResearchRemote remote,
             state = await store.ReadAsync(ct);
             var changed = state.Projects.Where(item => item.AccountId == account)
                 .Select(item => (Project: item, Name: SyncCrypto.ProjectBlob(dataKey, item.ProjectId)))
-                .Where(item => _remote.TryGetValue(item.Name, out var tag) && tag != item.Project.SyncETag).ToArray();
+                .Where(item => _remote.TryGetValue(item.Name, out var tag) && !SameTag(tag, item.Project.SyncETag)).ToArray();
             foreach (var (project, name) in changed)
             {
                 var blob = await DownloadAsync(credential, name, ct);
@@ -207,7 +207,7 @@ internal sealed class ResearchSync(IResearchStore store, IResearchRemote remote,
         var account = credential.Account.Id;
         _remote = (await remote.SyncListAsync(credential.Token, ct)).Blobs.ToDictionary(blob => blob.Name, blob => blob.ETag, StringComparer.Ordinal);
         var sync = state.Sync!;
-        if (_remote.TryGetValue(SyncCrypto.KeyBlob, out var tag) && tag == sync.KeyETag) return;
+        if (_remote.TryGetValue(SyncCrypto.KeyBlob, out var tag) && SameTag(tag, sync.KeyETag)) return;
         var current = tag is null ? null : await KeyFileAsync(credential, ct);
         if (current is not { } found || sync.KeyCreatedAt is { } created && found.File.CreatedAt != created)
         {
@@ -307,6 +307,20 @@ internal sealed class ResearchSync(IResearchStore store, IResearchRemote remote,
             _lastError = failure.Message;
             logger.LogWarning("Encrypted sync upload failed ({Code}); it is retried on the next check.", failure.Code);
         }
+    }
+
+    /// <summary>
+    /// Whether two ETags name the same blob version. Azure's blob listing gives an ETag without quotes (0x8D…) while its
+    /// download and upload responses quote it ("0x8D…"); compared as is, every synced copy looked changed, so this computer
+    /// downloaded and re-applied its own uploads on every check.
+    /// </summary>
+    internal static bool SameTag(string? a, string? b) => a is not null && b is not null && Bare(a) == Bare(b);
+
+    private static string Bare(string tag)
+    {
+        string value = tag.Trim();
+        if (value.StartsWith("W/", StringComparison.Ordinal)) value = value[2..];
+        return value.Trim('"');
     }
 
     /// <summary>Blobs uploaded here join the last listing, so a later exclusion knows to delete them before the next pull.</summary>

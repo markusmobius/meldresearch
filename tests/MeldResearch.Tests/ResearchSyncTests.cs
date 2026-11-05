@@ -67,6 +67,15 @@ public sealed class ResearchSyncTests
         int puts = box.Puts;
         await Drain(first.Coordinator, force: true);
         Assert.Equal(puts, box.Puts);
+        // Nor downloaded again: Azure lists an ETag without the quotes its uploads return, and that is the same version.
+        int gets = box.Gets;
+        await Drain(first.Coordinator, force: true);
+        await Drain(first.Coordinator, force: true);
+        Assert.Equal(gets, box.Gets);
+        Assert.True(ResearchSync.SameTag("\"0x8DD1\"", "0x8DD1"));
+        Assert.True(ResearchSync.SameTag("W/\"0x8DD1\"", "\"0x8DD1\""));
+        Assert.False(ResearchSync.SameTag("\"0x8DD1\"", "\"0x8DD2\""));
+        Assert.False(ResearchSync.SameTag("\"0x8DD1\"", null));
     }
 
     [Fact]

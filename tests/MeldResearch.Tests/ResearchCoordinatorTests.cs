@@ -628,20 +628,24 @@ public sealed class ResearchCoordinatorTests
     }
 }
 
-/// <summary>An in-memory stand-in for the account's blob folder, with the same conditional-write rules as Azure.</summary>
+/// <summary>
+/// An in-memory stand-in for the account's blob folder, with the same conditional-write rules as Azure, and like Azure its
+/// listing gives ETags without the quotes that downloads and uploads return.
+/// </summary>
 internal sealed class BlobBox
 {
     private readonly Dictionary<string, (byte[] Content, string ETag)> _blobs = new(StringComparer.Ordinal);
     private int _version;
     public int Puts { get; private set; }
+    public int Gets { get; private set; }
     public IReadOnlyDictionary<string, byte[]> Contents { get { lock (_blobs) return _blobs.ToDictionary(item => item.Key, item => item.Value.Content); } }
     public SyncListResponse List()
     {
         lock (_blobs)
-            return new([.. _blobs.Select(item => new SyncBlobInfo(item.Key, item.Value.ETag, item.Value.Content.Length, DateTimeOffset.UtcNow))],
+            return new([.. _blobs.Select(item => new SyncBlobInfo(item.Key, item.Value.ETag.Trim('"'), item.Value.Content.Length, DateTimeOffset.UtcNow))],
                 _blobs.Values.Sum(item => (long)item.Content.Length), 500L << 20);
     }
-    public SyncBlob? Get(string name) { lock (_blobs) return _blobs.TryGetValue(name, out var blob) ? new(blob.Content, blob.ETag) : null; }
+    public SyncBlob? Get(string name) { lock (_blobs) { Gets++; return _blobs.TryGetValue(name, out var blob) ? new(blob.Content, blob.ETag) : null; } }
     public string Put(string name, byte[] content, string? ifMatch)
     {
         lock (_blobs)

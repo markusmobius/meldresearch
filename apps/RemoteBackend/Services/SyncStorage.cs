@@ -80,7 +80,7 @@ internal sealed class AzureSyncStorage : ISyncStorage
         string prefix = SyncFolders.Prefix(account);
         var blobs = new List<SyncBlobInfo>();
         await foreach (var item in Call(() => _container.GetBlobsAsync(BlobTraits.None, BlobStates.None, prefix, ct)))
-            blobs.Add(new(item.Name[prefix.Length..], item.Properties.ETag?.ToString() ?? "", item.Properties.ContentLength ?? 0,
+            blobs.Add(new(item.Name[prefix.Length..], item.Properties.ETag?.ToString("H") ?? "", item.Properties.ContentLength ?? 0,
                 item.Properties.LastModified ?? DateTimeOffset.MinValue));
         return new(blobs, blobs.Sum(blob => blob.Size), _quota);
     }
