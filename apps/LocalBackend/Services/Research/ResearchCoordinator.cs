@@ -1166,6 +1166,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         bool mail = importer?.HasWork(state, credential.Account.Id, now) == true;
         bool rank = RankDue(state, credential.Account.Id, now);
         var unread = source.Available ? selected.Where(project => !due.Contains(project) && EditorsDue(project, now)).Take(5).ToArray() : [];
+        // Who owns each project must be known first: text without an author in Overleaf's history is the owner's.
+        if (source.Available && source.ReadsFileAuthors && await EnsureOwnersAsync(credential.Account.Id, ct)) state = await store.ReadAsync(ct);
         var credit = source.Available && source.ReadsFileAuthors ? CreditDue(state, credential.Account.Id, now) : null;
         if (due.Length == 0 && !queued && summaries.Length == 0 && !themes && !mail && !rank && unread.Length == 0 && credit is null) return false;
         Interlocked.Exchange(ref _busy, 1);
@@ -1214,6 +1216,29 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
 
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTimeOffset> _creditTriedAt = new(StringComparer.Ordinal);
 
+    private DateTimeOffset _ownersReadAt = DateTimeOffset.MinValue;
+
+    /// <summary>A read project of the account whose owner is not recorded.</summary>
+    private static bool OwnerMissing(LocalResearchState state, Guid account) =>
+        state.Projects.Any(project => project.AccountId == account && project.IsOverleaf && project.Enabled && project.ImportComplete && project.Owner is null);
+
+    /// <summary>
+    /// Makes sure each read project's owner is recorded before crediting (text without an author in Overleaf's history is
+    /// the owner's): from the latest project list, else by reading the list (one request, at most every half hour).
+    /// Returns whether owners were recorded.
+    /// </summary>
+    private async Task<bool> EnsureOwnersAsync(Guid account, CancellationToken ct)
+    {
+        if (!OwnerMissing(await store.ReadAsync(ct), account)) return false;
+        await AdoptOwnersAsync(account, ct);
+        if (!OwnerMissing(await store.ReadAsync(ct), account) || clock.GetUtcNow() - _ownersReadAt < TimeSpan.FromMinutes(30)) return true;
+        _ownersReadAt = clock.GetUtcNow();
+        try { await source.ProjectsAsync(ct); }
+        catch (Exception error) when (error is ResearchFailure or MeldResearch.LocalBackend.Middleware.ApiFailure) { return false; }
+        await AdoptOwnersAsync(account, ct);
+        return true;
+    }
+
     /// <summary>
     /// Records who owns each project from the latest Overleaf project list (no Overleaf request): the owner is credited with
     /// text that has no author in the history, and the user's own projects name the user.
@@ -1240,7 +1265,9 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         ThemePlan.Active(state, account).FirstOrDefault(theme => theme.CreditedFor != CollaboratorPlan.CreditVersion &&
             (theme.Details ?? []).Any(detail => detail.Citations.Any(citation => citation.Source.Kind == DetailSource.Overleaf)) &&
             theme.Members.All(member => state.Projects.FirstOrDefault(project => project.AccountId == account && project.ProjectId == member) is not { } project ||
-                ThemePlan.Settled(project) && project.EditorsFor == CollaboratorPlan.EditorsVersion) &&
+                ThemePlan.Settled(project) && project.EditorsFor == CollaboratorPlan.EditorsVersion &&
+                // The owner is credited with text without an author: known, or the project list was read and does not say.
+                (project.Owner is not null || _ownersReadAt != DateTimeOffset.MinValue)) &&
             (!_creditTriedAt.TryGetValue(theme.Id, out var tried) || now - tried >= TimeSpan.FromMinutes(10)));
 
     /// <summary>

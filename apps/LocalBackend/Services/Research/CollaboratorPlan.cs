@@ -45,9 +45,10 @@ internal static class CollaboratorPlan
     public const string SelfKey = "self";
     /// <summary>
     /// How Overleaf quotes are credited: version 1 by who wrote the quoted lines (Overleaf's history diff); version 2 also
-    /// counts text without a known author, so small edits never outweigh it, and knows owners from the project list.
+    /// counts text without a known author, so small edits never outweigh it, and knows owners from the project list;
+    /// version 3 credits only once the owners are known (version 2 could run before, crediting an owner's draft to nobody).
     /// </summary>
-    public const int CreditVersion = 2;
+    public const int CreditVersion = 3;
     /// <summary>A person who wrote less than this share of a quote's characters (for example a typo fix) is not credited.</summary>
     public const double MinCreditShare = 0.25;
 
@@ -81,7 +82,9 @@ internal static class CollaboratorPlan
                 if (Who(index) is { } key) chars[key] = chars.GetValueOrDefault(key) + count;
                 else unknown += count;
         }
-        if (!found || chars.Count == 0) return null;
+        if (!found) return null;
+        // Found, but written only by people Meld cannot name: nobody known is credited (not the per-file fallback).
+        if (chars.Count == 0) return [];
         // Text without a known author still counts, so someone who only edited a little is not credited with a whole quote.
         int total = chars.Values.Sum() + unknown, most = Math.Max(chars.Values.Max(), unknown);
         return [.. chars.Where(item => item.Value == most || item.Value >= MinCreditShare * total)

@@ -208,8 +208,10 @@ public sealed class CollaboratorTests
         // Lines not found (the file changed since): no line credit.
         Assert.Null(CollaboratorPlan.LineCredit("A line that is not there.", lines, me, self));
         // Text without an author still counts when nobody is known to credit it with: a small edit is not the whole quote.
-        var draft = Authors([lukas], ("The draft the owner uploaded, with a small fix.", [(-1, 35), (0, 4)]));
+        var draft = Authors([lukas], ("The draft the owner uploaded, with a small fix.", [(-1, 35), (0, 4)]), ("Untouched draft.", [(-1, 14)]));
         Assert.Equal([], CollaboratorPlan.LineCredit("The draft the owner uploaded, with a small fix.", draft, null, self));
+        // Found but written by nobody Meld can name: nobody, never the per-file fallback.
+        Assert.Equal([], CollaboratorPlan.LineCredit("Untouched draft.", draft, null, self));
         Assert.Equal(["self"], CollaboratorPlan.LineCredit("The draft the owner uploaded, with a small fix.", draft, me, self));
     }
 
@@ -278,9 +280,8 @@ public sealed class CollaboratorTests
         var source = new Source(Files(("main.tex", "\\documentclass{article}\n\\begin{document}\nForty participants joined.\n\\end{document}")))
         {
             Editors = [lukas], FileEditors = new Dictionary<string, IReadOnlyList<OverleafPerson>> { ["main.tex"] = [lukas] },
-            ReadsFileAuthors = false
+            ReadsFileAuthors = false, Owner = new("Synthetic", "synthetic@example.invalid"), Owned = true
         };
-        source.Latest = new([new(ProjectId, "Synthetic research", DateTimeOffset.UtcNow, new("Synthetic", "synthetic@example.invalid"), true)], DateTimeOffset.UtcNow);
         var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
         var remote = new Remote();
         using var coordinator = Create(store, remote, source);
@@ -290,6 +291,10 @@ public sealed class CollaboratorTests
         Assert.Null(card.CreditedFor);
         Assert.All(card.Details!.SelectMany(detail => detail.Citations), citation => Assert.Equal(["e:lukas@example.invalid"], citation.By));
 
+        // After a restart, as earlier versions stored it: the owner was never kept and no project list is read yet. Crediting
+        // waits until the list is read, so the user's draft (text without an author) is theirs, not nobody's.
+        store.State = store.State with { Projects = [.. store.State.Projects.Select(project => project with { Owner = null, Owned = null })] };
+        source.Latest = null;
         // The current connector: each quote's lines are read once; the uploaded text is the user's (who added the file).
         // Crediting changes no detail, so it makes no summary, review or other model call.
         int summaries = remote.DetailSummaries.Count, reviews = remote.Reviews.Count, embeds = remote.Embeds.Count;

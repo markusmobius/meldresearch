@@ -424,7 +424,10 @@ public sealed class ResearchCoordinatorTests
         public Task<IReadOnlyList<OverleafProjectResponse>> ProjectsAsync(CancellationToken ct)
         {
             ListReads++;
-            return Task.FromResult<IReadOnlyList<OverleafProjectResponse>>([new(Snapshot.ProjectId, Snapshot.ProjectName, Snapshot.SourceUpdatedAt, Owner, Owned)]);
+            IReadOnlyList<OverleafProjectResponse> list = [new(Snapshot.ProjectId, Snapshot.ProjectName, Snapshot.SourceUpdatedAt, Owner, Owned)];
+            // Like the Overleaf service, a read list is kept as the latest.
+            Latest = new(list, DateTimeOffset.UtcNow);
+            return Task.FromResult(list);
         }
         public Task<ResearchSnapshot> SnapshotAsync(OverleafProjectResponse project, CancellationToken ct)
         { Reads++; return Task.FromResult(Snapshot with { ObservedAt = DateTimeOffset.UtcNow }); }
