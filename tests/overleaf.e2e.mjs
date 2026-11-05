@@ -199,12 +199,12 @@ try {
   assert.ok(schema.paths['/api/extension'].get);
   const setup = await (await call('/api/extension')).json();
   assert.deepEqual(setup, {
-    extensionId, extensionVersion: '0.6.14', protocolVersion: 2,
+    extensionId, extensionVersion: '0.6.15', protocolVersion: 2,
     developmentDirectory: path.join(repo, 'browser', 'overleaf'),
     storeUrl: `https://chromewebstore.google.com/detail/${extensionId}`, storePublished: false,
   });
   assert.deepEqual(await (await call('/api/status')).json(), {
-    connected: false, busy: false, protocolVersion: 2, connectionVersion: null, dummy: false,
+    connected: false, busy: false, protocolVersion: 2, connectionVersion: null, dummy: false, connectorVersion: null,
   });
   assert.equal((await call('/native')).status, 401);
   assert.equal((await call('/api/status', { headers: { Origin: 'https://untrusted.invalid' } })).status, 403);
@@ -247,6 +247,8 @@ try {
   const firstStatus = await (await call('/api/status')).json();
   assert.equal(firstStatus.connected, true);
   assert.equal(typeof firstStatus.connectionVersion, 'string');
+  // The connector tells Meld its own version when asked, so Meld knows what it can read.
+  await waitUntil(async () => (await (await call('/api/status')).json()).connectorVersion === '0.6.15', 'connector version');
 
   const secondNative = nativePort();
   const secondMessages = [];

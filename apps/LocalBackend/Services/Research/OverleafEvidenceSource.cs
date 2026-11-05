@@ -48,11 +48,11 @@ internal sealed class OverleafEvidenceSource(IBrowserRelay browser, IOverleafSer
     public async Task<IReadOnlyDictionary<string, DateTimeOffset>?> EditTimesAsync(string projectId, CancellationToken ct) =>
         (await HistoryAsync(projectId, ct)).EditTimes;
 
-    /// <summary>The first connector version that reads who wrote each line (fileAuthors).</summary>
-    private static readonly Version FileAuthorsSince = new(0, 6, 14);
+    /// <summary>The first connector version that reads who wrote each line (fileAuthors) and tells Meld its version.</summary>
+    private static readonly Version FileAuthorsSince = new(0, 6, 15);
 
     public bool ReadsFileAuthors => browser.Status is { Connected: true } status &&
-        (status.Dummy || Version.TryParse(status.ConnectionVersion, out var version) && version >= FileAuthorsSince);
+        (status.Dummy || Version.TryParse(status.ConnectorVersion, out var version) && version >= FileAuthorsSince);
 
     public async Task<FileAuthorship?> FileAuthorsAsync(string projectId, string path, CancellationToken ct)
     {

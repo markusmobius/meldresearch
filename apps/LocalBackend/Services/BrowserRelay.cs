@@ -23,13 +23,15 @@ internal sealed class BrowserRelay(ILogger<BrowserRelay> logger) : IBrowserRelay
     private WebSocket? _socket;
     private Transfer? _transfer;
     private string? _connectionVersion;
+    private string? _connectorVersion;
 
     public BridgeStatusResponse Status
     {
         get
         {
             lock (_gate)
-                return new(_socket?.State == WebSocketState.Open, _transfer is not null, WireProtocol.Version, _connectionVersion);
+                return new(_socket?.State == WebSocketState.Open, _transfer is not null, WireProtocol.Version, _connectionVersion,
+                    ConnectorVersion: _connectorVersion);
         }
     }
 
@@ -55,11 +57,19 @@ internal sealed class BrowserRelay(ILogger<BrowserRelay> logger) : IBrowserRelay
 
         try
         {
-            await SendAsync(socket, new("ready", Version: WireProtocol.Version, LocalUrl: localUrl), cancellationToken);
+            // "hello" invites the connector to say its version; a connector that does not know the invitation stays silent.
+            await SendAsync(socket, new("ready", Version: WireProtocol.Version, LocalUrl: localUrl, Data: "hello"), cancellationToken);
             logger.LogInformation("Browser bridge connected.");
             while (await WireProtocol.ReadSocketAsync(socket, cancellationToken) is { } bytes)
             {
                 BridgeMessage message = WireProtocol.Decode(bytes);
+                if (message.Type == "hello")
+                {
+                    lock (_gate)
+                        _connectorVersion = message.Data is { Length: <= 20 } version && System.Text.RegularExpressions.Regex.IsMatch(version, @"^\d+(\.\d+){1,3}$")
+                            ? version : null;
+                    continue;
+                }
                 if (message.Type == "overleafChanged")
                 {
                     lock (_gate)
@@ -104,6 +114,7 @@ internal sealed class BrowserRelay(ILogger<BrowserRelay> logger) : IBrowserRelay
                 {
                     _socket = null;
                     _connectionVersion = null;
+                    _connectorVersion = null;
                     _transfer?.Messages.Writer.TryComplete(
                         new ApiFailure(503, "browser_disconnected", "Reconnect the extension and keep the Overleaf tab open."));
                 }

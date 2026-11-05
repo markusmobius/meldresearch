@@ -357,6 +357,8 @@ async function tryConnect(force = false) {
           retryAfter = 0;
           errorCode = '';
           localUrl = url.origin;
+          // Meld asks which connector it talks to (an older Meld does not ask, and would not expect the answer).
+          if (message.data === 'hello') postNative({ type: 'hello', data: chrome.runtime.getManifest().version });
           if (openAfterConnect) {
             openAfterConnect = false;
             background(openLocalApp);

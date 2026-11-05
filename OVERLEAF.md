@@ -340,7 +340,8 @@ shows them in the card's **Collaborators** tab.
    messages their details cite now.
 4b. **Credit is fixed when a detail is written** (`DetailCitation.By`). A new
    Overleaf quote is credited to who wrote its lines in the version read: the
-   connector (0.6.14) reads the file's history diff once and passes on, per line,
+   connector (0.6.15, which tells Meld its version when Meld's ready message asks)
+   reads the file's history diff once and passes on, per line,
    a short hash and the characters each person wrote (`FileAuthorship`); people
    with at least 25% of a quote's characters are credited (at least the largest),
    and text without an author (an upload, a copy, history Overleaf no longer

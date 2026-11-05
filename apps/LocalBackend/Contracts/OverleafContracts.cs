@@ -2,9 +2,12 @@ using System.Text.Json.Serialization;
 
 namespace MeldResearch.LocalBackend.Contracts;
 
-/// <summary>Reports the local browser connection without disclosing credentials.</summary>
+/// <summary>
+/// Reports the local browser connection without disclosing credentials. ConnectionVersion changes with every connection or
+/// Overleaf sign-in; ConnectorVersion is the connected connector's own version (null until it says, as older ones do not).
+/// </summary>
 public sealed record BridgeStatusResponse(bool Connected, bool Busy, int ProtocolVersion,
-    string? ConnectionVersion = null, bool Dummy = false);
+    string? ConnectionVersion = null, bool Dummy = false, string? ConnectorVersion = null);
 
 /// <summary>Identifies the required browser connector and the optional development installation directory.</summary>
 public sealed record ExtensionSetupResponse(string ExtensionId, string ExtensionVersion,
