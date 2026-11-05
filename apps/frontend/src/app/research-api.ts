@@ -85,8 +85,8 @@ export interface ResearchStatus {
 export interface DetailSource {
   key: string; kind: 'overleaf' | 'gmail'; label: string; version: string; at: string | null; quote: string; origin: string | null;
 }
-/** One sentence of a research project's current state, with the sources it rests on. */
-export interface ResearchDetail { id: string; text: string; sources: ReadonlyArray<DetailSource>; }
+/** One sentence of a research project's current state, with the sources it rests on and who (by: "You", collaborators, "Others"). */
+export interface ResearchDetail { id: string; text: string; sources: ReadonlyArray<DetailSource>; by?: ReadonlyArray<string> | null; }
 /**
  * What one source did to one detail: added, revised (before and after) or removed it. by: who it rests on ("You", the
  * project's collaborators by name, "Others"): the senders of the cited email, or who edited the cited files since Meld last

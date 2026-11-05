@@ -2,6 +2,9 @@ const status = document.getElementById('status');
 const overleaf = document.getElementById('overleaf');
 const connect = document.getElementById('connect');
 const disconnect = document.getElementById('disconnect');
+// The connector's version, so the user can tell which one their browser runs.
+const version = chrome.runtime.getManifest?.()?.version;
+if (version) document.getElementById('version').textContent = `Version ${version}`;
 
 function message(state) {
   if (state.signInPending) return 'Finish signing in to Overleaf in the opened tab.';

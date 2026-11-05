@@ -10,7 +10,8 @@ button.primary { color: white; background: var(--brand-accent); border-color: va
 button:disabled { opacity: .5; cursor: default; }
 small { display: block; margin-top: 16px; }
 a { color: var(--brand-accent); }
-.privacy-link { font-size: 12px; margin-bottom: 0; }
+.privacy-link { font-size: 12px; margin-bottom: 0; display: flex; justify-content: space-between; gap: 8px; }
+.version { color: #64748b; }
 .policy { box-sizing: border-box; width: auto; max-width: 960px; margin: 0 auto; padding: 32px; background: #f6faf9; }
 .site-only { display: none; }
 .policy .site-brand { display: flex; align-items: center; gap: 8px; }

@@ -174,7 +174,7 @@ that backend requires real Google OAuth configuration. No synthetic identity is
 available in Live mode.
 
 The source manifest now uses the supplied Chrome draft public key:
-**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.6.12**, wire protocol **2**.
+**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.6.13**, wire protocol **2**.
 It is a public identity key, not a signing secret.
 
 Until the private listing is approved, remove the old development-ID unpacked
@@ -326,7 +326,9 @@ How Overleaf is read:
   Each changelog change shows who it rests on (you, collaborators, others): the senders
   of the cited email, or who edited the cited files since Meld last read them. The tab
   also shows, for you and each collaborator, the share of the project's current details
-  that rest on them (shares can overlap, so they do not add up to 100%).
+  that rest on them (shares can overlap, so they do not add up to 100%); a click on a
+  share lists those details, and each detail in the Details tab names who it rests on.
+  The connector popup shows its version.
 - **Log.** More → Log shows the local app's own activity (checks, progress per file,
   grouping, updates, warnings and errors), newest first, with level and source
   filters, as in Project Meld. Entries name projects by Overleaf id (the page shows

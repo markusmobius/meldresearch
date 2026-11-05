@@ -341,8 +341,12 @@ shows them in the card's **Collaborators** tab.
 4b. **Shares of the current details.** Each citation records who its source
    rests on when it is cited (`DetailCitation.By`); older citations are traced
    through the cited message's sender, or everyone who edited the cited file
-   (`Baseline.FileEditors`, read once more with `EditorsVersion` 3). A detail
-   rests on everyone behind its citations. The Collaborators tab shows, for you
+   (`Baseline.FileEditors`, read once more with `EditorsVersion` 3). That read
+   runs on its own (history only, at most every ten minutes per project until
+   it succeeds), not only at a check of Overleaf, because with sync another
+   computer may do the checks; a synced copy without per-file editors keeps the
+   local ones for the same version. A detail rests on everyone behind its
+   citations, and the Details tab shows them under each detail. The Collaborators tab shows, for you
    and each collaborator, the share of the card's **current** details (the
    snapshot kept now, not the changelog's history) that rest on them, over the
    details whose people are known; shares do not add up to 100%. The tab is a list

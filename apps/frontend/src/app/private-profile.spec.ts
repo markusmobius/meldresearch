@@ -17,7 +17,7 @@ describe('About me: my projects', () => {
     quote: 'The pilot has 80 publishers.', origin: 'me@example.invalid' };
   const details: ResearchDetail[] = [
     { id: 'd1', text: 'The paper designs a publisher content marketplace (PCM).', sources: [mainTex, { ...mainTex, quote: 'A second cited line.' }] },
-    { id: 'd2', text: 'A pilot with 80 publishers is running.', sources: [email] },
+    { id: 'd2', text: 'A pilot with 80 publishers is running.', sources: [email], by: ['You', 'Lukas Bolte'] },
   ];
   const api = {
     moveToTheme: vi.fn(), mergeTheme: vi.fn(), setThemeAnchor: vi.fn(), skipTheme: vi.fn(), decideGmailThread: vi.fn(),
@@ -121,8 +121,10 @@ describe('About me: my projects', () => {
     expect(card.querySelector('.project-toggle')?.getAttribute('aria-expanded')).toBe('true');
     expect([...card.querySelectorAll('[role="tab"]')].map(tab => tab.textContent?.trim())).toEqual(['Details (2)', 'Changelog', 'Projects (2)', 'Collaborators (0)']);
     const items = card.querySelectorAll('.detail-list > li');
-    expect([...items].map(item => item.querySelector('.detail-text span')?.textContent)).toEqual(
+    expect([...items].map(item => item.querySelector('.detail-main > span')?.textContent)).toEqual(
       ['The paper designs a publisher content marketplace (PCM).', 'A pilot with 80 publishers is running.']);
+    // Each detail says who it rests on, when known.
+    expect([...items].map(item => item.querySelector('.detail-by')?.textContent?.replace('person', '').trim() ?? null)).toEqual([null, 'You, Lukas Bolte']);
     expect(card.querySelector('.source-list')).toBeNull();
 
     items[0].querySelector<HTMLButtonElement>('.detail-text')!.click();

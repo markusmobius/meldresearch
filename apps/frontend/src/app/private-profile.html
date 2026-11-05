@@ -66,8 +66,9 @@
                     @for (detail of card.details; track detail.id) {
                       <li [class.open]="openDetail() === detail.id">
                         <button type="button" class="detail-text" (click)="toggleDetail(detail)" [attr.aria-expanded]="openDetail() === detail.id"
-                          [attr.aria-label]="detail.text + ' (' + sources(detail).length + ' sources)'">
-                          <span>{{ detail.text }}</span>
+                          [attr.aria-label]="detail.text + ' (' + sources(detail).length + ' sources' + (detail.by?.length ? '; from ' + detail.by?.join(', ') : '') + ')'">
+                          <span class="detail-main"><span>{{ detail.text }}</span>
+                            @if (detail.by?.join(', '); as by) { <span class="detail-by"><mat-icon>person</mat-icon>{{ by }}</span> }</span>
                           <span class="source-count" aria-hidden="true"><mat-icon>source</mat-icon>{{ sources(detail).length }}</span>
                         </button>
                         @if (openDetail() === detail.id) {

@@ -284,18 +284,23 @@ internal static class SyncBundles
             ? local with { SyncETag = etag }
             : local with
             {
-                Name = bundle.Name, Profile = bundle.Profile, Processed = bundle.Processed, Baseline = bundle.Baseline, Pending = bundle.Pending,
+                Name = bundle.Name, Profile = bundle.Profile, Processed = bundle.Processed, Pending = bundle.Pending,
                 PendingOrder = bundle.PendingOrder, PendingSince = bundle.PendingSince, ImportComplete = bundle.ImportComplete,
                 LastSweepAt = bundle.LastSweepAt, LastSuccessAt = bundle.LastSuccessAt, Updates = bundle.Updates,
                 Snapshot = null, Summary = null, Facts = [], ErrorCode = null, Error = null, FailureCount = 0, NextAttemptAt = null,
                 SyncETag = etag, SyncedFor = Fingerprint(bundle), LastSyncedAt = bundle.SavedAt,
                 Source = local.Source ?? bundle.Source, Parent = local.Parent ?? bundle.Parent, Paper = bundle.Paper, PaperFor = bundle.PaperFor,
                 PendingTrees = bundle.PendingTrees, Partial = bundle.Partial, ExcludedDocs = bundle.ExcludedDocs,
+                // A copy from a computer that does not keep who edited each file keeps this computer's knowledge of it.
+                Baseline = KeepEditors(bundle.Baseline, local.Baseline),
                 Owner = bundle.Owner ?? local.Owner, Owned = bundle.Owned ?? local.Owned,
                 Editors = bundle.EditorsFor is not null ? bundle.Editors : local.Editors, EditorsFor = bundle.EditorsFor ?? local.EditorsFor
             };
         return state with { Projects = [.. state.Projects.Select(item => item == local ? adopted : item)] };
     }
+
+    private static ProjectManifest? KeepEditors(ProjectManifest? pulled, ProjectManifest? local) =>
+        pulled is { FileEditors: null } && local?.FileEditors is { } files && pulled.Revision == local.Revision ? pulled with { FileEditors = files } : pulled;
 
     private static string Hash<T>(T value) => ResearchEvidence.Hash(JsonSerializer.Serialize(value, ResearchJson.Options));
 }

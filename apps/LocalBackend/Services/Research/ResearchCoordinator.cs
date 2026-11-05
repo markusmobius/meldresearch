@@ -163,12 +163,15 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                     theme.Members.Any(member => projects.FirstOrDefault(project => project.ProjectId == member) is { } project && !ThemePlan.Settled(project));
                 var (known, you, shares) = CollaboratorPlan.Shares(state, theme);
                 double? Share(int count) => known == 0 ? null : (double)count / known;
+                var self = CollaboratorPlan.Self(state, theme.AccountId);
                 return new ResearchThemeResponse(theme.Id, theme.Profile, theme.Members, updating, theme.Profile?.Description,
                     anchor?.ProjectId, theme.Anchor is not null && theme.Anchor == anchor?.ProjectId, theme.Reason, theme.Skipped == true,
                     [.. (theme.Details ?? []).Select(detail => new DetailResponse(detail.Id, detail.Text, [.. detail.Citations.Select(citation =>
                         new DetailSourceResponse(citation.Source.Key, citation.Source.Kind, citation.Source.Label, citation.Source.Version, citation.Source.At,
                             citation.Quote, citation.Source.Kind == DetailSource.Overleaf
-                                ? projects.FirstOrDefault(project => project.ProjectId == citation.Source.Container)?.Name : citation.Source.Container))]))],
+                                ? projects.FirstOrDefault(project => project.ProjectId == citation.Source.Container)?.Name : citation.Source.Container))],
+                        CollaboratorPlan.Names([.. detail.Citations.SelectMany(citation => CollaboratorPlan.CitedBy(citation, state, theme.AccountId, self))
+                            .Distinct(StringComparer.Ordinal)], theme)))],
                     ThemePlan.DisplayTitle(theme, ""), theme.ChosenName is not null,
                     theme.Collaborators is { People.Count: > 0 } collaborators
                         ? [.. collaborators.People.Select((person, index) => new CollaboratorResponse(person.Name, person.Emails, person.Kinds, person.Count, person.At,
@@ -1162,7 +1165,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             state.PendingFiles?.Any(file => file.AccountId == credential.Account.Id && file.TargetCardId is not null) == true;
         bool mail = importer?.HasWork(state, credential.Account.Id, now) == true;
         bool rank = RankDue(state, credential.Account.Id, now);
-        if (due.Length == 0 && !queued && summaries.Length == 0 && !themes && !mail && !rank) return false;
+        var unread = source.Available ? selected.Where(project => !due.Contains(project) && EditorsDue(project, now)).Take(5).ToArray() : [];
+        if (due.Length == 0 && !queued && summaries.Length == 0 && !themes && !mail && !rank && unread.Length == 0) return false;
         Interlocked.Exchange(ref _busy, 1);
         var identity = await remote.AccountAsync(credential.Token, ct);
         if (identity.Id != credential.Account.Id) throw AccountChanged();
@@ -1174,6 +1178,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         // Summaries the user asked for come first: each is one project read and at most one model call.
         if (summaries.Length != 0) await SummarizeAsync(credential, summaries, ct);
         if (due.Length != 0) await SweepAsync(credential, due, force, ct);
+        if (unread.Length != 0) await ReadEditorsAsync(unread, ct);
         // A few Gmail threads per cycle, so Overleaf work and card placement continue alongside a long first import.
         bool mailLeft = mail && await importer!.StepAsync(credential, synced, ct);
         for (int step = 0; step < maxSteps; step++)
@@ -1187,6 +1192,35 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             if (!await StepRoundAsync(credential, ct)) return mailLeft;
         }
         return true;
+    }
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTimeOffset> _editorsTriedAt = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// A read project whose editors (and who edited each file) were not read by the current way: read on its own, not only at
+    /// a check of Overleaf (another computer may do those checks and sync its copy here). Tried at most every ten minutes.
+    /// </summary>
+    private bool EditorsDue(MonitoredProject project, DateTimeOffset now) =>
+        project.IsOverleaf && project.ImportComplete && project.Pending is null && project.EditorsFor != CollaboratorPlan.EditorsVersion &&
+        (!_editorsTriedAt.TryGetValue(project.ProjectId, out var tried) || now - tried >= TimeSpan.FromMinutes(10));
+
+    /// <summary>Reads who edited each project and each of its files from Overleaf's history (no download, no model call).</summary>
+    private async Task ReadEditorsAsync(IReadOnlyList<MonitoredProject> projects, CancellationToken ct)
+    {
+        foreach (var project in projects)
+        {
+            _editorsTriedAt[project.ProjectId] = clock.GetUtcNow();
+            var read = await source.HistoryAsync(project.ProjectId, ct);
+            // An older connector does not say who edited each file: asked again later.
+            if (read.FileEditors is null) continue;
+            await ChangeProjectAsync(project, item => item with
+            {
+                Editors = read.Editors ?? item.Editors, EditorsFor = CollaboratorPlan.EditorsVersion,
+                Baseline = item.Baseline is { } baseline ? baseline with { FileEditors = read.FileEditors } : item.Baseline
+            }, ct);
+            using var scope = logger.BeginScope(new Dictionary<string, object?> { ["ProjectId"] = project.ProjectId });
+            logger.LogInformation("Read who edited the project's files (no download, no model call).");
+        }
     }
 
     /// <summary>The user's most recent include or resume first, then the longest-waiting work.</summary>

@@ -167,6 +167,31 @@ public sealed class CollaboratorTests
     }
 
     [Fact]
+    public async Task EditorsAreReadEvenWhenAnotherComputerChecksOverleaf()
+    {
+        var source = new Source(Files(("main.tex", "\\documentclass{article}\n\\begin{document}\nText.\n\\end{document}")));
+        var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
+        var remote = new Remote();
+        using var coordinator = Create(store, remote, source);
+        await Drain(coordinator);
+        // Another computer just checked and synced its copy (without who edited each file): this computer's check is not due.
+        var project = store.State.Projects.Single();
+        store.State = store.State with { Projects = [project with { LastSweepAt = DateTimeOffset.UtcNow, EditorsFor = null }] };
+        source.FileEditors = new Dictionary<string, IReadOnlyList<OverleafPerson>> { ["main.tex"] = [new("Lukas Bolte", "lukas@example.invalid", DateTimeOffset.UtcNow)] };
+        int reads = source.HistoryReads, snapshots = source.Reads;
+        await Drain(coordinator);
+        await Drain(coordinator);
+        Assert.Equal((reads + 1, snapshots), (source.HistoryReads, source.Reads));
+        var read = store.State.Projects.Single();
+        Assert.Equal((CollaboratorPlan.EditorsVersion, "Lukas Bolte"), (read.EditorsFor, read.Baseline!.FileEditors!["main.tex"].Single().Name));
+
+        // A synced copy of the same version without who edited each file keeps this computer's knowledge of it.
+        var bundle = SyncBundles.Project(read with { Baseline = read.Baseline with { FileEditors = null } }, new Dictionary<string, string>(), DateTimeOffset.UtcNow);
+        var pulled = SyncBundles.ApplyProject(store.State, Account.Id, bundle, "etag2").Projects.Single();
+        Assert.Equal("Lukas Bolte", pulled.Baseline!.FileEditors!["main.tex"].Single().Name);
+    }
+
+    [Fact]
     public async Task EachOverleafChangeRestsOnWhoEditedTheCitedFilesSinceMeldLastReadThem()
     {
         var first = DateTimeOffset.UtcNow.AddDays(-3);
@@ -193,6 +218,8 @@ public sealed class CollaboratorTests
         Assert.Equal(["self", "e:lukas@example.invalid"], store.State.Themes!.Single().Details!.Single().Citations.Single().By);
         var theme = (await coordinator.StatusAsync(None)).Themes!.Single();
         Assert.Equal((1, 1.0, 1.0), (theme.KnownDetails, theme.YourShare, theme.Collaborators!.Single(person => person.Name == "Lukas Bolte").Share));
+        // Each detail says who it rests on.
+        Assert.Equal(["You", "Lukas Bolte"], theme.Details!.Single().By);
         // Which details: the ones a click on a share lists.
         string detailId = store.State.Themes!.Single().Details!.Single().Id;
         Assert.Equal([detailId], theme.YourDetails);

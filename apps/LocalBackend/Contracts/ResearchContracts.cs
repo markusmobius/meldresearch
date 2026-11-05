@@ -32,7 +32,9 @@ public sealed record ResearchStatusResponse(MeldAccountResponse? Account, DateTi
     IReadOnlyList<PendingFileResponse>? PendingFiles = null, int RecentDays = 183);
 
 /// <summary>A detail of a research project with its sources (each citation: the source, its version, the quote).</summary>
-public sealed record DetailResponse(string Id, string Text, IReadOnlyList<DetailSourceResponse> Sources);
+/// <summary>A current detail with its sources. By: who it rests on ("You", collaborators' names, "Others"); null when not known.</summary>
+public sealed record DetailResponse(string Id, string Text, IReadOnlyList<DetailSourceResponse> Sources,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? By = null);
 /// <summary>Key identifies the source regardless of version (removing it removes every citation of it); Origin is the project or address.</summary>
 public sealed record DetailSourceResponse(string Key, string Kind, string Label, string Version, DateTimeOffset? At, string Quote, string? Origin);
 /// <summary>A changelog entry: a source that updated a research project and what it did to the details.</summary>

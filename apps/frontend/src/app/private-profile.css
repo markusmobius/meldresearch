@@ -124,7 +124,9 @@
 .collaborators-note { display: flex; align-items: flex-start; gap: 6px; margin: 10px 0 0; font-size: 0.75rem; }
 .collaborators-note mat-icon { flex: none; font-size: 15px; width: 15px; height: 15px; }
 .change-by { display: flex; align-items: center; gap: 3px; flex-basis: 100%; padding-left: 56px; font-size: 0.72rem; color: #0a6655; }
-.change-by mat-icon { font-size: 13px; width: 13px; height: 13px; }
+.change-by mat-icon, .detail-by mat-icon { font-size: 13px; width: 13px; height: 13px; }
+.detail-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.detail-by { display: flex; align-items: center; gap: 3px; font-size: 0.72rem; color: #0a6655; }
 .main-paper { display: inline-flex; align-items: center; gap: 3px; padding: 1px 8px; border-radius: 10px; background: #fef3c7; color: #92400e; font-size: 0.72rem; font-weight: 600; }
 .main-paper mat-icon { font-size: 13px; width: 13px; height: 13px; }
 .make-main, .move { height: 30px !important; font-size: 0.75rem !important; }
