@@ -159,7 +159,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             account is not { } owner ? [] : ThemePlan.Themes(state, owner).Select(theme =>
             {
                 var anchor = ThemePlan.AnchorOf(state, theme);
-                bool updating = theme.Details is { Count: > 0 } details && theme.SummaryFor != DetailPlan.Fingerprint(details) || theme.MatchPending == true ||
+                bool updating = theme.Details is { Count: > 0 } details && !DetailPlan.Matches(theme.SummaryFor, details) || theme.MatchPending == true ||
                     theme.Members.Any(member => projects.FirstOrDefault(project => project.ProjectId == member) is { } project && !ThemePlan.Settled(project));
                 var (known, you, shares) = CollaboratorPlan.Shares(state, theme);
                 double? Share(int count) => known == 0 ? null : (double)count / known;
@@ -1180,7 +1180,12 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         if (summaries.Length != 0) await SummarizeAsync(credential, summaries, ct);
         if (due.Length != 0) await SweepAsync(credential, due, force, ct);
         if (unread.Length != 0) await ReadEditorsAsync(unread, ct);
-        if (credit is not null) await CreditAsync(credential.Account.Id, credit, ct);
+        // Every card due is credited in this cycle (a few history reads each), not one card per check.
+        for (int done = 0; credit is not null && done < 50; done++)
+        {
+            await CreditAsync(credential.Account.Id, credit, ct);
+            credit = source.Available && source.ReadsFileAuthors ? CreditDue(await store.ReadAsync(ct), credential.Account.Id, clock.GetUtcNow()) : null;
+        }
         // A few Gmail threads per cycle, so Overleaf work and card placement continue alongside a long first import.
         bool mailLeft = mail && await importer!.StepAsync(credential, synced, ct);
         for (int step = 0; step < maxSteps; step++)

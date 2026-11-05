@@ -225,8 +225,24 @@ internal static class DetailPlan
         return (result, changes);
     }
 
+    /// <summary>
+    /// What the details say and rest on, without who they are credited to: crediting (OVERLEAF.md §12a) never makes a
+    /// summary, review or ranking due. Details never credited hash as they always did.
+    /// </summary>
     public static string Fingerprint(IReadOnlyList<DetailBullet>? details) =>
-        ResearchEvidence.Hash(JsonSerializer.Serialize(details ?? [], ResearchJson.Options));
+        ResearchEvidence.Hash(JsonSerializer.Serialize((details ?? []).Select(detail => detail with
+        {
+            Citations = [.. detail.Citations.Select(citation => citation.By is null ? citation : citation with { By = null })]
+        }).ToArray(), ResearchJson.Options));
+
+    /// <summary>
+    /// Whether a stored fingerprint is of these details: the current way, or the way that also hashed their credit (written
+    /// by the version before), so cards credited back then are not summarized or reviewed again.
+    /// </summary>
+    public static bool Matches(string? stored, IReadOnlyList<DetailBullet>? details) =>
+        stored is not null && (stored == Fingerprint(details) ||
+            (details ?? []).Any(detail => detail.Citations.Any(citation => citation.By is not null)) &&
+            stored == ResearchEvidence.Hash(JsonSerializer.Serialize(details ?? [], ResearchJson.Options)));
 
     /// <summary>Adds a changelog entry, or merges it into the entry with the same key (parts of one root tree in one cycle).</summary>
     public static IReadOnlyList<ChangelogEntry> Log(IReadOnlyList<ChangelogEntry>? log, ChangelogEntry entry)

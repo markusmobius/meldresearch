@@ -32,7 +32,7 @@ internal static class ThemePlan
     /// <summary>A skipped card not yet compared (loosely) with the other skipped cards.</summary>
     public static ResearchTheme? SkipUngrouped(LocalResearchState state, Guid account) =>
         Themes(state, account).FirstOrDefault(theme => theme.Skipped == true && theme.SkipGrouped != true && theme.Profile is not null &&
-            theme.SummaryFor == DetailPlan.Fingerprint(theme.Details));
+            DetailPlan.Matches(theme.SummaryFor, theme.Details));
 
     /// <summary>
     /// The member whose paper titles the card: the user's choice, else an Overleaf member with an abstract (then a title),
@@ -105,7 +105,7 @@ internal static class ThemePlan
     /// </summary>
     public static ResearchTheme? SummaryDue(LocalResearchState state, Guid account) =>
         Themes(state, account).FirstOrDefault(theme => theme.Details is { Count: > 0 } details &&
-            (theme.SummaryFor != DetailPlan.Fingerprint(details) || theme.ShortName is null) &&
+            (!DetailPlan.Matches(theme.SummaryFor, details) || theme.ShortName is null) &&
             theme.Members.All(member => state.Projects.FirstOrDefault(project => project.AccountId == account && project.ProjectId == member) is not { } project ||
                 Settled(project)) && !FoldPending(state, theme));
 
@@ -115,14 +115,14 @@ internal static class ThemePlan
     /// </summary>
     public static ResearchTheme? ReviewDue(LocalResearchState state, Guid account, DateTimeOffset now, TimeSpan interval) =>
         Active(state, account).FirstOrDefault(theme => theme.Details is { Count: >= DetailRules.MinReviewDetails } details &&
-            theme.ReviewedFor != DetailPlan.Fingerprint(details) && (theme.ReviewedAt is not { } reviewed || now - reviewed >= interval) &&
+            !DetailPlan.Matches(theme.ReviewedFor, details) && (theme.ReviewedAt is not { } reviewed || now - reviewed >= interval) &&
             theme.Members.All(member => state.Projects.FirstOrDefault(project => project.AccountId == account && project.ProjectId == member) is not { } project ||
                 Settled(project)) && !FoldPending(state, theme));
 
     /// <summary>A new card, summarized, waiting to be compared (strictly) with the other cards.</summary>
     public static ResearchTheme? MatchDue(LocalResearchState state, Guid account) =>
         Active(state, account).FirstOrDefault(theme => theme.MatchPending == true && theme.Profile is not null &&
-            theme.SummaryFor == DetailPlan.Fingerprint(theme.Details));
+            DetailPlan.Matches(theme.SummaryFor, theme.Details));
 
     /// <summary>
     /// An included project whose paper was read by an earlier way of reading papers (Papers.Version): it is read again from

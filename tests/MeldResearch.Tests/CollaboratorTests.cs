@@ -286,6 +286,8 @@ public sealed class CollaboratorTests
         Assert.All(card.Details!.SelectMany(detail => detail.Citations), citation => Assert.Equal(["e:lukas@example.invalid"], citation.By));
 
         // The current connector: each quote's lines are read once; the uploaded text is the user's (who added the file).
+        // Crediting changes no detail, so it makes no summary, review or other model call.
+        int summaries = remote.DetailSummaries.Count, reviews = remote.Reviews.Count, embeds = remote.Embeds.Count;
         source.ReadsFileAuthors = true;
         source.Authorship["main.tex"] = Authors([lukas], ("\\documentclass{article}", [(-1, 22)]), ("\\begin{document}", [(-1, 15)]),
             ("Forty participants joined.", [(-1, 23)]), ("\\end{document}", [(-1, 13)]));
@@ -296,6 +298,13 @@ public sealed class CollaboratorTests
         Assert.All(card.Details!.SelectMany(detail => detail.Citations), citation => Assert.Equal(["self"], citation.By));
         Assert.Equal(1, source.AuthorReads);
         Assert.Equal(1.0, (await coordinator.StatusAsync(None)).Themes!.Single().YourShare);
+        Assert.Equal((summaries, reviews, embeds), (remote.DetailSummaries.Count, remote.Reviews.Count, remote.Embeds.Count));
+        // A card summarized by the version that also hashed the credit is not summarized again either.
+        var details = card.Details!;
+        string legacy = ResearchEvidence.Hash(System.Text.Json.JsonSerializer.Serialize(details, ResearchJson.Options));
+        Assert.True(DetailPlan.Matches(legacy, details));
+        Assert.True(DetailPlan.Matches(DetailPlan.Fingerprint(details), details));
+        Assert.False(DetailPlan.Matches(DetailPlan.Fingerprint([.. details.Skip(1)]), details));
         Assert.Equal(0, remote.Calls - remote.DetailRequests.Count);
     }
 

@@ -27,7 +27,7 @@ internal static class Ranking
         var items = new List<RankItem>();
         var cards = ThemePlan.Active(state, account);
         foreach (var card in cards.Where(card => card.Profile is not null && card.Details is { Count: > 0 } details &&
-            card.SummaryFor == DetailPlan.Fingerprint(details)))
+            DetailPlan.Matches(card.SummaryFor, details)))
             items.Add(Text(CardKey(card.Id), CardText(card)));
         foreach (var group in Housekeeping.Groups(state, account))
         {
