@@ -97,10 +97,12 @@
 .members li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 0; border-top: 1px solid #f1f5f9; }
 .members li:first-child { border-top: 0; }
 .member-name { flex: 1; min-width: 0; color: #334155; overflow-wrap: anywhere; }
-.collaborators { list-style: none; margin: 10px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 8px; }
-.collaborators li { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 10px; background: #ffffff; }
+.collaborators { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; border: 1px solid #e2e8f0; border-radius: 10px; background: #ffffff; }
+.collaborators > li { display: flex; flex-direction: column; padding: 8px 12px; border-top: 1px solid #f1f5f9; }
+.collaborators > li:first-child { border-top: 0; border-radius: 10px 10px 0 0; }
+.person-line { display: flex; align-items: flex-start; gap: 8px; }
 .person-icon { flex: none; color: #0a6655; }
-.person { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.person { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .person-name { font-size: 0.88rem; font-weight: 600; color: #1e293b; overflow-wrap: anywhere; }
 .person-emails { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 0.78rem; overflow-wrap: anywhere; }
 .person-emails a { color: #0a6655; }
@@ -108,8 +110,17 @@
 .person-kind { display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; border-radius: 999px; background: #f1f5f9; color: #475569; font-size: 0.7rem; }
 .person-kind mat-icon { font-size: 13px; width: 13px; height: 13px; }
 .kind-author { background: #e6f2ef; color: #084d42; }
-.person-share { margin-left: 8px; padding: 0 6px; border-radius: 999px; background: #0a6655; color: #ffffff; font-size: 0.72rem; font-weight: 600; }
-.collaborators li.you { background: #f0f7f5; }
+.person-share { flex: none; display: inline-flex; align-items: center; gap: 0; margin-top: 2px; padding: 1px 4px 1px 9px; border: 0; border-radius: 999px;
+  background: #0a6655; color: #ffffff; font: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer; }
+.person-share mat-icon { font-size: 18px; width: 18px; height: 18px; }
+.person-share:hover { background: #084d42; }
+.person-details { list-style: none; margin: 8px 0 2px 32px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.person-details li { display: flex; flex-direction: column; gap: 2px; padding-left: 10px; border-left: 2px solid #cfe5df; font-size: 0.82rem; line-height: 1.45; color: #334155; }
+.person-detail-sources { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 0.72rem; color: #64748b; }
+.person-detail-sources span { display: inline-flex; align-items: center; gap: 3px; overflow-wrap: anywhere; }
+.person-detail-sources mat-icon { font-size: 13px; width: 13px; height: 13px; }
+.person-detail-sources mat-icon.mail { color: #b42336; }
+.collaborators > li.you { background: #f0f7f5; }
 .collaborators-note { display: flex; align-items: flex-start; gap: 6px; margin: 10px 0 0; font-size: 0.75rem; }
 .collaborators-note mat-icon { flex: none; font-size: 15px; width: 15px; height: 15px; }
 .change-by { display: flex; align-items: center; gap: 3px; flex-basis: 100%; padding-left: 56px; font-size: 0.72rem; color: #0a6655; }

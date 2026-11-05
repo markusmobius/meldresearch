@@ -178,40 +178,53 @@
               <mat-tab [label]="'Collaborators (' + card.collaborators.length + ')'">
                 @if (card.collaborators.length || card.yourShare != null) {
                   <ul class="collaborators">
-                    @if (card.yourShare != null) {
-                      <li class="you">
-                        <mat-icon class="person-icon">account_circle</mat-icon>
-                        <div class="person">
-                          <span class="person-name">You<span class="person-share" title="Share of the current details that rest on you">{{ percent(card.yourShare) }}</span></span>
-                        </div>
-                      </li>
-                    }
-                    @for (person of card.collaborators; track $index) {
-                      <li>
-                        <mat-icon class="person-icon">person</mat-icon>
-                        <div class="person">
-                          <span class="person-name">{{ person.name ?? person.emails[0] }}@if (person.share != null) {<span class="person-share"
-                            title="Share of the current details that rest on them">{{ percent(person.share) }}</span>}</span>
-                          @if (person.emails.length) {
-                            <span class="person-emails">
-                              @for (email of person.emails; track email) { <a [href]="'mailto:' + email">{{ email }}</a> }
-                            </span>
-                          } @else {
-                            <span class="person-emails muted">No email address found</span>
-                          }
-                          <span class="person-kinds">
-                            @for (kind of person.kinds; track kind) {
-                              <span class="person-kind" [class]="'kind-' + kind"><mat-icon>{{ kindInfo(kind).icon }}</mat-icon>{{ kindInfo(kind).label }}</span>
+                    @for (row of people(card); track row.id) {
+                      <li [class.you]="row.you" [class.open]="openPerson() === card.id + '|' + row.id">
+                        <div class="person-line">
+                          <mat-icon class="person-icon">{{ row.you ? 'account_circle' : 'person' }}</mat-icon>
+                          <div class="person">
+                            <span class="person-name">{{ row.name }}</span>
+                            @if (!row.you) {
+                              @if (row.emails.length) {
+                                <span class="person-emails">
+                                  @for (email of row.emails; track email) { <a [href]="'mailto:' + email">{{ email }}</a> }
+                                </span>
+                              } @else {
+                                <span class="person-emails muted">No email address found</span>
+                              }
+                              <span class="person-kinds">
+                                @for (kind of row.kinds; track kind) {
+                                  <span class="person-kind" [class]="'kind-' + kind"><mat-icon>{{ kindInfo(kind).icon }}</mat-icon>{{ kindInfo(kind).label }}</span>
+                                }
+                              </span>
                             }
-                          </span>
+                          </div>
+                          @if (row.share != null) {
+                            <button type="button" class="person-share" (click)="togglePerson(card, row.id)"
+                              [attr.aria-expanded]="openPerson() === card.id + '|' + row.id"
+                              [attr.aria-label]="row.name + ': ' + percent(row.share) + ' of the current details. Show which'"
+                              title="Share of the current details that rest on them; show which">{{ percent(row.share) }}<mat-icon>{{
+                                openPerson() === card.id + '|' + row.id ? 'expand_less' : 'expand_more' }}</mat-icon></button>
+                          }
                         </div>
+                        @if (openPerson() === card.id + '|' + row.id) {
+                          <ul class="person-details" [attr.aria-label]="'Details that rest on ' + row.name">
+                            @for (detail of row.details; track detail.id) {
+                              <li><span class="person-detail-text">{{ detail.text }}</span>
+                                <span class="person-detail-sources">@for (source of sources(detail); track source.key) {<span><mat-icon
+                                  [class.mail]="source.kind === 'gmail'">{{ source.kind === 'gmail' ? 'mail' : 'description' }}</mat-icon>{{ source.label }}</span>}</span></li>
+                            } @empty {
+                              <li class="muted">None of the current details rest on {{ row.you ? 'you' : 'them' }}.</li>
+                            }
+                          </ul>
+                        }
                       </li>
                     }
                   </ul>
                   <p class="muted collaborators-note"><mat-icon>info</mat-icon>Authors, people who edit its Overleaf projects and people whose email shows work
                     on it; the same person under different names or addresses is shown once.
                     @if (card.knownDetails) { Percentages: the share of the {{ card.knownDetails }} current details that rest on each person (through the
-                      email they sent or the files they edited); a detail can rest on several people, so they do not add up to 100%. }</p>
+                      email they sent or the files they edited); click one to see which. A detail can rest on several people, so they do not add up to 100%. }</p>
                 } @else {
                   <p class="muted empty">Collaborators appear once this project's Overleaf projects and email have been read.</p>
                 }

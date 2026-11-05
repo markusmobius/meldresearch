@@ -172,8 +172,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                     ThemePlan.DisplayTitle(theme, ""), theme.ChosenName is not null,
                     theme.Collaborators is { People.Count: > 0 } collaborators
                         ? [.. collaborators.People.Select((person, index) => new CollaboratorResponse(person.Name, person.Emails, person.Kinds, person.Count, person.At,
-                            Share(shares[index])))] : null,
-                    known, Share(you));
+                            Share(shares[index].Count), known == 0 ? null : shares[index]))] : null,
+                    known, Share(you.Count), known == 0 ? null : you);
             }).ToArray(),
             _sync.Status(state), gmail?.Status(state, importer), changes.Take(100).ToArray(), changes.Length,
             [.. (state.PendingFiles ?? []).Where(file => file.AccountId == account && file.TargetCardId is null).OrderByDescending(file => file.RemovedAt)

@@ -38,11 +38,17 @@ interface ProfileCard {
   anchorId: string | null; reason: string | null;
   /** Skipped as not the user's own research; threads: the skipped email threads on it. */
   skipped: boolean; threads: ReadonlyArray<GmailThread>;
-  /** The people the research is done with; how many current details have known people, and the user's share of them. */
-  collaborators: ReadonlyArray<Collaborator>; knownDetails: number; yourShare: number | null;
+  /** The people the research is done with; how many current details have known people, and the user's share of them (and which). */
+  collaborators: ReadonlyArray<Collaborator>; knownDetails: number; yourShare: number | null; yourDetails: ReadonlyArray<string>;
   updating: boolean; progress: ResearchProject | null;
   /** The latest change of the research: a source's date or an Overleaf edit of a member; orders the cards. */
   lastChanged: number | null;
+}
+
+/** One row of the Collaborators tab: the user or a collaborator, their share of the current details and which details. */
+interface PersonRow {
+  id: string; you: boolean; name: string; emails: ReadonlyArray<string>; kinds: ReadonlyArray<CollaboratorKind>;
+  share: number | null; details: ReadonlyArray<ResearchDetail>;
 }
 
 /** A card's changelog as loaded so far (pages of 30, newest first). */
@@ -114,7 +120,7 @@ export class PrivateProfile {
     if (loose.length) {
       list.push({ id: 'ungrouped', themeId: null, title: 'Being grouped\u2026', fullTitle: null, nameChosen: false, summary: null, details: [],
         members: [], anchorId: null, reason: null, skipped: true, threads: loose, updating: false, progress: null, lastChanged: null, collaborators: [],
-        knownDetails: 0, yourShare: null });
+        knownDetails: 0, yourShare: null, yourDetails: [] });
     }
     const latest = (card: ProfileCard) => Math.max(card.lastChanged ?? 0, ...card.threads.map(mailTime));
     return list.map(card => ({ card, at: latest(card) })).sort((a, b) => b.at - a.at).map(item => item.card);
@@ -148,7 +154,7 @@ export class PrivateProfile {
         summary: theme.profile?.description || null, details, members, anchorId: theme.anchorId ?? null, reason: theme.reason ?? null,
         skipped: !!theme.skipped, threads, updating: theme.updating, progress: members.find(member => BUSY.has(member.phase)) ?? null,
         lastChanged: latest(theme.projectIds, details), collaborators: theme.collaborators ?? [],
-        knownDetails: theme.knownDetails ?? 0, yourShare: theme.yourShare ?? null,
+        knownDetails: theme.knownDetails ?? 0, yourShare: theme.yourShare ?? null, yourDetails: theme.yourDetails ?? [],
       });
     }
     // Projects still being read, before their first details give them a card.
@@ -156,7 +162,7 @@ export class PrivateProfile {
       cards.push({
         id: project.projectId, themeId: null, title: project.name, fullTitle: null, nameChosen: false, summary: null, details: [], members: [project], anchorId: null, reason: null,
         skipped: false, threads: [], updating: false, progress: BUSY.has(project.phase) ? project : null, lastChanged: latest([project.projectId], []),
-        collaborators: [], knownDetails: 0, yourShare: null,
+        collaborators: [], knownDetails: 0, yourShare: null, yourDetails: [],
       });
     }
     return cards.sort((a, b) => (b.lastChanged ?? 0) - (a.lastChanged ?? 0));
@@ -176,6 +182,28 @@ export class PrivateProfile {
     const tab: Tab = index === 1 ? 'changelog' : index === 2 ? 'projects' : index === 3 ? 'collaborators' : 'details';
     this.tab.set(tab);
     if (tab === 'changelog' && card.themeId) void this.loadChangelog(card.themeId, true);
+  }
+  /** The person whose contributions are shown ("card|you" or "card|index"), one at a time. */
+  readonly openPerson = signal<string | null>(null);
+  togglePerson(card: ProfileCard, id: string): void {
+    const key = `${card.id}|${id}`;
+    this.openPerson.update(open => open === key ? null : key);
+  }
+  /**
+   * The Collaborators tab's list: the user first (once their share is known), then the collaborators by share of the
+   * current details, highest first; each with the details that rest on them.
+   */
+  people(card: ProfileCard): ReadonlyArray<PersonRow> {
+    const byId = new Map(card.details.map(detail => [detail.id, detail] as const));
+    const details = (ids: ReadonlyArray<string> | null | undefined) =>
+      (ids ?? []).map(id => byId.get(id)).filter((detail): detail is ResearchDetail => !!detail);
+    const rows: PersonRow[] = card.collaborators.map((person, index) => ({
+      id: String(index), you: false, name: person.name ?? person.emails[0] ?? 'Unknown', emails: person.emails, kinds: person.kinds,
+      share: person.share ?? null, details: details(person.details),
+    }));
+    rows.sort((a, b) => (b.share ?? -1) - (a.share ?? -1));
+    return card.yourShare == null ? rows
+      : [{ id: 'you', you: true, name: 'You', emails: [], kinds: [], share: card.yourShare, details: details(card.yourDetails) }, ...rows];
   }
   /** A share of the current details as a whole percentage ("20%"), or "" when unknown. */
   percent(share: number | null | undefined): string { return share == null ? '' : `${Math.round(share * 100)}%`; }

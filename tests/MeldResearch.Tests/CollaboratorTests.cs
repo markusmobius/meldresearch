@@ -193,6 +193,10 @@ public sealed class CollaboratorTests
         Assert.Equal(["self", "e:lukas@example.invalid"], store.State.Themes!.Single().Details!.Single().Citations.Single().By);
         var theme = (await coordinator.StatusAsync(None)).Themes!.Single();
         Assert.Equal((1, 1.0, 1.0), (theme.KnownDetails, theme.YourShare, theme.Collaborators!.Single(person => person.Name == "Lukas Bolte").Share));
+        // Which details: the ones a click on a share lists.
+        string detailId = store.State.Themes!.Single().Details!.Single().Id;
+        Assert.Equal([detailId], theme.YourDetails);
+        Assert.Equal([detailId], theme.Collaborators!.Single(person => person.Name == "Lukas Bolte").Details);
 
         // A later edit only by Lukas: the update rests on him alone.
         var second = DateTimeOffset.UtcNow.AddHours(-1);

@@ -290,19 +290,30 @@ describe('About me: my projects', () => {
 
   it('lists a card\'s collaborators with their email addresses and how they appear', async () => {
     const value = grouped();
-    const fixture = render({ ...value, themes: value.themes!.map(theme => theme.id === cardId ? { ...theme, knownDetails: 10, yourShare: 0.8, collaborators: [
-      { name: 'Lukas Bolte', emails: ['l.bolte@uni.example.invalid', 'lukas@example.invalid'], kinds: ['author', 'editor', 'from'], count: 5, at: null, share: 0.2 },
+    const fixture = render({ ...value, themes: value.themes!.map(theme => theme.id === cardId ? { ...theme, knownDetails: 2, yourShare: 1, yourDetails: ['d1', 'd2'],
+      collaborators: [
       { name: 'Ada Lovelace', emails: [], kinds: ['author'], count: 0, at: null },
+      { name: 'Lukas Bolte', emails: ['l.bolte@uni.example.invalid', 'lukas@example.invalid'], kinds: ['author', 'editor', 'from'], count: 5, at: null, share: 0.5,
+        details: ['d2'] },
       { name: null, emails: ['grace@example.invalid'], kinds: ['cc'], count: 1, at: null }] } : theme) });
     const card = await expand(fixture);
     expect(card.querySelectorAll('[role="tab"]')[3].textContent?.trim()).toBe('Collaborators (3)');
     await selectTab(fixture, card, 3);
-    // The user first, then each collaborator with their share of the current details (shares need not add up to 100%).
-    const you = card.querySelector('.collaborators li.you')!;
-    expect(you.querySelector('.person-name')?.textContent?.trim()).toBe('You80%');
-    const people = [...card.querySelectorAll('.collaborators li:not(.you)')];
-    expect(people.map(person => person.querySelector('.person-name')?.textContent?.trim())).toEqual(['Lukas Bolte20%', 'Ada Lovelace', 'grace@example.invalid']);
-    expect(card.querySelector('.collaborators-note')?.textContent).toContain('share of the 10 current details');
+    // A list: the user first, then collaborators by their share of the current details (shares need not add up to 100%).
+    const rows = () => [...card.querySelectorAll<HTMLElement>('.collaborators > li')];
+    expect(rows().map(row => row.querySelector('.person-name')?.textContent?.trim())).toEqual(['You', 'Lukas Bolte', 'Ada Lovelace', 'grace@example.invalid']);
+    expect(rows().map(row => row.querySelector('.person-share')?.textContent?.replace(/expand_\w+/, '').trim() ?? null)).toEqual(['100%', '50%', null, null]);
+    expect(card.querySelector('.collaborators-note')?.textContent).toContain('share of the 2 current details');
+    // A click on a share lists the details that rest on that person, with their sources.
+    rows()[1].querySelector<HTMLButtonElement>('.person-share')!.click();
+    fixture.detectChanges();
+    expect([...rows()[1].querySelectorAll('.person-detail-text')].map(text => text.textContent)).toEqual(['A pilot with 80 publishers is running.']);
+    expect(rows()[1].querySelector('.person-detail-sources')?.textContent).toContain('Pilot results');
+    rows()[0].querySelector<HTMLButtonElement>('.person-share')!.click();
+    fixture.detectChanges();
+    expect(rows()[1].querySelector('.person-details')).toBeNull();
+    expect(rows()[0].querySelectorAll('.person-detail-text')).toHaveLength(2);
+    const people = rows().slice(1);
     expect([...people[0].querySelectorAll('.person-emails a')].map(link => link.getAttribute('href')))
       .toEqual(['mailto:l.bolte@uni.example.invalid', 'mailto:lukas@example.invalid']);
     expect(people[0].querySelector('.person-kinds')?.textContent).toContain('Edits in Overleaf');

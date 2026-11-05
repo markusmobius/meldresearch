@@ -345,7 +345,9 @@ shows them in the card's **Collaborators** tab.
    rests on everyone behind its citations. The Collaborators tab shows, for you
    and each collaborator, the share of the card's **current** details (the
    snapshot kept now, not the changelog's history) that rest on them, over the
-   details whose people are known; shares do not add up to 100%.
+   details whose people are known; shares do not add up to 100%. The tab is a list
+   (you first, then by share); a click on a share lists the details that rest on
+   that person, with their sources.
 5. Collaborators sync with the card; skipped cards are not processed.
 
 ## 13. Fresh start

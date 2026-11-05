@@ -111,27 +111,28 @@ internal static class CollaboratorPlan
     }
 
     /// <summary>
-    /// Each person's share of a project's current details (OVERLEAF.md §12a): of the details whose people are known (Known),
-    /// how many rest on the user (You) and on each collaborator (Shares, by position in Collaborators.People). A detail rests
-    /// on everyone behind its sources, so shares do not add up to 100%.
+    /// Each person's contributions to a project's current details (OVERLEAF.md §12a): of the details whose people are known
+    /// (Known), the ids of those that rest on the user (You) and on each collaborator (People, by position in
+    /// Collaborators.People). A detail rests on everyone behind its sources, so shares do not add up to 100%.
     /// </summary>
-    public static (int Known, int You, IReadOnlyList<int> Shares) Shares(LocalResearchState state, ResearchTheme card)
+    public static (int Known, IReadOnlyList<string> You, IReadOnlyList<IReadOnlyList<string>> People) Shares(LocalResearchState state, ResearchTheme card)
     {
         var people = card.Collaborators?.People ?? [];
-        var counts = new int[people.Count];
-        int known = 0, you = 0;
+        var details = people.Select(_ => new List<string>()).ToArray();
+        var you = new List<string>();
+        int known = 0;
         var self = Self(state, card.AccountId);
         foreach (var detail in card.Details ?? [])
         {
             var keys = detail.Citations.SelectMany(citation => CitedBy(citation, state, card.AccountId, self)).ToHashSet(StringComparer.Ordinal);
             if (keys.Count == 0) continue;
             known++;
-            if (keys.Contains(SelfKey)) you++;
+            if (keys.Contains(SelfKey)) you.Add(detail.Id);
             for (int index = 0; index < people.Count; index++)
                 if (keys.Any(key => people[index].Keys.Contains(key) || key.StartsWith("e:", StringComparison.Ordinal) && people[index].Emails.Contains(key[2..])))
-                    counts[index]++;
+                    details[index].Add(detail.Id);
         }
-        return (known, you, counts);
+        return (known, you, details);
     }
 
     /// <summary>Who wrote an email, as a key for DetailChange.By: the user, or the sender's address (empty when unknown).</summary>
