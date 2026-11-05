@@ -146,7 +146,7 @@ internal static class ThemePlan
 
     public static bool HasWork(LocalResearchState state, Guid account, DateTimeOffset now, TimeSpan interval) =>
         Cleaned(state, account) is not null || PaperDue(state, account) is not null || TitleDue(state, account) is not null || SummaryDue(state, account) is not null || ReviewDue(state, account, now, interval) is not null || MatchDue(state, account) is not null ||
-        RegroupDue(state, account) || SkipUngrouped(state, account) is not null;
+        RegroupDue(state, account) || SkipUngrouped(state, account) is not null || CollaboratorPlan.Due(state, account) is not null;
 
     /// <summary>The account's cards and their members, independent of order; regrouping runs again only when it changes.</summary>
     public static string Signature(LocalResearchState state, Guid account) => ResearchEvidence.Hash(string.Join("|",

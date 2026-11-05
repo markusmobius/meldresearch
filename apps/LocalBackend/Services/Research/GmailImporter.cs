@@ -72,7 +72,8 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
     public bool HasWork(LocalResearchState state, Guid account, DateTimeOffset now) =>
         state.GmailVersion < Version ||
         Eligible(state, account).Any(mail => !Blocked(mail.Address, now) && (_runs.ContainsKey(mail.Address) || Due(mail, now))) ||
-        SkipDue(state, account, now) is not null || FoldDue(state, account, now) is not null || HousekeepingDue(state, account, now);
+        SkipDue(state, account, now) is not null || FoldDue(state, account, now) is not null || PeopleDue(state, account, now) is not null ||
+        HousekeepingDue(state, account, now);
 
     /// <summary>Housekeeping work: tidy groups, group a waiting thread, compare groups once more, or check a group against the projects.</summary>
     private bool HousekeepingDue(LocalResearchState state, Guid account, DateTimeOffset now) =>
@@ -144,6 +145,17 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
             {
                 _retryAt[FoldKey(fold)] = clock.GetUtcNow() + RetryAfter;
                 logger.LogWarning("Adding a Gmail thread to its project failed ({Type}); it is retried shortly.", error is ResearchFailure failure ? failure.Code : error.GetType().Name);
+            }
+            return HasWork(await store.ReadAsync(ct), account, clock.GetUtcNow());
+        }
+        if (PeopleDue(state, account, now) is { } unread)
+        {
+            try { await ReadPeopleAsync(credential, unread, ct); }
+            catch (Exception error) when (error is ResearchFailure { Code: not "research_state_changed" } or HttpRequestException ||
+                error is TaskCanceledException && !ct.IsCancellationRequested)
+            {
+                _retryAt[PeopleKey(unread)] = clock.GetUtcNow() + RetryAfter;
+                logger.LogWarning("Reading who is on a Gmail thread failed ({Type}); it is retried shortly.", error is ResearchFailure failure ? failure.Code : error.GetType().Name);
             }
             return HasWork(await store.ReadAsync(ct), account, clock.GetUtcNow());
         }
@@ -450,6 +462,7 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
         }
         var thread = await connector.WithAccessAsync(credential, mail, token => google.ThreadAsync(token, reference.Id, ct), ct);
         string self = mail.Address.ToLowerInvariant();
+        var people = CollaboratorPlan.PeopleOf(thread, Addresses(state, account));
         // Mailing lists and automated mail count only when the user wrote them.
         var usable = thread.Messages.Where(message => message.Text.Length != 0 && EmailSteps.IsGmailId(message.Id))
             .Select(message => message with
@@ -465,14 +478,14 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
         {
             var last = thread.Messages.LastOrDefault();
             await CommitAsync(credential, run, thread.Id, subject, thread.HistoryId, last?.Id ?? item?.LastMessageId ?? "",
-                last?.SentAt ?? item?.LastSentAt ?? clock.GetUtcNow(), null, null, ct);
+                last?.SentAt ?? item?.LastSentAt ?? clock.GetUtcNow(), null, null, ct, people);
             return;
         }
         if (item is { Status: GmailThreadRecord.Assigned, CardId: { } card })
         {
             // A thread on a project: its new messages update the project's details.
             var latest = thread.Messages[^1];
-            await CommitAsync(credential, run, thread.Id, subject, thread.HistoryId, latest.Id, latest.SentAt, null, null, ct);
+            await CommitAsync(credential, run, thread.Id, subject, thread.HistoryId, latest.Id, latest.SentAt, null, null, ct, people);
             await FoldAsync(credential, run.Address, thread.Id, subject, usable, usable.FindIndex(message => message.SentAt > (item.FoldedSentAt ?? since)),
                 card, ct);
             return;
@@ -506,7 +519,7 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
             EmailSteps.ValidateResponse(request, response);
             // A thread analyzed in parts keeps an unfinished marker until its last part, so a restart continues it.
             await CommitAsync(credential, run, thread.Id, subject, first >= usable.Count ? thread.HistoryId : "", part[^1].Id, part[^1].SentAt,
-                request, response, ct);
+                request, response, ct, people);
             // Placed on a project: everything it says so far updates the project's details.
             if (Item(await store.ReadAsync(ct), account, run.Address, thread.Id) is { Status: GmailThreadRecord.Assigned, CardId: { } placed })
             {
@@ -588,6 +601,33 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
             ThemePlan.Themes(state, account).Any(theme => theme.Id == card) && Find(state, account, item.Address) is not null)
             .OrderBy(item => item.UpdatedAt).FirstOrDefault();
 
+    private static string PeopleKey(GmailThreadRecord item) => $"people|{item.Address}|{item.Id}";
+
+    /// <summary>
+    /// A thread on a project of the profile whose people were never recorded (it was read before collaborators were kept):
+    /// it is read once more for its senders and recipients (no model call).
+    /// </summary>
+    internal GmailThreadRecord? PeopleDue(LocalResearchState state, Guid account, DateTimeOffset now) =>
+        (state.GmailThreads ?? []).FirstOrDefault(item => item.AccountId == account && item.Status == GmailThreadRecord.Assigned && item.People is null &&
+            item.CardId is { } card && item.FoldedMessageId == item.LastMessageId && !_runs.ContainsKey(item.Address) && !Blocked(PeopleKey(item), now) &&
+            ThemePlan.Active(state, account).Any(theme => theme.Id == card) && Eligible(state, account).Any(mail => Same(mail.Address, item.Address)));
+
+    private async Task ReadPeopleAsync(LinkedCredential credential, GmailThreadRecord item, CancellationToken ct)
+    {
+        var account = credential.Account.Id;
+        var state = await store.ReadAsync(ct);
+        var mail = Find(state, account, item.Address) ?? throw StateChanged();
+        IReadOnlyList<MailPerson> people;
+        try { people = CollaboratorPlan.PeopleOf(await connector.WithAccessAsync(credential, mail, token => google.ThreadAsync(token, item.Id, ct), ct), Addresses(state, account)); }
+        catch (ResearchFailure failure) when (failure.Code == "gmail_thread_missing") { people = []; }
+        await store.ChangeAsync(current => Item(current, account, item.Address, item.Id) is { People: null } read
+            ? current with { GmailThreads = [.. Others(current, account, item.Address, item.Id), read with { People = people }] } : current, ct);
+    }
+
+    /// <summary>The user's own Gmail addresses (lower case): never their own collaborators.</summary>
+    private static IReadOnlySet<string> Addresses(LocalResearchState state, Guid account) =>
+        (state.GmailAccounts ?? []).Where(mail => mail.AccountId == account && !mail.Removed).Select(mail => mail.Address.ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
+
     /// <summary>Reads a thread put on a project and updates the project's details from its messages not folded yet.</summary>
     private async Task FoldPendingAsync(LinkedCredential credential, GmailThreadRecord item, CancellationToken ct)
     {
@@ -602,6 +642,9 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
             return;
         }
         string self = mail.Address.ToLowerInvariant();
+        var people = CollaboratorPlan.PeopleOf(thread, Addresses(await store.ReadAsync(ct), account));
+        await store.ChangeAsync(current => Item(current, account, item.Address, item.Id) is { } read
+            ? current with { GmailThreads = [.. Others(current, account, item.Address, item.Id), read with { People = people }] } : current, ct);
         var usable = thread.Messages.Where(message => message.Text.Length != 0 && EmailSteps.IsGmailId(message.Id))
             .Select(message => message with { From = Trim(message.From.Length == 0 ? "(unknown sender)" : message.From, 320),
                 FromUser = message.FromUser || EmailText.Address(message.From) == self })
@@ -627,7 +670,8 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
     /// removed or another computer took over the import.
     /// </summary>
     private async Task CommitAsync(LinkedCredential credential, Run run, string threadId, string subject, string historyId,
-        string lastMessageId, DateTimeOffset lastSentAt, EmailStepRequest? request, EmailStepResponse? response, CancellationToken ct)
+        string lastMessageId, DateTimeOffset lastSentAt, EmailStepRequest? request, EmailStepResponse? response, CancellationToken ct,
+        IReadOnlyList<MailPerson>? people = null)
     {
         string device = await DeviceAsync(ct);
         var account = credential.Account.Id;
@@ -639,7 +683,8 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
             if (run.Leased && mail.LeaseBy != device) throw new ResearchFailure(409, "gmail_lease_lost", "Another computer is importing this Gmail account.");
             var item = Item(current, account, mail.Address, threadId)
                 ?? new GmailThreadRecord(account, mail.Address, threadId, subject, GmailThreadRecord.Skipped, historyId, lastMessageId, lastSentAt, now, []);
-            item = item with { Subject = subject, HistoryId = historyId, LastMessageId = lastMessageId, LastSentAt = lastSentAt, UpdatedAt = now };
+            item = item with { Subject = subject, HistoryId = historyId, LastMessageId = lastMessageId, LastSentAt = lastSentAt, UpdatedAt = now,
+                People = people ?? item.People };
             if (response is not null)
             {
                 var bullets = response.Bullets.Select(bullet => new GmailBullet(Guid.NewGuid(), bullet.Text, bullet.Evidence,

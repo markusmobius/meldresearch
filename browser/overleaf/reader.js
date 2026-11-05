@@ -31,10 +31,11 @@
       controller.abort();
     }
 
-    // Reads only when each file was last edited, from Overleaf's project history. Only paths and times leave the tab;
-    // the history's user details and changes are discarded here.
+    // Reads when each file was last edited and who edited the project, from Overleaf's project history. Only paths and
+    // times, and each editor's name, email and latest edit, leave the tab; the changes themselves are discarded here.
     async function* history() {
       const paths = {};
+      const editors = {};
       let before = null;
       let complete = false;
       for (let page = 0; page < 40 && !complete; page++) {
@@ -64,14 +65,27 @@
             const path = name.replace(/^\/+/, '');
             if (path && !(path in paths) && Object.keys(paths).length < 5000) paths[path] = time;
           }
+          for (const user of Array.isArray(update?.meta?.users) ? update.meta.users : []) {
+            const editor = person(user?.first_name, user?.last_name, user?.email);
+            const key = editor && (editor.email ?? `name:${editor.name}`);
+            if (key && !(key in editors) && Object.keys(editors).length < 200) editors[key] = { ...editor, at: time };
+          }
         }
         const next = Number(data.nextBeforeTimestamp);
         if (!Number.isInteger(next) || next <= 0) complete = true;
         else before = next;
       }
-      const bytes = new TextEncoder().encode(JSON.stringify({ paths, complete }));
+      const bytes = new TextEncoder().encode(JSON.stringify({ paths, complete, editors: Object.values(editors) }));
       yield { contentType: 'application/json' };
       yield* chunks(bytes);
+    }
+
+    // A person's name and email as Overleaf shows them; null when neither is usable.
+    function person(first, last, address) {
+      const name = [first, last].filter(part => typeof part === 'string' && part.trim()).map(part => part.trim()).join(' ').slice(0, 200) || null;
+      const email = typeof address === 'string' && address.length <= 320 && /^[^\s@]+@[^\s@]+$/.test(address.trim())
+        ? address.trim().toLowerCase() : null;
+      return name || email ? { name, email } : null;
     }
 
     async function* read() {
@@ -124,10 +138,13 @@
           try {
             const data = JSON.parse(blob);
             if (!Array.isArray(data.projects) || data.projects.length > 10000) throw new ReadError('metadata_invalid');
-            // Never export the HTML page, CSRF tokens, or unused account metadata.
+            // Never export the HTML page, CSRF tokens, or unused account metadata. The owner (name and email) and whether
+            // the user owns the project tell Meld who works on it and which name and email are the user's own.
             projects = data.projects.map(project => ({
               id: project.id, name: project.name, archived: project.archived,
               trashed: project.trashed, lastUpdated: project.lastUpdated,
+              owner: person(project.owner?.firstName, project.owner?.lastName, project.owner?.email),
+              owned: project.accessLevel === 'owner',
             }));
           } catch {
             throw new ReadError('metadata_invalid');

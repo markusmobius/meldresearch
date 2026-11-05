@@ -5,9 +5,11 @@ namespace MeldResearch.Research;
 
 /// <summary>
 /// What a project's main LaTeX document says it is: its \title and its abstract, as plain text. Path and Sha256 name the
-/// main document they were read from. Either may be null (a project without a title or an abstract).
+/// main document they were read from. Either may be null (a project without a title or an abstract). Authors: its \author
+/// blocks as plain text (with any email addresses written there), for the project's collaborators.
 /// </summary>
-public sealed record PaperInfo(string Path, string Sha256, string? Title, string? Abstract);
+public sealed record PaperInfo(string Path, string Sha256, string? Title, string? Abstract,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? Authors = null);
 
 /// <summary>Describes one research card from its main paper: the paper's title and abstract and its project's summary.</summary>
 public sealed record CardSummaryRequest(string Title, string Abstract, ProjectProfile Summary);
@@ -20,9 +22,9 @@ public sealed record CardSummaryRequest(string Title, string Abstract, ProjectPr
 /// </summary>
 public static partial class Papers
 {
-    public const int MaxTitle = 300, MaxAbstract = 4000;
+    public const int MaxTitle = 300, MaxAbstract = 4000, MaxAuthors = 2000;
     /// <summary>How papers are read; a newer reading reads every project's paper again (no model call).</summary>
-    public const int Version = 3;
+    public const int Version = 4;
 
     /// <summary>The marker of the processed revision a project's paper was read from.</summary>
     public static string ReadFor(string revision) => $"{Version}:{revision}";
@@ -66,17 +68,45 @@ public static partial class Papers
                 if (summary is not null) break;
             }
         }
-        return new(main, ResearchEvidence.Hash(files[main]), Plain(title, MaxTitle), Plain(summary, MaxAbstract));
+        return new(main, ResearchEvidence.Hash(files[main]), Plain(title, MaxTitle), Plain(summary, MaxAbstract), Authors(text));
+    }
+
+    [GeneratedRegex(@"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")]
+    private static partial Regex EmailAddress();
+
+    /// <summary>
+    /// The \author blocks as plain text, authors separated by "; " (\and), followed by the email addresses written in them
+    /// or in \email{...} (also inside notes, which the plain text drops). Null when the document names no authors.
+    /// </summary>
+    public static string? Authors(string text)
+    {
+        var blocks = new List<string>();
+        var emails = new List<string>();
+        foreach (string command in new[] { "\\author", "\\email" })
+        {
+            int from = 0;
+            while (blocks.Count + emails.Count < 100 && Find(text, command, from) is { } found)
+            {
+                string raw = text[(found.Open + 1)..found.Close];
+                emails.AddRange(EmailAddress().Matches(raw).Select(match => match.Value.ToLowerInvariant()));
+                if (command == "\\author") blocks.Add(Regex.Replace(raw, @"\\(?:and|And|AND)\b", " ; "));
+                from = found.Close + 1;
+            }
+        }
+        string? names = Plain(string.Join(" ; ", blocks), MaxAuthors);
+        string? addresses = emails.Count == 0 ? null : string.Join(", ", emails.Distinct(StringComparer.Ordinal));
+        string result = string.Join(" Emails: ", new[] { names, addresses }.Where(part => part is not null));
+        return result.Length == 0 ? null : result.Length <= MaxAuthors ? result : result[..MaxAuthors].TrimEnd();
     }
 
     /// <summary>The braced argument of a command (after an optional [..] argument), with nested braces.</summary>
     private static string? Argument(string text, string command) =>
         Find(text, command) is { } found ? text[(found.Open + 1)..found.Close] : null;
 
-    /// <summary>Where a command starts, and the positions of its argument's opening and closing braces.</summary>
-    private static (int Start, int Open, int Close)? Find(string text, string command)
+    /// <summary>Where a command starts (from <paramref name="from"/> on), and the positions of its argument's opening and closing braces.</summary>
+    private static (int Start, int Open, int Close)? Find(string text, string command, int from = 0)
     {
-        int index = 0;
+        int index = from;
         while ((index = text.IndexOf(command, index, StringComparison.Ordinal)) >= 0)
         {
             int start = index, position = index + command.Length;

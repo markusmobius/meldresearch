@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using MeldResearch.LocalBackend.Contracts;
 using MeldResearch.Research;
 
 namespace MeldResearch.LocalBackend.Services.Research;
@@ -16,6 +17,8 @@ internal sealed record PendingDeviceLink(string DeviceCode, string Verifier, str
 /// Overleaf project and "gmail" for a Gmail workstream, whose Parent is the Gmail address it comes from; a workstream has a
 /// profile and Updates like a project but no files, and joins research cards the same way. Paper is the title and abstract
 /// read from the main LaTeX document of the Baseline revision PaperFor (an Overleaf project's anchor for its card).
+/// Owner is who owns the project on Overleaf (Owned: the user does, so it names the user) and Editors who edited it, from
+/// Overleaf's history (empty when unknown; null until read): with the paper's authors they are the project's collaborators.
 /// </summary>
 internal sealed record MonitoredProject(Guid AccountId, string ProjectId, string Name, bool Enabled, string ConsentVersion,
     ResearchSnapshot? Snapshot, string? Summary, IReadOnlyList<ResearchFact> Facts, IReadOnlyList<ResearchUpdate> Updates,
@@ -30,7 +33,10 @@ internal sealed record MonitoredProject(Guid AccountId, string ProjectId, string
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? PaperFor = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<PendingTree>? PendingTrees = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, string>? Partial = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? ExcludedDocs = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? ExcludedDocs = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] OverleafPerson? Owner = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? Owned = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<OverleafPerson>? Editors = null)
 {
     /// <summary>An Overleaf project (Source null or "overleaf"): read from Overleaf file by file. Other sources are not swept.</summary>
     public bool IsOverleaf => Source is null or ResearchSources.Overleaf;
@@ -77,6 +83,7 @@ internal sealed record ProjectSummaryState(Guid AccountId, string ProjectId, str
 /// changed. ShortName is the short name (2-5 words) the summary step writes with the summary ("" once asked without an
 /// answer); ChosenName is the user's own name for the project. A card is shown as ChosenName, else Name (the name the user
 /// gave a project started from email), else ShortName, else its title (the main paper's full title); see ThemePlan.DisplayTitle.
+/// Collaborators: the people the research is done with (CollaboratorPlan).
 /// </summary>
 internal sealed record ResearchTheme(Guid AccountId, string Id, IReadOnlyList<string> Members, ProjectProfile? Profile,
     IReadOnlyDictionary<string, string>? MergedFrom, DateTimeOffset CreatedAt, IReadOnlyList<string>? Pinned = null,
@@ -92,7 +99,26 @@ internal sealed record ResearchTheme(Guid AccountId, string Id, IReadOnlyList<st
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ReviewedFor = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateTimeOffset? ReviewedAt = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ShortName = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ChosenName = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ChosenName = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CollaboratorSet? Collaborators = null);
+
+/// <summary>
+/// A research project's collaborators (OVERLEAF.md §12a), merged from its people: For is the fingerprint of the people and
+/// author blocks they were merged from (CollaboratorPlan.Fingerprint), AuthorsFor of the author blocks alone. Dropped are the
+/// keys of people who are no collaborators (the user, mailing lists, role addresses).
+/// </summary>
+internal sealed record CollaboratorSet(string For, string AuthorsFor, IReadOnlyList<Collaborator> People, IReadOnlyList<string> Dropped);
+
+/// <summary>
+/// One collaborator: a name (null when only an address is known), their email addresses (none when only a name is known),
+/// how they appear (Collaborators.Editor, Owner, Author, From, To, Cc), how often (edits count once, emails per message),
+/// when last, and the keys of the people merged into them (CollaboratorPlan.Key).
+/// </summary>
+internal sealed record Collaborator(string? Name, IReadOnlyList<string> Emails, IReadOnlyList<string> Kinds, int Count,
+    DateTimeOffset? At, IReadOnlyList<string> Keys);
+
+/// <summary>A person on an email thread: their address (lower case), the name they used, and how many messages they sent, received or were copied on.</summary>
+internal sealed record MailPerson(string? Name, string Email, int From, int To, int Cc, DateTimeOffset At);
 
 /// <summary>
 /// One entry of a research project's changelog (OVERLEAF.md §8): a source that updated it (an Overleaf root tree, an email
@@ -165,6 +191,7 @@ internal sealed record GmailThreadState(string Id, string HistoryId, string Last
 /// LastMessageId/LastSentAt the last message analyzed, so only later messages are new. Headline and NewsAt are set when the
 /// thread made newsworthy progress (it then appears in the Updates feed); Suggested names a project for a pending thread.
 /// Title is a short headline written for a waiting thread (TitledFor: the title style and last message it was written for).
+/// People are the thread's senders and recipients other than the user (null until read), for the collaborators of its project.
 /// </summary>
 internal sealed record GmailThreadRecord(Guid AccountId, string Address, string Id, string Subject, string Status, string HistoryId,
     string LastMessageId, DateTimeOffset LastSentAt, DateTimeOffset UpdatedAt, IReadOnlyList<GmailBullet> Bullets,
@@ -175,7 +202,8 @@ internal sealed record GmailThreadRecord(Guid AccountId, string Address, string 
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? GroupId = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? GroupPinned = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Title = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? TitledFor = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? TitledFor = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<MailPerson>? People = null)
 {
     public const string Assigned = "assigned", Pending = "pending", Skipped = "skipped", Dismissed = "dismissed";
 }

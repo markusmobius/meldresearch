@@ -26,7 +26,9 @@ const requestId = 'a'.repeat(32);
 const projectId = '0123456789abcdef01234567';
 
 test('lists through a same-origin GET and exports no page tokens or extra metadata', async () => {
-  const project = { id: projectId, name: 'Synthetic & <paper>', archived: false, trashed: false, owner: { email: 'not-exported@example.invalid' } };
+  const project = { id: projectId, name: 'Synthetic & <paper>', archived: false, trashed: false, accessLevel: 'readAndWrite',
+    owner: { id: 'u1', firstName: 'Tanya', lastName: 'Rosenblat', email: 'Tanya@Example.invalid' }, lastUpdatedBy: { email: 'not-exported@example.invalid' },
+    tags: ['not-exported-tag'] };
   const blob = JSON.stringify({ projects: [project] }).replaceAll('&', '&amp;').replaceAll('"', '&quot;');
   const html = `<meta name="ol-csrfToken" content="CSRF-SENTINEL"><meta name="ol-prefetchedProjectsBlob" content="${blob}">`;
   const { harness, host, messages } = await connected(async () => response(html));
@@ -41,16 +43,21 @@ test('lists through a same-origin GET and exports no page tokens or extra metada
     const exported = Buffer.concat(messages.filter(message => message.type === 'chunk')
       .map(message => Buffer.from(message.data, 'base64'))).toString();
     assert.equal(exported.includes('CSRF-SENTINEL'), false);
-    assert.equal(exported.includes('not-exported@example.invalid'), false);
-    assert.deepEqual(JSON.parse(exported).projects, [{ id: projectId, name: project.name, archived: false, trashed: false }]);
+    assert.equal(exported.includes('not-exported'), false);
+    // The owner's name and email, and whether the user owns it, are the only people data exported.
+    assert.deepEqual(JSON.parse(exported).projects, [{ id: projectId, name: project.name, archived: false, trashed: false,
+      owner: { name: 'Tanya Rosenblat', email: 'tanya@example.invalid' }, owned: false }]);
   } finally { await harness.close(); }
 });
 
-test('reads only paths and last-edit times from Overleaf history, paging back, and drops user details', async () => {
+test('reads only paths, last-edit times and editors from Overleaf history, paging back, and drops the edits', async () => {
   const pages = [
     { updates: [
-      { meta: { end_ts: 3000, users: [{ email: 'collaborator@example.invalid' }] }, pathnames: ['main.tex'], project_ops: [] },
-      { meta: { end_ts: 2000 }, pathnames: ['main.tex', 'sections/a.tex'], project_ops: [{ add: { pathname: '/fig.tex' } }] },
+      { meta: { end_ts: 3000, users: [{ id: 'u1', email: 'Collaborator@example.invalid' }] }, pathnames: ['main.tex'], project_ops: [],
+        ops: [{ text: 'NOT-EXPORTED edit' }] },
+      { meta: { end_ts: 2000, users: [{ id: 'u2', first_name: 'Lukas', last_name: 'Bolte', email: 'lukas@example.invalid' },
+        { id: 'u1', email: 'collaborator@example.invalid' }, 'u3'] },
+        pathnames: ['main.tex', 'sections/a.tex'], project_ops: [{ add: { pathname: '/fig.tex' } }] },
     ], nextBeforeTimestamp: 7 },
     { updates: [{ meta: { end_ts: 1000 }, pathnames: ['old.tex'], project_ops: [] }] },
   ];
@@ -66,9 +73,11 @@ test('reads only paths and last-edit times from Overleaf history, paging back, a
     ]);
     const exported = Buffer.concat(messages.filter(message => message.type === 'chunk')
       .map(message => Buffer.from(message.data, 'base64'))).toString();
-    assert.equal(exported.includes('collaborator@example.invalid'), false);
+    assert.equal(exported.includes('NOT-EXPORTED'), false);
+    // Each editor once, with their latest edit (updates arrive newest first).
     assert.deepEqual(JSON.parse(exported), {
       paths: { 'main.tex': 3000, 'sections/a.tex': 2000, 'fig.tex': 2000, 'old.tex': 1000 }, complete: true,
+      editors: [{ name: null, email: 'collaborator@example.invalid', at: 3000 }, { name: 'Lukas Bolte', email: 'lukas@example.invalid', at: 2000 }],
     });
   } finally { await harness.close(); }
 });
@@ -155,7 +164,7 @@ test('automatically connects without a popup and creates a repeating reconnect a
     assert.equal(state.connected, true);
     assert.equal(state.enabled, true);
     assert.equal(state.protocolVersion, 2);
-    assert.equal(state.extensionVersion, '0.6.10');
+    assert.equal(state.extensionVersion, '0.6.11');
     assert.equal(harness.alarms.get('meld-native-reconnect').periodInMinutes, 1);
     assert.equal(harness.requests.length, 0, 'Connecting alone must not read Overleaf.');
     assert.equal(harness.tabActions.length, 0, 'Passive startup must not steal focus.');
@@ -479,7 +488,7 @@ test('the Meld page can ask the connector to reload into an updated copy, but un
     await new Promise(resolve => setTimeout(resolve, 200));
     assert.equal(harness.reloads.length, 0);
     const state = await harness.external({ type: 'reload' });
-    assert.equal(state.extensionVersion, '0.6.10', 'The reply is sent before the extension reloads.');
+    assert.equal(state.extensionVersion, '0.6.11', 'The reply is sent before the extension reloads.');
     await waitUntil(() => harness.reloads.length === 1, 'extension reload');
   } finally { await harness.close(); }
 });

@@ -76,6 +76,29 @@ internal static partial class EmailText
         catch (FormatException) { return ""; }
     }
 
+    /// <summary>
+    /// The people in an address header ("A. Smith &lt;a@b.org&gt;, \"Doe, J.\" &lt;j@c.org&gt;, x@d.org"): each address in lower
+    /// case with the display name written next to it (null when none, or when it is just the address again).
+    /// </summary>
+    public static IReadOnlyList<(string? Name, string Email)> People(string header)
+    {
+        var people = new List<(string? Name, string Email)>();
+        if (string.IsNullOrWhiteSpace(header)) return people;
+        foreach (Match match in Person().Matches(header))
+        {
+            string email = (match.Groups["angle"].Success ? match.Groups["angle"].Value : match.Groups["bare"].Value).Trim().ToLowerInvariant();
+            if (!ProjectParser.IsEmail(email) || people.Count >= 100) continue;
+            string? name = match.Groups["name"].Value.Trim().Trim('"', '\'', ' ').Trim();
+            if (name.Length == 0 || name.Length > 200 || name.Contains('@')) name = null;
+            people.Add((name, email));
+        }
+        return people;
+    }
+
+    // Either "Display Name <address>" (the name possibly quoted, with commas inside the quotes) or a bare address.
+    [GeneratedRegex(@"(?:(?<name>""[^""]*""|[^,<>""]*)\s*<(?<angle>[^<>\s]+@[^<>\s]+)>|(?<bare>[^\s,<>""]+@[^\s,<>""]+))")]
+    private static partial Regex Person();
+
     /// <summary>The address in a From header ("A. Smith &lt;a@b.org&gt;" → a@b.org), lower case.</summary>
     public static string Address(string from)
     {

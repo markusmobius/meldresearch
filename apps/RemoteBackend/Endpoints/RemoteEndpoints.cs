@@ -125,6 +125,13 @@ internal static class RemoteEndpoints
             using var slot = await gate.EnterAsync(account.Id, ct);
             return TypedResults.Ok(await foundry.TitleThreadsAsync(request, ct));
         }).WithName("TitleThreads").WithSummary("Short headlines for waiting email threads; nothing is stored.");
+        app.MapPost("/api/research/collaborators", async Task<Ok<CollaboratorsResponse>> (
+            CollaboratorsRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, InferenceGate gate, CancellationToken ct) =>
+        {
+            var account = await accounts.AuthenticateAsync(context.Request.Headers.Authorization.ToString(), ct);
+            using var slot = await gate.EnterAsync(account.Id, ct);
+            return TypedResults.Ok(await foundry.CollaboratorsAsync(request, ct));
+        }).WithName("Collaborators").WithSummary("Merge the people of one research project into collaborators; nothing is stored.");
         app.MapPost("/api/research/card-summary", async Task<Ok<ThemeMergeResponse>> (
             CardSummaryRequest request, HttpContext context, IAccountService accounts, IFoundryService foundry, InferenceGate gate, CancellationToken ct) =>
         {
@@ -473,6 +480,7 @@ internal static class RemoteEndpoints
         InferencePurpose.ProjectSummary => "Project summaries",
         InferencePurpose.ProjectGrouping => "Project grouping",
         InferencePurpose.EmailExtraction => "Gmail",
+        InferencePurpose.Collaborators => "Collaborators",
         _ => "Other"
     };
 

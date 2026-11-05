@@ -14,7 +14,12 @@ internal interface IOverleafEvidenceSource
     Task<ResearchSnapshot> SnapshotAsync(OverleafProjectResponse project, CancellationToken ct);
     /// <summary>When each file was last edited, from Overleaf's history; null if the connector or Overleaf cannot say.</summary>
     Task<IReadOnlyDictionary<string, DateTimeOffset>?> EditTimesAsync(string projectId, CancellationToken ct);
+    /// <summary>The edit times and the people who edited the project (Editors null when unknown), from one history read.</summary>
+    async Task<OverleafHistory> HistoryAsync(string projectId, CancellationToken ct) => new(await EditTimesAsync(projectId, ct), null);
 }
+
+/// <summary>What Overleaf's history says about a project: when each file was last edited, and who edited it.</summary>
+internal sealed record OverleafHistory(IReadOnlyDictionary<string, DateTimeOffset>? EditTimes, IReadOnlyList<OverleafPerson>? Editors);
 
 internal sealed class OverleafEvidenceSource(IBrowserRelay browser, IOverleafService overleaf) : IOverleafEvidenceSource
 {
@@ -22,27 +27,38 @@ internal sealed class OverleafEvidenceSource(IBrowserRelay browser, IOverleafSer
     public bool Available => browser.Status.Connected;
     public OverleafProjectsSnapshot? Latest => overleaf.Latest;
     public Task<IReadOnlyList<OverleafProjectResponse>> ProjectsAsync(CancellationToken ct) => overleaf.RefreshAsync(ct);
-    public async Task<IReadOnlyDictionary<string, DateTimeOffset>?> EditTimesAsync(string projectId, CancellationToken ct)
+    public async Task<IReadOnlyDictionary<string, DateTimeOffset>?> EditTimesAsync(string projectId, CancellationToken ct) =>
+        (await HistoryAsync(projectId, ct)).EditTimes;
+
+    public async Task<OverleafHistory> HistoryAsync(string projectId, CancellationToken ct)
     {
         try
         {
             await using var response = await browser.FetchAsync("projectHistory", projectId, ct);
-            if (!response.ContentType.StartsWith("application/json", StringComparison.OrdinalIgnoreCase)) return null;
+            if (!response.ContentType.StartsWith("application/json", StringComparison.OrdinalIgnoreCase)) return new(null, null);
             await using var stream = File.OpenRead(response.Path);
-            return await ParseEditTimesAsync(stream, ct);
+            return await ParseHistoryAsync(stream, ct);
         }
         // An older connector, a plan without history or an Overleaf change: fall back to a fixed order.
         catch (Exception error) when (error is MeldResearch.LocalBackend.Middleware.ApiFailure or System.Text.Json.JsonException or InvalidDataException)
         {
-            return null;
+            return new(null, null);
         }
     }
 
-    internal static async Task<IReadOnlyDictionary<string, DateTimeOffset>?> ParseEditTimesAsync(Stream stream, CancellationToken ct)
+    internal static async Task<IReadOnlyDictionary<string, DateTimeOffset>?> ParseEditTimesAsync(Stream stream, CancellationToken ct) =>
+        (await ParseHistoryAsync(stream, ct)).EditTimes;
+
+    /// <summary>The connector's history: { paths: { path: ms }, complete, editors: [{ name, email, at }] } (editors since connector 0.6.11).</summary>
+    internal static async Task<OverleafHistory> ParseHistoryAsync(Stream stream, CancellationToken ct)
     {
         using var document = await System.Text.Json.JsonDocument.ParseAsync(stream, new() { MaxDepth = 8 }, ct);
+        IReadOnlyList<OverleafPerson>? editors = null;
+        if (document.RootElement.TryGetProperty("editors", out var list) && list.ValueKind == System.Text.Json.JsonValueKind.Array)
+            editors = [.. list.EnumerateArray().Select(ProjectParser.Person).OfType<OverleafPerson>()
+                .DistinctBy(person => person.Email ?? "name:" + person.Name).Take(MaxEditors)];
         if (!document.RootElement.TryGetProperty("paths", out var paths) || paths.ValueKind != System.Text.Json.JsonValueKind.Object)
-            return null;
+            return new(null, editors);
         var times = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
         foreach (var entry in paths.EnumerateObject())
         {
@@ -51,8 +67,11 @@ internal sealed class OverleafEvidenceSource(IBrowserRelay browser, IOverleafSer
                 entry.Value.TryGetInt64(out long milliseconds) && milliseconds > 0)
                 times[entry.Name] = DateTimeOffset.FromUnixTimeMilliseconds(milliseconds);
         }
-        return times;
+        return new(times, editors);
     }
+
+    /// <summary>At most this many editors are kept per project.</summary>
+    public const int MaxEditors = 100;
 
     public async Task<ResearchSnapshot> SnapshotAsync(OverleafProjectResponse project, CancellationToken ct)
     {

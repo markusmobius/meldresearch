@@ -12,8 +12,11 @@ internal sealed record GmailTokens(string AccessToken, string? RefreshToken, Dat
 internal sealed record GmailProfile(string Address, string? HistoryId);
 /// <summary>A thread in the listing; HistoryId changes whenever the thread changes (for example a new message).</summary>
 internal sealed record GmailThreadRef(string Id, string HistoryId);
-/// <summary>One email, cleaned on this computer. FromUser: the user sent it. Bulk: a mailing list, newsletter or automated message.</summary>
-internal sealed record GmailMessage(string Id, string From, DateTimeOffset SentAt, bool FromUser, bool Bulk, string Text);
+/// <summary>
+/// One email, cleaned on this computer. FromUser: the user sent it. Bulk: a mailing list, newsletter or automated message.
+/// To and Cc are the raw recipient headers (for the collaborators of the thread's project).
+/// </summary>
+internal sealed record GmailMessage(string Id, string From, DateTimeOffset SentAt, bool FromUser, bool Bulk, string Text, string To = "", string Cc = "");
 internal sealed record GmailThread(string Id, string HistoryId, string Subject, IReadOnlyList<GmailMessage> Messages);
 
 /// <summary>Google's OAuth endpoints and the read-only Gmail API (the parts Meld uses).</summary>
@@ -118,7 +121,8 @@ internal sealed class GmailGoogle(IHttpClientFactory clients) : IGmailGoogle
             bool bulk = Header("List-Unsubscribe").Length != 0 || Header("Precedence") is "bulk" or "list" or "junk" ||
                 labels.Any(label => label is "CATEGORY_PROMOTIONS" or "CATEGORY_SOCIAL" or "CATEGORY_FORUMS" or "CATEGORY_UPDATES");
             var sent = long.TryParse(message.InternalDate, out long milliseconds) ? DateTimeOffset.FromUnixTimeMilliseconds(milliseconds) : DateTimeOffset.UnixEpoch;
-            messages.Add(new(message.Id, Header("From").Trim(), sent, labels.Contains("SENT"), bulk, EmailText.Clean(Body(payload))));
+            messages.Add(new(message.Id, Header("From").Trim(), sent, labels.Contains("SENT"), bulk, EmailText.Clean(Body(payload)),
+                Header("To").Trim(), Header("Cc").Trim()));
         }
         return new(thread.Id, thread.HistoryId ?? "", subject.Length == 0 ? "(no subject)" : subject, [.. messages.OrderBy(message => message.SentAt)]);
     }
@@ -227,16 +231,20 @@ internal sealed class DummyGmailGoogle : IGmailGoogle
     private static IReadOnlyList<GmailThread> Mailbox(string address)
     {
         var day = DateTimeOffset.UtcNow.Date;
-        GmailMessage Mine(string id, int daysAgo, string text) => new(id, $"Demo Researcher <{address}>", day.AddDays(-daysAgo).AddHours(10), true, false, text);
-        GmailMessage From(string id, string from, int daysAgo, string text) => new(id, from, day.AddDays(-daysAgo).AddHours(14), false, false, text);
+        GmailMessage Mine(string id, int daysAgo, string text, string to = "", string cc = "") =>
+            new(id, $"Demo Researcher <{address}>", day.AddDays(-daysAgo).AddHours(10), true, false, text, to, cc);
+        GmailMessage From(string id, string from, int daysAgo, string text, string cc = "") =>
+            new(id, from, day.AddDays(-daysAgo).AddHours(14), false, false, text, $"Demo Researcher <{address}>", cc);
         if (address != Addresses[0])
             return [new GmailThread("dummyc1", "301", "Spring syllabus for Behavioral Economics", [
                 Mine("dummyc1a", 5, "Hi all,\nI posted the draft syllabus for Behavioral Economics. New this year: a two-week module on social learning\nexperiments with an in-class replication of an information cascade.\nBest,\nDemo"),
                 From("dummyc1b", "Teaching Assistant <ta@example.invalid>", 4, "Thanks! I can prepare the cascade experiment materials by next week.")])];
         return [
             new GmailThread("dummyt5", "205", "Pilot results: weekly feedback and collaboration", [
-                Mine("dummyt5a", 3, "Hi Lukas,\nthe pilot data are in: 80 participants, and task completion is 15 percent higher in the weekly-feedback\ngroup. I will write up the analysis section this week.\nDemo"),
-                From("dummyt5b", "Lukas Bolte <lukas@example.invalid>", 2, "Great result. Let us preregister the full study before the next wave; I will draft the\npreregistration and send it by Friday.")]),
+                Mine("dummyt5a", 3, "Hi Lukas,\nthe pilot data are in: 80 participants, and task completion is 15 percent higher in the weekly-feedback\ngroup. I will write up the analysis section this week.\nDemo",
+                    "Lukas Bolte <lukas@example.invalid>", "\"Satya, Sid\" <s.satya@example.invalid>"),
+                From("dummyt5b", "Lukas Bolte <lukas@example.invalid>", 2, "Great result. Let us preregister the full study before the next wave; I will draft the\npreregistration and send it by Friday.",
+                    "\"Satya, Sid\" <s.satya@example.invalid>, Research Office <research-office@example.invalid>")]),
             new GmailThread("dummyt4", "204", "Robustness results for the social learning paper", [
                 Mine("dummyt4a", 2, "Lukas,\nthe 200-agent simulations are done. They confirm the main result: herding falls by about 30% when signals\nare correlated, and the effect is stable across network sizes from 50 to 200.\nI added Table 4 to the draft.\nDemo")]),
             new GmailThread("dummyt3", "203", "Lunch on Friday?", [

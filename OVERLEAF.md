@@ -279,6 +279,42 @@ loosely with related waiting threads, until the user decides on the thread or it
 whole group (README, Gmail → Housekeeping). Email streams (the `gmail-…` card members) are no longer
 needed: threads attach to cards directly.
 
+## 12a. Collaborators
+
+Each research project also lists its **collaborators**: one entry per person,
+with a name and the email addresses they use (either may be missing), and how
+they appear on the project ([CollaboratorPlan](apps/LocalBackend/Services/Research/CollaboratorPlan.cs),
+[CollaboratorContracts](libraries/Research/CollaboratorContracts.cs)). About me
+shows them in the card's **Collaborators** tab.
+
+1. **People, read without a model.** From each Overleaf project of the card:
+   who edited it (name, email and latest edit, from the history the connector
+   already reads, connector 0.6.11) and who owns it (from the project list); from
+   its main paper: the `\author` blocks as plain text with any email addresses
+   in them or in `\email`/`\thanks` (`PaperInfo.Authors`, `Papers.Version` 4);
+   from every email thread on the card: the From, To and Cc names and addresses
+   of messages that are not bulk mail (`GmailThreadRecord.People`). Projects and
+   threads read before this keep a one-time read of their editors or headers.
+2. **The user is left out**: their Meld and Gmail addresses, their Meld name, and
+   the owner of the Overleaf projects they own.
+3. **Merging.** People with the same address are one mention. When the mentions
+   or author blocks change (`CollaboratorSet.For`), new mentions that match a
+   known collaborator by address or exactly by name join them without a model.
+   Anything else makes **one** Foundry call for the card
+   (`/api/research/collaborators`): the mentions (ids, names, addresses, how
+   and how often they appear), the author blocks and the user's own names and
+   addresses. The model returns groups of mention ids, a name per group exactly
+   as written in a mention or the author blocks (or none), an author flag, and
+   mentions to drop (the user, lists, role addresses). Locally, every mention is
+   used at most once, a name that is not written anywhere falls back to a
+   mention's name, mentions the model left out stay as their own people, and
+   addresses come only from the mentions. A rejected answer falls back to
+   merging by address and exact name, so it is not asked again until the people
+   change.
+4. **Cost.** Unchanged people make zero calls, including after a restart; more
+   mail from known people only updates counts. At most 150 mentions per call.
+5. Collaborators sync with the card; skipped cards are not processed.
+
 ## 13. Fresh start
 
 The new format starts from scratch, once (`ResearchCoordinator.ResetEpoch` 2).
@@ -318,6 +354,8 @@ project, and the email import for every connected account.
   summary call per changed card. An unchanged project makes zero calls.
 - Reviews: at most one call per changed card every 30 days (§8a), plus one
   right after a card's initial ingest.
+- Collaborators: one call per card when someone new appears who is not known by
+  address or exact name (§12a); none otherwise.
 - Documents over 128 KB are not read (unchanged from today). Every model request
   stays under the 100-second Cloudflare limit.
 

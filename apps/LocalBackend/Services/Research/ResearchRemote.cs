@@ -68,6 +68,8 @@ internal interface IResearchRemote
     Task<WaitingGroupResponse> DescribeWaitingGroupAsync(string token, WaitingGroupRequest request, CancellationToken ct);
     /// <summary>Short headlines for up to 12 waiting threads, in order.</summary>
     Task<ThreadTitlesResponse> TitleThreadsAsync(string token, ThreadTitlesRequest request, CancellationToken ct);
+    /// <summary>Merges a research project's people into collaborators (OVERLEAF.md §12a).</summary>
+    Task<CollaboratorsResponse> CollaboratorsAsync(string token, CollaboratorsRequest request, CancellationToken ct);
     Task<SyncListResponse> SyncListAsync(string token, CancellationToken ct);
     Task<SyncLinksResponse> SyncLinksAsync(string token, SyncLinksRequest request, CancellationToken ct);
     Task SyncDeleteAllAsync(string token, CancellationToken ct);
@@ -195,6 +197,9 @@ internal sealed class ResearchRemote(ResearchOptions options, IHttpClientFactory
         CallAsync<ThemeMergeResponse>("api/research/card-summary", HttpMethod.Post, request, token, ct);
     public Task<ThreadTitlesResponse> TitleThreadsAsync(string token, ThreadTitlesRequest request, CancellationToken ct) =>
         CallAsync<ThreadTitlesResponse>("api/research/thread-titles", HttpMethod.Post, request, token, ct);
+
+    public Task<CollaboratorsResponse> CollaboratorsAsync(string token, CollaboratorsRequest request, CancellationToken ct) =>
+        CallAsync<CollaboratorsResponse>("api/research/collaborators", HttpMethod.Post, request, token, ct);
     public Task<WaitingGroupResponse> DescribeWaitingGroupAsync(string token, WaitingGroupRequest request, CancellationToken ct) =>
         CallAsync<WaitingGroupResponse>("api/research/housekeeping-group", HttpMethod.Post, request, token, ct);
     public Task<ResearchEmbeddingResponse> EmbedAsync(string token, ResearchEmbeddingRequest request, CancellationToken ct) =>

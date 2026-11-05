@@ -119,7 +119,7 @@ describe('About me: my projects', () => {
     fixture.componentInstance.changed.subscribe(changed);
     const card = await expand(fixture);
     expect(card.querySelector('.project-toggle')?.getAttribute('aria-expanded')).toBe('true');
-    expect([...card.querySelectorAll('[role="tab"]')].map(tab => tab.textContent?.trim())).toEqual(['Details (2)', 'Changelog', 'Projects (2)']);
+    expect([...card.querySelectorAll('[role="tab"]')].map(tab => tab.textContent?.trim())).toEqual(['Details (2)', 'Changelog', 'Projects (2)', 'Collaborators (0)']);
     const items = card.querySelectorAll('.detail-list > li');
     expect([...items].map(item => item.querySelector('.detail-text span')?.textContent)).toEqual(
       ['The paper designs a publisher content marketplace (PCM).', 'A pilot with 80 publishers is running.']);
@@ -283,6 +283,24 @@ describe('About me: my projects', () => {
     view.detectChanges();
     expect(titles()).toHaveLength(25);
     view.destroy();
+  });
+
+  it('lists a card\'s collaborators with their email addresses and how they appear', async () => {
+    const value = grouped();
+    const fixture = render({ ...value, themes: value.themes!.map(theme => theme.id === cardId ? { ...theme, collaborators: [
+      { name: 'Lukas Bolte', emails: ['l.bolte@uni.example.invalid', 'lukas@example.invalid'], kinds: ['author', 'editor', 'from'], count: 5, at: null },
+      { name: 'Ada Lovelace', emails: [], kinds: ['author'], count: 0, at: null },
+      { name: null, emails: ['grace@example.invalid'], kinds: ['cc'], count: 1, at: null }] } : theme) });
+    const card = await expand(fixture);
+    expect(card.querySelectorAll('[role="tab"]')[3].textContent?.trim()).toBe('Collaborators (3)');
+    await selectTab(fixture, card, 3);
+    const people = [...card.querySelectorAll('.collaborators li')];
+    expect(people.map(person => person.querySelector('.person-name')?.textContent?.trim())).toEqual(['Lukas Bolte', 'Ada Lovelace', 'grace@example.invalid']);
+    expect([...people[0].querySelectorAll('.person-emails a')].map(link => link.getAttribute('href')))
+      .toEqual(['mailto:l.bolte@uni.example.invalid', 'mailto:lukas@example.invalid']);
+    expect(people[0].querySelector('.person-kinds')?.textContent).toContain('Edits in Overleaf');
+    expect(people[1].textContent).toContain('No email address found');
+    fixture.destroy();
   });
 
   it('shows reading progress for a project that has no card yet', () => {

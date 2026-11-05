@@ -459,6 +459,18 @@ public sealed class FoundryTests
         reply = JsonSerializer.Serialize(new { titles = new[] { "Only one" } }, ResearchJson.Options);
         Assert.Equal("invalid_thread_titles", (await Assert.ThrowsAsync<ResearchFailure>(() => foundry.TitleThreadsAsync(titlesRequest, CancellationToken.None))).Code);
 
+        // Collaborators: groups of mention ids with a name (or null) and the author flag; the people's text is sent, a malformed answer rejected.
+        var people = new CollaboratorsRequest("PCM", ["me@example.invalid"], "L. Bolte ; Sid Satya",
+            [new("m1", "Lukas Bolte", "lukas@example.invalid", [Collaborators.From], 2), new("m2", null, "office@example.invalid", [Collaborators.Cc], 1)]);
+        reply = JsonSerializer.Serialize(new { people = new object[] { new { name = "Lukas Bolte", mentions = new[] { "m1" }, author = true },
+            new { name = (string?)null, mentions = Array.Empty<string>(), author = false } }, dropped = new[] { "m2" } }, ResearchJson.Options);
+        var merged2 = await foundry.CollaboratorsAsync(people, CancellationToken.None);
+        Assert.Equal(("Lukas Bolte", true, null), (merged2.People[0].Name, merged2.People[0].Author, merged2.People[1].Name));
+        Assert.Equal(["m2"], merged2.Dropped);
+        Assert.Contains("L. Bolte ; Sid Satya", sent);
+        reply = JsonSerializer.Serialize(new { people = "none" }, ResearchJson.Options);
+        Assert.Equal("invalid_collaborators", (await Assert.ThrowsAsync<ResearchFailure>(() => foundry.CollaboratorsAsync(people, CancellationToken.None))).Code);
+
         // A short name is returned only when asked (older clients do not know the field).
         reply = JsonSerializer.Serialize(new { title = "x", shortName = "Publisher Content Marketplace (PCM)", summary = "One. Two." }, ResearchJson.Options);
         Assert.Null((await foundry.SummarizeDetailsAsync(new("Paying for Information", null, ["A."]), CancellationToken.None)).ShortName);

@@ -189,6 +189,14 @@ export interface ResearchTheme {
   name?: string | null; nameChosen?: boolean;
   /** The current state of the research: at most 30 one-sentence details with their sources (profile.description summarizes them). */
   details?: ReadonlyArray<ResearchDetail> | null;
+  /** The people the research is done with, duplicates merged (null while none are known). */
+  collaborators?: ReadonlyArray<Collaborator> | null;
+}
+/** How a collaborator appears: paper author, Overleaf owner or editor, or on the project's email (from, to, cc). */
+export type CollaboratorKind = 'author' | 'owner' | 'editor' | 'from' | 'to' | 'cc';
+/** A collaborator: their name (null when only addresses are known) and email addresses (possibly none). */
+export interface Collaborator {
+  name: string | null; emails: ReadonlyArray<string>; kinds: ReadonlyArray<CollaboratorKind>; count: number; at: string | null;
 }
 export interface ProjectSummary {
   projectId: string; status: 'queued' | 'running' | 'ready' | 'error'; summary: string | null; mainPath: string | null;

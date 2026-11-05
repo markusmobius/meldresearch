@@ -400,16 +400,23 @@ public sealed class ResearchCoordinatorTests
         public bool Available { get; set; } = true;
         public OverleafProjectsSnapshot? Latest { get; set; }
         public IReadOnlyDictionary<string, DateTimeOffset>? EditTimes { get; set; }
+        /// <summary>Who edited the project (Overleaf's history) and who owns it (the project list); none by default.</summary>
+        public IReadOnlyList<OverleafPerson>? Editors { get; set; }
+        public OverleafPerson? Owner { get; set; }
+        public bool Owned { get; set; }
+        public int HistoryReads { get; private set; }
         public int Reads { get; private set; }
         public int ListReads { get; private set; }
         public Task<IReadOnlyList<OverleafProjectResponse>> ProjectsAsync(CancellationToken ct)
         {
             ListReads++;
-            return Task.FromResult<IReadOnlyList<OverleafProjectResponse>>([new(Snapshot.ProjectId, Snapshot.ProjectName, Snapshot.SourceUpdatedAt)]);
+            return Task.FromResult<IReadOnlyList<OverleafProjectResponse>>([new(Snapshot.ProjectId, Snapshot.ProjectName, Snapshot.SourceUpdatedAt, Owner, Owned)]);
         }
         public Task<ResearchSnapshot> SnapshotAsync(OverleafProjectResponse project, CancellationToken ct)
         { Reads++; return Task.FromResult(Snapshot with { ObservedAt = DateTimeOffset.UtcNow }); }
         public Task<IReadOnlyDictionary<string, DateTimeOffset>?> EditTimesAsync(string projectId, CancellationToken ct) => Task.FromResult(EditTimes);
+        public Task<OverleafHistory> HistoryAsync(string projectId, CancellationToken ct)
+        { HistoryReads++; return Task.FromResult(new OverleafHistory(EditTimes, Editors)); }
     }
 
     internal sealed class Remote : IResearchRemote
@@ -518,6 +525,25 @@ public sealed class ResearchCoordinatorTests
         {
             lock (Titles) Titles.Add(request);
             return Task.FromResult(new ThreadTitlesResponse([.. request.Threads.Select(thread => "Title: " + thread.Title)], "chat"));
+        }
+        public List<CollaboratorsRequest> People { get; } = [];
+        /// <summary>
+        /// The merged collaborators; by default mentions whose names share the last word are one person (named by the longest
+        /// name), an author block name with that last word marks them as an author, and role addresses (office) are dropped.
+        /// </summary>
+        public Func<CollaboratorsRequest, CollaboratorsResponse>? Collaborate { get; set; }
+        public Task<CollaboratorsResponse> CollaboratorsAsync(string token, CollaboratorsRequest request, CancellationToken ct)
+        {
+            lock (People) People.Add(request);
+            if (Collaborate is not null) return Task.FromResult(Collaborate(request));
+            static string Last(string? name) => Collaborators.Normalize(name ?? "").Split(' ').LastOrDefault() ?? "";
+            var dropped = request.Mentions.Where(mention => mention.Email?.Contains("office") == true).Select(mention => mention.Id).ToArray();
+            var groups = request.Mentions.Where(mention => !dropped.Contains(mention.Id))
+                .GroupBy(mention => Last(mention.Name) is { Length: > 0 } last ? last : mention.Id)
+                .Select(group => new CollaboratorGroup(group.Select(mention => mention.Name).OfType<string>().MaxBy(name => name.Length),
+                    [.. group.Select(mention => mention.Id)], request.Authors is { } authors && Collaborators.Normalize(authors).Split(' ').Contains(group.Key)))
+                .ToArray();
+            return Task.FromResult(new CollaboratorsResponse(groups, dropped, "chat"));
         }
         public List<ResearchEmbeddingRequest> Embeds { get; } = [];
         public string EmbeddingModel { get; set; } = "embed-test";

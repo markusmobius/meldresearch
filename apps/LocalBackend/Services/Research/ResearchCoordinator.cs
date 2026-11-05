@@ -167,7 +167,9 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                         new DetailSourceResponse(citation.Source.Key, citation.Source.Kind, citation.Source.Label, citation.Source.Version, citation.Source.At,
                             citation.Quote, citation.Source.Kind == DetailSource.Overleaf
                                 ? projects.FirstOrDefault(project => project.ProjectId == citation.Source.Container)?.Name : citation.Source.Container))]))],
-                    ThemePlan.DisplayTitle(theme, ""), theme.ChosenName is not null);
+                    ThemePlan.DisplayTitle(theme, ""), theme.ChosenName is not null,
+                    theme.Collaborators is { People.Count: > 0 } collaborators
+                        ? [.. collaborators.People.Select(person => new CollaboratorResponse(person.Name, person.Emails, person.Kinds, person.Count, person.At))] : null);
             }).ToArray(),
             _sync.Status(state), gmail?.Status(state, importer), changes.Take(100).ToArray(), changes.Length,
             [.. (state.PendingFiles ?? []).Where(file => file.AccountId == account && file.TargetCardId is null).OrderByDescending(file => file.RemovedAt)
@@ -790,6 +792,46 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
     }
 
     /// <summary>
+    /// Makes a research project's collaborators again after its people changed (OVERLEAF.md §12a): people who are known already
+    /// are merged without a model; otherwise one Foundry call merges them all. A grouping the server rejects falls back to
+    /// merging only the same address or name, so it is not asked again until the people change; a server or connection
+    /// problem is retried like other card work. The result applies only if the people did not change meanwhile.
+    /// </summary>
+    private async Task CollaboratorsAsync(LinkedCredential credential, ResearchTheme card, CancellationToken ct)
+    {
+        var account = credential.Account.Id;
+        var inputs = CollaboratorPlan.InputsOf(await store.ReadAsync(ct), account, card);
+        var set = CollaboratorPlan.Incremental(card.Collaborators, inputs);
+        bool called = false;
+        if (set is null && inputs.Mentions.Count == 0 && inputs.Authors is null) set = new(inputs.Print, inputs.AuthorsFor, [], []);
+        if (set is null)
+        {
+            var request = CollaboratorPlan.Request(inputs, ThemePlan.DisplayTitle(card));
+            try
+            {
+                Collaborators.ValidateRequest(request);
+                var response = await remote.CollaboratorsAsync(credential.Token, request, ct);
+                var (groups, dropped) = Collaborators.Clean(request, response);
+                set = CollaboratorPlan.Build(inputs, groups, dropped);
+                called = true;
+            }
+            catch (ResearchFailure failure) when (!Transient(failure.Code))
+            {
+                logger.LogWarning("A research project's collaborators were merged by address and name only: {Code}.", failure.Code);
+                set = CollaboratorPlan.Plain(inputs);
+            }
+        }
+        await store.ChangeAsync(current =>
+        {
+            var theme = current.Themes?.FirstOrDefault(item => item.AccountId == account && item.Id == card.Id);
+            if (current.Credential?.Account.Id != account || theme is null || CollaboratorPlan.InputsOf(current, account, theme).Print != inputs.Print) return current;
+            return current with { Themes = [.. current.Themes!.Select(item => item == theme ? theme with { Collaborators = set } : item)] };
+        }, ct);
+        logger.LogInformation(called ? "A research project's {Count} collaborators were merged by Foundry." : "A research project's {Count} collaborators were updated without a model call.",
+            set.People.Count);
+    }
+
+    /// <summary>
     /// One unit of research card work: drop departed members and their sources, write a summary whose details changed, match a
     /// new card (strictly), compare all cards once more, or group a skipped card with related skipped work (loosely).
     /// </summary>
@@ -832,6 +874,11 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             if (ThemePlan.SummaryDue(state, account) is { } due)
             {
                 await WriteSummaryAsync(credential, due, ct);
+                return true;
+            }
+            if (CollaboratorPlan.Due(state, account) is { } people)
+            {
+                await CollaboratorsAsync(credential, people, ct);
                 return true;
             }
             if (ThemePlan.MatchDue(state, account) is { } fresh)
@@ -1273,10 +1320,16 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 var now = clock.GetUtcNow();
                 var metadata = accessible.FirstOrDefault(item => item.Id == project.ProjectId) ??
                     throw new ResearchFailure(409, "overleaf_project_unavailable", "The project is missing, archived, or no longer accessible. Its saved knowledge was retained.");
+                // Who edited a project is read once for projects read before collaborators were kept (no model call).
+                var editors = project.Editors ?? (project.ImportComplete ? (await source.HistoryAsync(project.ProjectId, token)).Editors ?? [] : null);
                 if (!force && project.ImportComplete && project.Pending is null && project.Error is null &&
                     project.Baseline?.SourceUpdatedAt is { } known && known == metadata.UpdatedAt)
                 {
-                    await ChangeProjectAsync(project, item => item with { Name = metadata.Name, LastSweepAt = now }, token);
+                    await ChangeProjectAsync(project, item => item with
+                    {
+                        Name = metadata.Name, LastSweepAt = now, Owner = metadata.Owner ?? item.Owner, Owned = metadata.Owner is null ? item.Owned : metadata.Owned,
+                        Editors = item.Editors ?? editors
+                    }, token);
                     logger.LogInformation("Checked: unchanged on Overleaf since the last check. Nothing was downloaded.");
                     return;
                 }
@@ -1297,18 +1350,22 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                     await CommitAsync(credential, project, item => Clean(item) with
                     {
                         Name = metadata.Name, Baseline = manifest, Pending = null, PendingTrees = null, PendingOrder = null, PendingSince = null,
-                        LastSweepAt = now, LastSuccessAt = now, UnprocessedFiles = unanalyzed, Explanation = "No supported text changes. No model calls were made."
+                        LastSweepAt = now, LastSuccessAt = now, UnprocessedFiles = unanalyzed, Explanation = "No supported text changes. No model calls were made.",
+                        Owner = metadata.Owner ?? item.Owner, Owned = metadata.Owner is null ? item.Owned : metadata.Owned, Editors = item.Editors ?? editors
                     }, token);
                     logger.LogInformation("Checked: no supported text changes. No model calls were made.");
                     return;
                 }
-                manifest = manifest with { EditTimes = await source.EditTimesAsync(project.ProjectId, token) };
+                var history = await source.HistoryAsync(project.ProjectId, token);
+                manifest = manifest with { EditTimes = history.EditTimes };
                 var texts = await DetailPlan.TextsAsync(store, project, manifest, token);
                 var trees = DetailPlan.Trees(project, manifest, texts, now, SummaryWindow);
                 await CommitAsync(credential, project, item => Clean(item) with
                 {
                     Name = metadata.Name, Pending = manifest, PendingTrees = trees, PendingOrder = null, PendingSince = item.PendingSince ?? now,
-                    LastSweepAt = now, UnprocessedFiles = unanalyzed
+                    LastSweepAt = now, UnprocessedFiles = unanalyzed,
+                    Owner = metadata.Owner ?? item.Owner, Owned = metadata.Owner is null ? item.Owned : metadata.Owned,
+                    Editors = history.Editors ?? item.Editors ?? editors ?? []
                 }, token);
                 logger.LogInformation("Queued {Trees} document tree(s) with {Documents} document(s) to read.", trees.Count, trees.Sum(tree => tree.Send.Count));
             });

@@ -46,7 +46,9 @@ internal static partial class ProjectParser
                     updatedAt = timestamp;
                 }
                 if (!archived && !trashed)
-                    results.Add(new(id!.ToLowerInvariant(), name, updatedAt));
+                    results.Add(new(id!.ToLowerInvariant(), name, updatedAt,
+                        project.TryGetProperty("owner", out var owner) ? Person(owner) : null,
+                        project.TryGetProperty("owned", out var owned) && owned.ValueKind == JsonValueKind.True));
             }
             // Like Overleaf's own list: most recently updated first; undated projects last, then by name.
             return results.OrderByDescending(project => project.UpdatedAt.HasValue)
@@ -59,4 +61,23 @@ internal static partial class ProjectParser
             throw new ApiFailure(502, "overleaf_metadata_changed", "Overleaf returned unsupported project metadata. No project list was replaced.");
         }
     }
+
+    /// <summary>A person from the connector ({ name, email, at }); null when it has neither a usable name nor an email address.</summary>
+    public static OverleafPerson? Person(JsonElement value)
+    {
+        if (value.ValueKind != JsonValueKind.Object) return null;
+        string? Text(string property, int max) => value.TryGetProperty(property, out var item) && item.ValueKind == JsonValueKind.String &&
+            item.GetString()!.Trim() is { Length: > 0 } text && text.Length <= max ? text : null;
+        string? name = Text("name", 200);
+        string? email = Text("email", 320)?.ToLowerInvariant();
+        if (email is not null && !IsEmail(email)) email = null;
+        DateTimeOffset? at = value.TryGetProperty("at", out var time) && time.ValueKind == JsonValueKind.Number && time.TryGetInt64(out long ms) && ms > 0
+            ? DateTimeOffset.FromUnixTimeMilliseconds(ms) : null;
+        return name is null && email is null ? null : new(name, email, at);
+    }
+
+    [GeneratedRegex(@"^[^\s@<>,;""]+@[^\s@<>,;""]+\.[^\s@<>,;""]+$", RegexOptions.CultureInvariant)]
+    private static partial Regex EmailPattern();
+
+    public static bool IsEmail(string? value) => value is { Length: <= 320 } && EmailPattern().IsMatch(value);
 }

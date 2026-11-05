@@ -172,6 +172,36 @@
                     <mat-icon>visibility_off</mat-icon>Skip &mdash; not my research</button>
                 </div>
               </mat-tab>
+              <mat-tab [label]="'Collaborators (' + card.collaborators.length + ')'">
+                @if (card.collaborators.length) {
+                  <ul class="collaborators">
+                    @for (person of card.collaborators; track $index) {
+                      <li>
+                        <mat-icon class="person-icon">person</mat-icon>
+                        <div class="person">
+                          <span class="person-name">{{ person.name ?? person.emails[0] }}</span>
+                          @if (person.emails.length) {
+                            <span class="person-emails">
+                              @for (email of person.emails; track email) { <a [href]="'mailto:' + email">{{ email }}</a> }
+                            </span>
+                          } @else {
+                            <span class="person-emails muted">No email address found</span>
+                          }
+                          <span class="person-kinds">
+                            @for (kind of person.kinds; track kind) {
+                              <span class="person-kind" [class]="'kind-' + kind"><mat-icon>{{ kindInfo(kind).icon }}</mat-icon>{{ kindInfo(kind).label }}</span>
+                            }
+                          </span>
+                        </div>
+                      </li>
+                    }
+                  </ul>
+                  <p class="muted collaborators-note"><mat-icon>info</mat-icon>From the paper's authors, who edits its Overleaf projects and who is on its
+                    email threads; the same person under different names or addresses is shown once.</p>
+                } @else {
+                  <p class="muted empty">Collaborators appear once this project's Overleaf projects and email have been read.</p>
+                }
+              </mat-tab>
             </mat-tab-group>
           } @else {
             <p class="muted empty">Details appear here once this project has been read.</p>

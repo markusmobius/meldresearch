@@ -56,7 +56,8 @@ internal sealed class DummyBrowserRelay : IBrowserRelay
                 await JsonSerializer.SerializeAsync(stream, new { projects = new[] { new
                 {
                     id = ProjectId, name = "Synthetic research project", archived = false, trashed = false,
-                    lastUpdated = new DateTimeOffset(now.Year, now.Month, 1, 12, 0, 0, TimeSpan.Zero).AddMinutes(revision)
+                    lastUpdated = new DateTimeOffset(now.Year, now.Month, 1, 12, 0, 0, TimeSpan.Zero).AddMinutes(revision),
+                    owner = new { name = "Demo Researcher", email = "researcher.gmail@example.invalid" }, owned = true
                 } } }, WireProtocol.Json, ct);
                 return new(path, "application/json");
             }
@@ -65,7 +66,14 @@ internal sealed class DummyBrowserRelay : IBrowserRelay
                 await JsonSerializer.SerializeAsync(stream, new
                 {
                     paths = new Dictionary<string, long> { ["main.tex"] = DateTimeOffset.UtcNow.AddMinutes(-revision).ToUnixTimeMilliseconds() },
-                    complete = true
+                    complete = true,
+                    // The user, a co-author under a university address, and a co-author who also emails from another address.
+                    editors = new object[]
+                    {
+                        new { name = "Demo Researcher", email = "researcher.gmail@example.invalid", at = DateTimeOffset.UtcNow.AddDays(-1).ToUnixTimeMilliseconds() },
+                        new { name = "Lukas Bolte", email = "l.bolte@university.example.invalid", at = DateTimeOffset.UtcNow.AddDays(-3).ToUnixTimeMilliseconds() },
+                        new { name = "Sid Satya", email = "sid@example.invalid", at = DateTimeOffset.UtcNow.AddDays(-5).ToUnixTimeMilliseconds() }
+                    }
                 }, WireProtocol.Json, ct);
                 return new(path, "application/json");
             }
@@ -77,6 +85,7 @@ internal sealed class DummyBrowserRelay : IBrowserRelay
                 await writer.WriteAsync(("""
                     \documentclass{article}
                     \title{Synthetic study of research collaboration}
+                    \author{Demo Researcher \and L.~Bolte \and Sid Satya\thanks{sid@example.invalid}}
                     \begin{document}
                     \begin{abstract}
                     We ask whether structured weekly feedback improves how research teams collaborate. In a randomized pilot,

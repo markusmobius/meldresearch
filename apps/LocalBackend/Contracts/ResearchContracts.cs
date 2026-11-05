@@ -139,11 +139,15 @@ public sealed record LeaveResponse(bool Uninstalling, bool AccountDeleted, strin
 /// </summary>
 /// <summary>
 /// A research project (card). Name: how it is shown (the user's name, a short name, else the paper's full title, which is
-/// Profile.Title); NameChosen: the user named it.
+/// Profile.Title); NameChosen: the user named it. Collaborators: the people the research is done with (null while none).
 /// </summary>
 public sealed record ResearchThemeResponse(string Id, ProjectProfile? Profile, IReadOnlyList<string> ProjectIds, bool Updating,
     string? Blurb = null, string? AnchorId = null, bool AnchorChosen = false, string? Reason = null, bool Skipped = false,
-    IReadOnlyList<DetailResponse>? Details = null, string? Name = null, bool NameChosen = false);
+    IReadOnlyList<DetailResponse>? Details = null, string? Name = null, bool NameChosen = false,
+    IReadOnlyList<CollaboratorResponse>? Collaborators = null);
+
+/// <summary>A collaborator: name (null when only addresses are known), email addresses (possibly none), how they appear (author, owner, editor, from, to, cc), how often and when last.</summary>
+public sealed record CollaboratorResponse(string? Name, IReadOnlyList<string> Emails, IReadOnlyList<string> Kinds, int Count, DateTimeOffset? At);
 public sealed record ThemeNameRequest(string? Name);
 public sealed record ThemeAnchorRequest(string ProjectId);
 public sealed record ThemeSkipRequest(bool Skipped);

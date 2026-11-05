@@ -9,7 +9,7 @@ import { firstValueFrom } from 'rxjs';
 import { describeFailure } from './overleaf-api';
 import { ChooserData, ChooserResult, ProjectChooser } from './project-chooser';
 import {
-  DetailSource, GmailThread, ResearchApi, ResearchChange, ResearchDetail, ResearchProject, ResearchStatus,
+  Collaborator, CollaboratorKind, DetailSource, GmailThread, ResearchApi, ResearchChange, ResearchDetail, ResearchProject, ResearchStatus,
 } from './research-api';
 
 /** Emits once when the element scrolls into view (the changelog's "earlier entries" marker). */
@@ -38,6 +38,8 @@ interface ProfileCard {
   anchorId: string | null; reason: string | null;
   /** Skipped as not the user's own research; threads: the skipped email threads on it. */
   skipped: boolean; threads: ReadonlyArray<GmailThread>;
+  /** The people the research is done with. */
+  collaborators: ReadonlyArray<Collaborator>;
   updating: boolean; progress: ResearchProject | null;
   /** The latest change of the research: a source's date or an Overleaf edit of a member; orders the cards. */
   lastChanged: number | null;
@@ -47,7 +49,12 @@ interface ProfileCard {
 interface ChangelogView { entries: ReadonlyArray<ResearchChange>; more: boolean; loading: boolean; error: string; }
 
 const BUSY = new Set(['importing', 'queued', 'waiting', 'checking']);
-type Tab = 'details' | 'changelog' | 'projects';
+type Tab = 'details' | 'changelog' | 'projects' | 'collaborators';
+const KINDS: Record<CollaboratorKind, { icon: string; label: string }> = {
+  author: { icon: 'article', label: 'Author' }, owner: { icon: 'key', label: 'Owns the Overleaf project' },
+  editor: { icon: 'edit_note', label: 'Edits in Overleaf' }, from: { icon: 'mail', label: 'Writes email' },
+  to: { icon: 'forward_to_inbox', label: 'Receives email' }, cc: { icon: 'forward_to_inbox', label: 'Copied on email' },
+};
 /** Cards, and the threads of an open skipped card, are shown in pages of this size; more load while scrolling. */
 const PAGE = 20;
 
@@ -106,7 +113,7 @@ export class PrivateProfile {
     const loose = this.ungrouped();
     if (loose.length) {
       list.push({ id: 'ungrouped', themeId: null, title: 'Being grouped\u2026', fullTitle: null, nameChosen: false, summary: null, details: [],
-        members: [], anchorId: null, reason: null, skipped: true, threads: loose, updating: false, progress: null, lastChanged: null });
+        members: [], anchorId: null, reason: null, skipped: true, threads: loose, updating: false, progress: null, lastChanged: null, collaborators: [] });
     }
     const latest = (card: ProfileCard) => Math.max(card.lastChanged ?? 0, ...card.threads.map(mailTime));
     return list.map(card => ({ card, at: latest(card) })).sort((a, b) => b.at - a.at).map(item => item.card);
@@ -139,7 +146,7 @@ export class PrivateProfile {
         fullTitle: theme.name && theme.profile?.title && theme.profile.title !== theme.name ? theme.profile.title : null, nameChosen: !!theme.nameChosen,
         summary: theme.profile?.description || null, details, members, anchorId: theme.anchorId ?? null, reason: theme.reason ?? null,
         skipped: !!theme.skipped, threads, updating: theme.updating, progress: members.find(member => BUSY.has(member.phase)) ?? null,
-        lastChanged: latest(theme.projectIds, details),
+        lastChanged: latest(theme.projectIds, details), collaborators: theme.collaborators ?? [],
       });
     }
     // Projects still being read, before their first details give them a card.
@@ -147,6 +154,7 @@ export class PrivateProfile {
       cards.push({
         id: project.projectId, themeId: null, title: project.name, fullTitle: null, nameChosen: false, summary: null, details: [], members: [project], anchorId: null, reason: null,
         skipped: false, threads: [], updating: false, progress: BUSY.has(project.phase) ? project : null, lastChanged: latest([project.projectId], []),
+        collaborators: [],
       });
     }
     return cards.sort((a, b) => (b.lastChanged ?? 0) - (a.lastChanged ?? 0));
@@ -163,10 +171,12 @@ export class PrivateProfile {
     this.error.set('');
   }
   selectTab(card: ProfileCard, index: number): void {
-    const tab: Tab = index === 1 ? 'changelog' : index === 2 ? 'projects' : 'details';
+    const tab: Tab = index === 1 ? 'changelog' : index === 2 ? 'projects' : index === 3 ? 'collaborators' : 'details';
     this.tab.set(tab);
     if (tab === 'changelog' && card.themeId) void this.loadChangelog(card.themeId, true);
   }
+  /** How a collaborator appears on the project, as an icon and a label. */
+  kindInfo(kind: CollaboratorKind): { icon: string; label: string } { return KINDS[kind] ?? { icon: 'person', label: kind }; }
   toggleDetail(detail: ResearchDetail): void { this.openDetail.update(open => open === detail.id ? null : detail.id); }
   showMoreCards(): void { this.cardLimit.update(limit => limit + PAGE); }
   showMoreThreads(): void { this.threadLimit.update(limit => limit + PAGE); }
