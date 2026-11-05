@@ -290,15 +290,19 @@ describe('About me: my projects', () => {
 
   it('lists a card\'s collaborators with their email addresses and how they appear', async () => {
     const value = grouped();
-    const fixture = render({ ...value, themes: value.themes!.map(theme => theme.id === cardId ? { ...theme, collaborators: [
-      { name: 'Lukas Bolte', emails: ['l.bolte@uni.example.invalid', 'lukas@example.invalid'], kinds: ['author', 'editor', 'from'], count: 5, at: null },
+    const fixture = render({ ...value, themes: value.themes!.map(theme => theme.id === cardId ? { ...theme, knownDetails: 10, yourShare: 0.8, collaborators: [
+      { name: 'Lukas Bolte', emails: ['l.bolte@uni.example.invalid', 'lukas@example.invalid'], kinds: ['author', 'editor', 'from'], count: 5, at: null, share: 0.2 },
       { name: 'Ada Lovelace', emails: [], kinds: ['author'], count: 0, at: null },
       { name: null, emails: ['grace@example.invalid'], kinds: ['cc'], count: 1, at: null }] } : theme) });
     const card = await expand(fixture);
     expect(card.querySelectorAll('[role="tab"]')[3].textContent?.trim()).toBe('Collaborators (3)');
     await selectTab(fixture, card, 3);
-    const people = [...card.querySelectorAll('.collaborators li')];
-    expect(people.map(person => person.querySelector('.person-name')?.textContent?.trim())).toEqual(['Lukas Bolte', 'Ada Lovelace', 'grace@example.invalid']);
+    // The user first, then each collaborator with their share of the current details (shares need not add up to 100%).
+    const you = card.querySelector('.collaborators li.you')!;
+    expect(you.querySelector('.person-name')?.textContent?.trim()).toBe('You80%');
+    const people = [...card.querySelectorAll('.collaborators li:not(.you)')];
+    expect(people.map(person => person.querySelector('.person-name')?.textContent?.trim())).toEqual(['Lukas Bolte20%', 'Ada Lovelace', 'grace@example.invalid']);
+    expect(card.querySelector('.collaborators-note')?.textContent).toContain('share of the 10 current details');
     expect([...people[0].querySelectorAll('.person-emails a')].map(link => link.getAttribute('href')))
       .toEqual(['mailto:l.bolte@uni.example.invalid', 'mailto:lukas@example.invalid']);
     expect(people[0].querySelector('.person-kinds')?.textContent).toContain('Edits in Overleaf');

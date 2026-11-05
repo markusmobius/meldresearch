@@ -108,6 +108,8 @@
 .person-kind { display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; border-radius: 999px; background: #f1f5f9; color: #475569; font-size: 0.7rem; }
 .person-kind mat-icon { font-size: 13px; width: 13px; height: 13px; }
 .kind-author { background: #e6f2ef; color: #084d42; }
+.person-share { margin-left: 8px; padding: 0 6px; border-radius: 999px; background: #0a6655; color: #ffffff; font-size: 0.72rem; font-weight: 600; }
+.collaborators li.you { background: #f0f7f5; }
 .collaborators-note { display: flex; align-items: flex-start; gap: 6px; margin: 10px 0 0; font-size: 0.75rem; }
 .collaborators-note mat-icon { flex: none; font-size: 15px; width: 15px; height: 15px; }
 .change-by { display: flex; align-items: center; gap: 3px; flex-basis: 100%; padding-left: 56px; font-size: 0.72rem; color: #0a6655; }

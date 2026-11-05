@@ -324,7 +324,9 @@ How Overleaf is read:
   model from what they wrote that Meld used) count; recipients, assistants receiving
   slides, owners who never edited, the user, mailing lists and role addresses do not.
   Each changelog change shows who it rests on (you, collaborators, others): the senders
-  of the cited email, or who edited the cited files since Meld last read them.
+  of the cited email, or who edited the cited files since Meld last read them. The tab
+  also shows, for you and each collaborator, the share of the project's current details
+  that rest on them (shares can overlap, so they do not add up to 100%).
 - **Log.** More → Log shows the local app's own activity (checks, progress per file,
   grouping, updates, warnings and errors), newest first, with level and source
   filters, as in Project Meld. Entries name projects by Overleaf id (the page shows

@@ -38,8 +38,8 @@ interface ProfileCard {
   anchorId: string | null; reason: string | null;
   /** Skipped as not the user's own research; threads: the skipped email threads on it. */
   skipped: boolean; threads: ReadonlyArray<GmailThread>;
-  /** The people the research is done with. */
-  collaborators: ReadonlyArray<Collaborator>;
+  /** The people the research is done with; how many current details have known people, and the user's share of them. */
+  collaborators: ReadonlyArray<Collaborator>; knownDetails: number; yourShare: number | null;
   updating: boolean; progress: ResearchProject | null;
   /** The latest change of the research: a source's date or an Overleaf edit of a member; orders the cards. */
   lastChanged: number | null;
@@ -113,7 +113,8 @@ export class PrivateProfile {
     const loose = this.ungrouped();
     if (loose.length) {
       list.push({ id: 'ungrouped', themeId: null, title: 'Being grouped\u2026', fullTitle: null, nameChosen: false, summary: null, details: [],
-        members: [], anchorId: null, reason: null, skipped: true, threads: loose, updating: false, progress: null, lastChanged: null, collaborators: [] });
+        members: [], anchorId: null, reason: null, skipped: true, threads: loose, updating: false, progress: null, lastChanged: null, collaborators: [],
+        knownDetails: 0, yourShare: null });
     }
     const latest = (card: ProfileCard) => Math.max(card.lastChanged ?? 0, ...card.threads.map(mailTime));
     return list.map(card => ({ card, at: latest(card) })).sort((a, b) => b.at - a.at).map(item => item.card);
@@ -147,6 +148,7 @@ export class PrivateProfile {
         summary: theme.profile?.description || null, details, members, anchorId: theme.anchorId ?? null, reason: theme.reason ?? null,
         skipped: !!theme.skipped, threads, updating: theme.updating, progress: members.find(member => BUSY.has(member.phase)) ?? null,
         lastChanged: latest(theme.projectIds, details), collaborators: theme.collaborators ?? [],
+        knownDetails: theme.knownDetails ?? 0, yourShare: theme.yourShare ?? null,
       });
     }
     // Projects still being read, before their first details give them a card.
@@ -154,7 +156,7 @@ export class PrivateProfile {
       cards.push({
         id: project.projectId, themeId: null, title: project.name, fullTitle: null, nameChosen: false, summary: null, details: [], members: [project], anchorId: null, reason: null,
         skipped: false, threads: [], updating: false, progress: BUSY.has(project.phase) ? project : null, lastChanged: latest([project.projectId], []),
-        collaborators: [],
+        collaborators: [], knownDetails: 0, yourShare: null,
       });
     }
     return cards.sort((a, b) => (b.lastChanged ?? 0) - (a.lastChanged ?? 0));
@@ -175,6 +177,8 @@ export class PrivateProfile {
     this.tab.set(tab);
     if (tab === 'changelog' && card.themeId) void this.loadChangelog(card.themeId, true);
   }
+  /** A share of the current details as a whole percentage ("20%"), or "" when unknown. */
+  percent(share: number | null | undefined): string { return share == null ? '' : `${Math.round(share * 100)}%`; }
   /** How a collaborator appears on the project, as an icon and a label. */
   kindInfo(kind: CollaboratorKind): { icon: string; label: string } { return KINDS[kind] ?? { icon: 'person', label: kind }; }
   toggleDetail(detail: ResearchDetail): void { this.openDetail.update(open => open === detail.id ? null : detail.id); }

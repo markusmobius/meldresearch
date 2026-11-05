@@ -14,8 +14,12 @@ public sealed record DetailSource(string Kind, string Container, string Item, st
     [JsonIgnore] public string Key => $"{Kind}:{Container}/{Item}";
 }
 
-/// <summary>A quotation (copied verbatim from the source) that supports a detail.</summary>
-public sealed record DetailCitation(DetailSource Source, string Quote);
+/// <summary>
+/// A quotation (copied verbatim from the source) that supports a detail. By: who the quoted source rests on, as person keys
+/// or "self" (the sender of the email; who edited the file since the version read before); null when not recorded.
+/// </summary>
+public sealed record DetailCitation(DetailSource Source, string Quote,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? By = null);
 
 /// <summary>One detail of a research project: one sentence, with its sources.</summary>
 public sealed record DetailBullet(string Id, string Text, IReadOnlyList<DetailCitation> Citations);

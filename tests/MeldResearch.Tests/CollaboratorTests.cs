@@ -151,8 +151,9 @@ public sealed class CollaboratorTests
         Assert.Equal(reads + 1, source.HistoryReads);
         Assert.Null(store.State.Projects.Single().EditorsFor);
 
-        // The current connector: read once, then not again while the project is unchanged.
+        // The current connector (it also says who edited each file): read once, then not again while the project is unchanged.
         source.Editors = [new("Lukas Bolte", "lukas@example.invalid")];
+        source.FileEditors = new Dictionary<string, IReadOnlyList<OverleafPerson>> { ["main.tex"] = [new("Lukas Bolte", "lukas@example.invalid", DateTimeOffset.UtcNow)] };
         reads = source.HistoryReads;
         await Drain(coordinator, force: true);
         await Drain(coordinator, force: true);
@@ -160,6 +161,9 @@ public sealed class CollaboratorTests
         Assert.Equal((CollaboratorPlan.EditorsVersion, "lukas@example.invalid"),
             (store.State.Projects.Single().EditorsFor, store.State.Projects.Single().Editors!.Single().Email));
         Assert.Equal("Lukas Bolte", store.State.Themes!.Single().Collaborators!.People.Single().Name);
+        // Details read before who edited each file was kept rest on everyone who edited the cited file.
+        var theme = (await coordinator.StatusAsync(None)).Themes!.Single();
+        Assert.Equal((1.0, 0.0), (theme.Collaborators!.Single().Share, theme.YourShare));
     }
 
     [Fact]
@@ -185,6 +189,10 @@ public sealed class CollaboratorTests
         Assert.Equal(["self", "e:lukas@example.invalid"], change.By);
         var page = await coordinator.ChangelogAsync(card.Id, null, null, 30, None);
         Assert.Equal(["You", "Lukas Bolte"], page.Entries.Single().Changes.Single().By);
+        // The details now: every one rests on both, so both have 100% (shares need not add up to 100%).
+        Assert.Equal(["self", "e:lukas@example.invalid"], store.State.Themes!.Single().Details!.Single().Citations.Single().By);
+        var theme = (await coordinator.StatusAsync(None)).Themes!.Single();
+        Assert.Equal((1, 1.0, 1.0), (theme.KnownDetails, theme.YourShare, theme.Collaborators!.Single(person => person.Name == "Lukas Bolte").Share));
 
         // A later edit only by Lukas: the update rests on him alone.
         var second = DateTimeOffset.UtcNow.AddHours(-1);
@@ -199,6 +207,9 @@ public sealed class CollaboratorTests
         Assert.All(latest.Changes, item => Assert.Equal(["e:lukas@example.invalid"], item.By));
         page = await coordinator.ChangelogAsync(card.Id, null, null, 30, None);
         Assert.All(page.Entries.First().Changes, item => Assert.Equal(["Lukas Bolte"], item.By));
+        // The current details rest only on Lukas now: the user's share is computed over what is kept, not over history.
+        theme = (await coordinator.StatusAsync(None)).Themes!.Single();
+        Assert.Equal((0.0, 1.0), (theme.YourShare, theme.Collaborators!.Single(person => person.Name == "Lukas Bolte").Share));
     }
 
     [Fact]

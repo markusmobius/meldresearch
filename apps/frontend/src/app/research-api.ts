@@ -197,12 +197,16 @@ export interface ResearchTheme {
   details?: ReadonlyArray<ResearchDetail> | null;
   /** The people the research is done with, duplicates merged (null while none are known). */
   collaborators?: ReadonlyArray<Collaborator> | null;
+  /** How many current details have known people, and the share of them that rest on the user (null while none). */
+  knownDetails?: number; yourShare?: number | null;
 }
 /** How a collaborator appears: paper author, Overleaf owner or editor, or on the project's email (from, to, cc). */
 export type CollaboratorKind = 'author' | 'owner' | 'editor' | 'from' | 'to' | 'cc';
 /** A collaborator: their name (null when only addresses are known) and email addresses (possibly none). */
 export interface Collaborator {
   name: string | null; emails: ReadonlyArray<string>; kinds: ReadonlyArray<CollaboratorKind>; count: number; at: string | null;
+  /** The share of the project's current details (with known people) that rest on them; null while none are known. */
+  share?: number | null;
 }
 export interface ProjectSummary {
   projectId: string; status: 'queued' | 'running' | 'ready' | 'error'; summary: string | null; mainPath: string | null;

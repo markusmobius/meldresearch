@@ -161,6 +161,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 var anchor = ThemePlan.AnchorOf(state, theme);
                 bool updating = theme.Details is { Count: > 0 } details && theme.SummaryFor != DetailPlan.Fingerprint(details) || theme.MatchPending == true ||
                     theme.Members.Any(member => projects.FirstOrDefault(project => project.ProjectId == member) is { } project && !ThemePlan.Settled(project));
+                var (known, you, shares) = CollaboratorPlan.Shares(state, theme);
+                double? Share(int count) => known == 0 ? null : (double)count / known;
                 return new ResearchThemeResponse(theme.Id, theme.Profile, theme.Members, updating, theme.Profile?.Description,
                     anchor?.ProjectId, theme.Anchor is not null && theme.Anchor == anchor?.ProjectId, theme.Reason, theme.Skipped == true,
                     [.. (theme.Details ?? []).Select(detail => new DetailResponse(detail.Id, detail.Text, [.. detail.Citations.Select(citation =>
@@ -169,7 +171,9 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                                 ? projects.FirstOrDefault(project => project.ProjectId == citation.Source.Container)?.Name : citation.Source.Container))]))],
                     ThemePlan.DisplayTitle(theme, ""), theme.ChosenName is not null,
                     theme.Collaborators is { People.Count: > 0 } collaborators
-                        ? [.. collaborators.People.Select(person => new CollaboratorResponse(person.Name, person.Emails, person.Kinds, person.Count, person.At))] : null);
+                        ? [.. collaborators.People.Select((person, index) => new CollaboratorResponse(person.Name, person.Emails, person.Kinds, person.Count, person.At,
+                            Share(shares[index])))] : null,
+                    known, Share(you));
             }).ToArray(),
             _sync.Status(state), gmail?.Status(state, importer), changes.Take(100).ToArray(), changes.Length,
             [.. (state.PendingFiles ?? []).Where(file => file.AccountId == account && file.TargetCardId is null).OrderByDescending(file => file.RemovedAt)
@@ -1325,15 +1329,21 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 var metadata = accessible.FirstOrDefault(item => item.Id == project.ProjectId) ??
                     throw new ResearchFailure(409, "overleaf_project_unavailable", "The project is missing, archived, or no longer accessible. Its saved knowledge was retained.");
                 // Who edited a project is read once (no model call); an older connector or a failed read is asked again next check.
-                var editors = project.ImportComplete && project.EditorsFor != CollaboratorPlan.EditorsVersion
-                    ? (await source.HistoryAsync(project.ProjectId, token)).Editors : null;
+                var read = project.ImportComplete && project.EditorsFor != CollaboratorPlan.EditorsVersion
+                    ? await source.HistoryAsync(project.ProjectId, token) : null;
+                // Only a connector that reports who edited each file (0.6.12) counts as current; an older one is asked again.
+                var editors = read?.FileEditors is null ? null : read.Editors;
+                // Who edited each file, for the shares of details read before this was kept.
+                ProjectManifest? Edited(ProjectManifest? baseline) =>
+                    editors is not null && read!.FileEditors is { } files && baseline is not null ? baseline with { FileEditors = files } : baseline;
                 if (!force && project.ImportComplete && project.Pending is null && project.Error is null &&
                     project.Baseline?.SourceUpdatedAt is { } known && known == metadata.UpdatedAt)
                 {
                     await ChangeProjectAsync(project, item => item with
                     {
                         Name = metadata.Name, LastSweepAt = now, Owner = metadata.Owner ?? item.Owner, Owned = metadata.Owner is null ? item.Owned : metadata.Owned,
-                        Editors = editors ?? item.Editors, EditorsFor = editors is null ? item.EditorsFor : CollaboratorPlan.EditorsVersion
+                        Editors = editors ?? item.Editors, EditorsFor = editors is null ? item.EditorsFor : CollaboratorPlan.EditorsVersion,
+                        Baseline = Edited(item.Baseline)
                     }, token);
                     logger.LogInformation("Checked: unchanged on Overleaf since the last check. Nothing was downloaded.");
                     return;
@@ -1351,7 +1361,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                     // Nothing to process, so Overleaf's history is not read again: the files' known edit times are kept.
                     var paths = manifest.Files.Select(file => file.Path).ToHashSet(StringComparer.Ordinal);
                     var kept = baseline.EditTimes?.Where(entry => paths.Contains(entry.Key)).ToDictionary(StringComparer.Ordinal);
-                    manifest = manifest with { EditTimes = kept is { Count: > 0 } ? kept : null };
+                    manifest = Edited(manifest with { EditTimes = kept is { Count: > 0 } ? kept : null, FileEditors = baseline.FileEditors })!;
                     await CommitAsync(credential, project, item => Clean(item) with
                     {
                         Name = metadata.Name, Baseline = manifest, Pending = null, PendingTrees = null, PendingOrder = null, PendingSince = null,
@@ -1372,7 +1382,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                     LastSweepAt = now, UnprocessedFiles = unanalyzed,
                     Owner = metadata.Owner ?? item.Owner, Owned = metadata.Owner is null ? item.Owned : metadata.Owned,
                     Editors = history.Editors ?? editors ?? item.Editors,
-                    EditorsFor = history.Editors is not null || editors is not null ? CollaboratorPlan.EditorsVersion : item.EditorsFor
+                    EditorsFor = history.FileEditors is not null || editors is not null ? CollaboratorPlan.EditorsVersion : item.EditorsFor
                 }, token);
                 logger.LogInformation("Queued {Trees} document tree(s) with {Documents} document(s) to read.", trees.Count, trees.Sum(tree => tree.Send.Count));
             });

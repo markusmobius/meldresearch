@@ -176,13 +176,22 @@
                 </div>
               </mat-tab>
               <mat-tab [label]="'Collaborators (' + card.collaborators.length + ')'">
-                @if (card.collaborators.length) {
+                @if (card.collaborators.length || card.yourShare != null) {
                   <ul class="collaborators">
+                    @if (card.yourShare != null) {
+                      <li class="you">
+                        <mat-icon class="person-icon">account_circle</mat-icon>
+                        <div class="person">
+                          <span class="person-name">You<span class="person-share" title="Share of the current details that rest on you">{{ percent(card.yourShare) }}</span></span>
+                        </div>
+                      </li>
+                    }
                     @for (person of card.collaborators; track $index) {
                       <li>
                         <mat-icon class="person-icon">person</mat-icon>
                         <div class="person">
-                          <span class="person-name">{{ person.name ?? person.emails[0] }}</span>
+                          <span class="person-name">{{ person.name ?? person.emails[0] }}@if (person.share != null) {<span class="person-share"
+                            title="Share of the current details that rest on them">{{ percent(person.share) }}</span>}</span>
                           @if (person.emails.length) {
                             <span class="person-emails">
                               @for (email of person.emails; track email) { <a [href]="'mailto:' + email">{{ email }}</a> }
@@ -199,8 +208,10 @@
                       </li>
                     }
                   </ul>
-                  <p class="muted collaborators-note"><mat-icon>info</mat-icon>From the paper's authors, who edits its Overleaf projects and who is on its
-                    email threads; the same person under different names or addresses is shown once.</p>
+                  <p class="muted collaborators-note"><mat-icon>info</mat-icon>Authors, people who edit its Overleaf projects and people whose email shows work
+                    on it; the same person under different names or addresses is shown once.
+                    @if (card.knownDetails) { Percentages: the share of the {{ card.knownDetails }} current details that rest on each person (through the
+                      email they sent or the files they edited); a detail can rest on several people, so they do not add up to 100%. }</p>
                 } @else {
                   <p class="muted empty">Collaborators appear once this project's Overleaf projects and email have been read.</p>
                 }

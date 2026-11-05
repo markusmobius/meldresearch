@@ -338,6 +338,14 @@ shows them in the card's **Collaborators** tab.
    shows them as "You", collaborators' names, and "Others" for anyone who is no
    collaborator; email changes recorded before this are traced through the
    messages their details cite now.
+4b. **Shares of the current details.** Each citation records who its source
+   rests on when it is cited (`DetailCitation.By`); older citations are traced
+   through the cited message's sender, or everyone who edited the cited file
+   (`Baseline.FileEditors`, read once more with `EditorsVersion` 3). A detail
+   rests on everyone behind its citations. The Collaborators tab shows, for you
+   and each collaborator, the share of the card's **current** details (the
+   snapshot kept now, not the changelog's history) that rest on them, over the
+   details whose people are known; shares do not add up to 100%.
 5. Collaborators sync with the card; skipped cards are not processed.
 
 ## 13. Fresh start

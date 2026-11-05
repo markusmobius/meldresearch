@@ -17,9 +17,10 @@ internal static class CollaboratorPlan
     public const int Version = 2;
     /// <summary>
     /// How Overleaf editors are read (connector 0.6.11 reports them); a project read another way reads its history again.
-    /// Version 2: editors stored as "none" by an older connector during the update are read again.
+    /// Version 2: editors stored as "none" by an older connector during the update are read again. Version 3: who edited
+    /// each file (connector 0.6.12), for the shares of details read before.
     /// </summary>
-    public const int EditorsVersion = 2;
+    public const int EditorsVersion = 3;
     /// <summary>At most this many people are kept per email thread, and this many of each person's sent messages.</summary>
     public const int MaxThreadPeople = 50, MaxSent = 30;
 
@@ -83,6 +84,54 @@ internal static class CollaboratorPlan
             if (!keys.Contains(key)) keys.Add(key);
         }
         return keys.Count == 0 ? null : keys;
+    }
+
+    /// <summary>
+    /// Who one source of a detail rests on: as recorded when it was cited, else for an email the sender of the cited message
+    /// (a message no other person on the thread sent is the user's), and for an Overleaf file everyone who edited it. Empty
+    /// when unknown.
+    /// </summary>
+    public static IReadOnlyList<string> CitedBy(DetailCitation citation, LocalResearchState state, Guid account,
+        (IReadOnlySet<string> Emails, IReadOnlySet<string> Names) self)
+    {
+        if (citation.By is { Count: > 0 } by) return by;
+        var source = citation.Source;
+        if (source.Kind == DetailSource.Gmail)
+        {
+            var thread = (state.GmailThreads ?? []).FirstOrDefault(item => item.AccountId == account && item.Id == source.Item &&
+                string.Equals(item.Address, source.Container, StringComparison.OrdinalIgnoreCase));
+            if (thread is null || PeopleUnread(thread)) return [];
+            var sender = thread.People!.FirstOrDefault(person => person.Sent?.Contains(source.Version) == true);
+            return [sender is null ? SelfKey : Key(sender.Name, sender.Email)];
+        }
+        var project = state.Projects.FirstOrDefault(item => item.AccountId == account && item.ProjectId == source.Container);
+        return project?.Baseline?.FileEditors?.GetValueOrDefault(source.Item) is { } editors
+            ? [.. editors.Select(person => IsSelf(self, person.Name, person.Email) ? SelfKey : Key(person.Name, person.Email)).Distinct(StringComparer.Ordinal)]
+            : [];
+    }
+
+    /// <summary>
+    /// Each person's share of a project's current details (OVERLEAF.md §12a): of the details whose people are known (Known),
+    /// how many rest on the user (You) and on each collaborator (Shares, by position in Collaborators.People). A detail rests
+    /// on everyone behind its sources, so shares do not add up to 100%.
+    /// </summary>
+    public static (int Known, int You, IReadOnlyList<int> Shares) Shares(LocalResearchState state, ResearchTheme card)
+    {
+        var people = card.Collaborators?.People ?? [];
+        var counts = new int[people.Count];
+        int known = 0, you = 0;
+        var self = Self(state, card.AccountId);
+        foreach (var detail in card.Details ?? [])
+        {
+            var keys = detail.Citations.SelectMany(citation => CitedBy(citation, state, card.AccountId, self)).ToHashSet(StringComparer.Ordinal);
+            if (keys.Count == 0) continue;
+            known++;
+            if (keys.Contains(SelfKey)) you++;
+            for (int index = 0; index < people.Count; index++)
+                if (keys.Any(key => people[index].Keys.Contains(key) || key.StartsWith("e:", StringComparison.Ordinal) && people[index].Emails.Contains(key[2..])))
+                    counts[index]++;
+        }
+        return (known, you, counts);
     }
 
     /// <summary>Who wrote an email, as a key for DetailChange.By: the user, or the sender's address (empty when unknown).</summary>

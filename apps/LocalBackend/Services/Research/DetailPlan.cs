@@ -120,7 +120,8 @@ internal static class DetailPlan
         foreach (var op in response.Ops.OrderBy(op => DetailRules.Order(op.Op)))
         {
             int before0 = changes.Count;
-            var citations = op.Add.Select(quote => new DetailCitation(source(quote), quote.Quote)).ToArray();
+            var citations = op.Add.Select(quote => new DetailCitation(source(quote), quote.Quote,
+                by?.Invoke(quote).Distinct(StringComparer.Ordinal).ToArray() is { Length: > 0 } people ? people : null)).ToArray();
             switch (op.Op)
             {
                 case DetailRules.Add when result.Count < DetailRules.MaxDetails:
