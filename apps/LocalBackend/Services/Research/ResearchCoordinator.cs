@@ -1179,6 +1179,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         // Summaries the user asked for come first: each is one project read and at most one model call.
         if (summaries.Length != 0) await SummarizeAsync(credential, summaries, ct);
         if (due.Length != 0) await SweepAsync(credential, due, force, ct);
+        await AdoptOwnersAsync(credential.Account.Id, ct);
         if (unread.Length != 0) await ReadEditorsAsync(unread, ct);
         // Every card due is credited in this cycle (a few history reads each), not one card per check.
         for (int done = 0; credit is not null && done < 50; done++)
@@ -1212,6 +1213,24 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         (!_editorsTriedAt.TryGetValue(project.ProjectId, out var tried) || now - tried >= TimeSpan.FromMinutes(10));
 
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTimeOffset> _creditTriedAt = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Records who owns each project from the latest Overleaf project list (no Overleaf request): the owner is credited with
+    /// text that has no author in the history, and the user's own projects name the user.
+    /// </summary>
+    private async Task AdoptOwnersAsync(Guid account, CancellationToken ct)
+    {
+        if (source.Latest?.Projects is not { Count: > 0 } listed) return;
+        var owners = listed.Where(item => item.Owner is not null).ToDictionary(item => item.Id, StringComparer.Ordinal);
+        bool Stale(MonitoredProject project) => project.AccountId == account && owners.TryGetValue(project.ProjectId, out var item) &&
+            (project.Owner != item.Owner || project.Owned != item.Owned);
+        if (!(await store.ReadAsync(ct)).Projects.Any(Stale)) return;
+        await store.ChangeAsync(current => current.Credential?.Account.Id != account ? current : current with
+        {
+            Projects = [.. current.Projects.Select(project => Stale(project)
+                ? project with { Owner = owners[project.ProjectId].Owner, Owned = owners[project.ProjectId].Owned } : project)]
+        }, ct);
+    }
 
     /// <summary>
     /// A card whose existing Overleaf quotes were not yet credited by who wrote their lines (OVERLEAF.md §12a), once its
@@ -1553,9 +1572,11 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             var authorship = new Dictionary<string, FileAuthorship?>(StringComparer.Ordinal);
             foreach (var path in response.Ops.SelectMany(op => op.Add).Select(quote => quote.Item).Distinct(StringComparer.Ordinal))
                 authorship[path] = await source.FileAuthorsAsync(project.ProjectId, path, token);
-            IReadOnlyList<string> Credit(DetailQuote quote) =>
+            // Null when unknown (later traced through who edited the file); empty when nobody known wrote enough of the quote.
+            IReadOnlyList<string>? Credit(DetailQuote quote) =>
                 authorship.GetValueOrDefault(quote.Item) is { } lines &&
-                CollaboratorPlan.LineCredit(quote.Quote, lines, CollaboratorPlan.Adder(project, pending, quote.Item), self) is { } keys ? keys : EditedBy(quote.Item);
+                CollaboratorPlan.LineCredit(quote.Quote, lines, CollaboratorPlan.Adder(project, pending, quote.Item), self) is { } keys ? keys
+                    : EditedBy(quote.Item) is { Count: > 0 } edited ? edited : null;
             int count = 0;
             await store.ChangeAsync(current =>
             {

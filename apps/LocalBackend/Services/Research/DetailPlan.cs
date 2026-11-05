@@ -114,7 +114,7 @@ internal static class DetailPlan
     /// it): its new quotes keep the credit of the detail's earlier quotes, so rewording earns no credit (OVERLEAF.md §12a).
     /// </summary>
     public static (IReadOnlyList<DetailBullet> Details, IReadOnlyList<DetailChange> Changes) Apply(IReadOnlyList<DetailBullet> details,
-        DetailStepResponse response, Func<DetailQuote, DetailSource> source, Func<DetailQuote, IEnumerable<string>>? by = null,
+        DetailStepResponse response, Func<DetailQuote, DetailSource> source, Func<DetailQuote, IEnumerable<string>?>? by = null,
         IReadOnlyList<string>? everyone = null)
     {
         var result = details.ToList();
@@ -123,7 +123,7 @@ internal static class DetailPlan
         {
             int before0 = changes.Count;
             var citations = op.Add.Select(quote => new DetailCitation(source(quote), quote.Quote,
-                by?.Invoke(quote).Distinct(StringComparer.Ordinal).ToArray() is { Length: > 0 } people ? people : null)).ToArray();
+                by?.Invoke(quote) is { } people ? [.. people.Distinct(StringComparer.Ordinal)] : null)).ToArray();
             switch (op.Op)
             {
                 case DetailRules.Add when result.Count < DetailRules.MaxDetails:

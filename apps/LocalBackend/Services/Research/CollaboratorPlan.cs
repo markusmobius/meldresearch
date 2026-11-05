@@ -43,8 +43,11 @@ internal static class CollaboratorPlan
     public static string Key(string? name, string? email) => email is not null ? "e:" + email : "n:" + Collaborators.Normalize(name ?? "");
     /// <summary>The key of the user in DetailChange.By.</summary>
     public const string SelfKey = "self";
-    /// <summary>How Overleaf quotes are credited: version 1 by who wrote the quoted lines (Overleaf's history diff).</summary>
-    public const int CreditVersion = 1;
+    /// <summary>
+    /// How Overleaf quotes are credited: version 1 by who wrote the quoted lines (Overleaf's history diff); version 2 also
+    /// counts text without a known author, so small edits never outweigh it, and knows owners from the project list.
+    /// </summary>
+    public const int CreditVersion = 2;
     /// <summary>A person who wrote less than this share of a quote's characters (for example a typo fix) is not credited.</summary>
     public const double MinCreditShare = 0.25;
 
@@ -62,6 +65,7 @@ internal static class CollaboratorPlan
         (IReadOnlySet<string> Emails, IReadOnlySet<string> Names) self)
     {
         var chars = new Dictionary<string, int>(StringComparer.Ordinal);
+        int unknown = 0;
         string? Who(int index)
         {
             var person = index >= 0 && index < authorship.Users.Count ? authorship.Users[index] : adder;
@@ -75,9 +79,11 @@ internal static class CollaboratorPlan
             found = true;
             foreach (var (index, count) in counts)
                 if (Who(index) is { } key) chars[key] = chars.GetValueOrDefault(key) + count;
+                else unknown += count;
         }
         if (!found || chars.Count == 0) return null;
-        int total = chars.Values.Sum(), most = chars.Values.Max();
+        // Text without a known author still counts, so someone who only edited a little is not credited with a whole quote.
+        int total = chars.Values.Sum() + unknown, most = Math.Max(chars.Values.Max(), unknown);
         return [.. chars.Where(item => item.Value == most || item.Value >= MinCreditShare * total)
             .OrderByDescending(item => item.Value).ThenBy(item => item.Key, StringComparer.Ordinal).Select(item => item.Key)];
     }
@@ -137,7 +143,8 @@ internal static class CollaboratorPlan
     public static IReadOnlyList<string> CitedBy(DetailCitation citation, LocalResearchState state, Guid account,
         (IReadOnlySet<string> Emails, IReadOnlySet<string> Names) self)
     {
-        if (citation.By is { Count: > 0 } by) return by;
+        // Recorded credit, possibly empty: the quote's lines were found but nobody known wrote enough of them.
+        if (citation.By is { } by) return by;
         var source = citation.Source;
         if (source.Kind == DetailSource.Gmail)
         {

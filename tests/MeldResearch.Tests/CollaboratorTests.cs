@@ -207,6 +207,10 @@ public sealed class CollaboratorTests
         Assert.Equal(["e:nicimm@example.invalid"], CollaboratorPlan.LineCredit("We estimate the effect.", lines, me, self));
         // Lines not found (the file changed since): no line credit.
         Assert.Null(CollaboratorPlan.LineCredit("A line that is not there.", lines, me, self));
+        // Text without an author still counts when nobody is known to credit it with: a small edit is not the whole quote.
+        var draft = Authors([lukas], ("The draft the owner uploaded, with a small fix.", [(-1, 35), (0, 4)]));
+        Assert.Equal([], CollaboratorPlan.LineCredit("The draft the owner uploaded, with a small fix.", draft, null, self));
+        Assert.Equal(["self"], CollaboratorPlan.LineCredit("The draft the owner uploaded, with a small fix.", draft, me, self));
     }
 
     private static FileAuthorship Authors(OverleafPerson[] users, params (string Line, (int Who, int Chars)[] Counts)[] lines) =>
@@ -270,12 +274,13 @@ public sealed class CollaboratorTests
     public async Task ExistingDetailsAreCreditedByLineOnceTheConnectorCanSay()
     {
         var lukas = new OverleafPerson("Lukas Bolte", "lukas@example.invalid", DateTimeOffset.UtcNow);
+        // The history does not say who added the file (a copied project): its owner, the user, is known from the project list only.
         var source = new Source(Files(("main.tex", "\\documentclass{article}\n\\begin{document}\nForty participants joined.\n\\end{document}")))
         {
             Editors = [lukas], FileEditors = new Dictionary<string, IReadOnlyList<OverleafPerson>> { ["main.tex"] = [lukas] },
-            FileAdders = new Dictionary<string, OverleafPerson> { ["main.tex"] = new("Synthetic", "synthetic@example.invalid") },
             ReadsFileAuthors = false
         };
+        source.Latest = new([new(ProjectId, "Synthetic research", DateTimeOffset.UtcNow, new("Synthetic", "synthetic@example.invalid"), true)], DateTimeOffset.UtcNow);
         var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
         var remote = new Remote();
         using var coordinator = Create(store, remote, source);
@@ -290,7 +295,7 @@ public sealed class CollaboratorTests
         int summaries = remote.DetailSummaries.Count, reviews = remote.Reviews.Count, embeds = remote.Embeds.Count;
         source.ReadsFileAuthors = true;
         source.Authorship["main.tex"] = Authors([lukas], ("\\documentclass{article}", [(-1, 22)]), ("\\begin{document}", [(-1, 15)]),
-            ("Forty participants joined.", [(-1, 23)]), ("\\end{document}", [(-1, 13)]));
+            ("Forty participants joined.", [(-1, 20), (0, 3)]), ("\\end{document}", [(-1, 13)]));
         await Drain(coordinator);
         await Drain(coordinator);
         card = store.State.Themes!.Single();

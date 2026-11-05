@@ -579,7 +579,7 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
                 var now = clock.GetUtcNow();
                 var (details, changes) = DetailPlan.Apply(theme.Details ?? [], response,
                     quote => new DetailSource(DetailSource.Gmail, thread.Address, threadId, quote.Item, subject, sent.GetValueOrDefault(quote.Item)),
-                    quote => senders.TryGetValue(quote.Item, out var key) && key.Length != 0 ? [key] : [], everyone);
+                    quote => senders.TryGetValue(quote.Item, out var key) && key.Length != 0 ? [key] : null, everyone);
                 return current with
                 {
                     Themes = [.. current.Themes!.Select(item => item == theme ? theme with { Details = details } : item)],

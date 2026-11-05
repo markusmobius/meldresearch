@@ -345,7 +345,9 @@ shows them in the card's **Collaborators** tab.
    a short hash and the characters each person wrote (`FileAuthorship`); people
    with at least 25% of a quote's characters are credited (at least the largest),
    and text without an author (an upload, a copy, history Overleaf no longer
-   keeps) counts for who added the file, else the project's owner. A revision that
+   keeps) counts for who added the file, else the project's owner (kept from the
+   latest Overleaf project list); when neither is known it still counts towards
+   the total, so a small edit never earns a whole quote. A revision that
    keeps the wording only re-quotes the source after someone rewrote it, so its new
    quotes keep the earlier credit: rewording earns none. An email quote is credited
    to the message's sender. When the lines cannot be found or the history is too
