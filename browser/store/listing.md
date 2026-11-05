@@ -1,6 +1,6 @@
 # Chrome Web Store listing copy
 
-Prepared for a **private tester-group release**, version 0.6.11. Publisher: **Meld Research**.
+Prepared for a **private tester-group release**, version 0.6.12. Publisher: **Meld Research**.
 Public support and privacy contact: **markusmobius@gmail.com**.
 This document is submission material, not an assertion that a listing exists.
 

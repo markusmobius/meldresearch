@@ -18,8 +18,12 @@ internal interface IOverleafEvidenceSource
     async Task<OverleafHistory> HistoryAsync(string projectId, CancellationToken ct) => new(await EditTimesAsync(projectId, ct), null);
 }
 
-/// <summary>What Overleaf's history says about a project: when each file was last edited, and who edited it.</summary>
-internal sealed record OverleafHistory(IReadOnlyDictionary<string, DateTimeOffset>? EditTimes, IReadOnlyList<OverleafPerson>? Editors);
+/// <summary>
+/// What Overleaf's history says about a project: when each file was last edited, who edited it, and who edited each file
+/// (FileEditors: each person with their latest edit of that file), to say who an update rests on.
+/// </summary>
+internal sealed record OverleafHistory(IReadOnlyDictionary<string, DateTimeOffset>? EditTimes, IReadOnlyList<OverleafPerson>? Editors,
+    IReadOnlyDictionary<string, IReadOnlyList<OverleafPerson>>? FileEditors = null);
 
 internal sealed class OverleafEvidenceSource(IBrowserRelay browser, IOverleafService overleaf) : IOverleafEvidenceSource
 {
@@ -54,11 +58,30 @@ internal sealed class OverleafEvidenceSource(IBrowserRelay browser, IOverleafSer
     {
         using var document = await System.Text.Json.JsonDocument.ParseAsync(stream, new() { MaxDepth = 8 }, ct);
         IReadOnlyList<OverleafPerson>? editors = null;
+        Dictionary<string, IReadOnlyList<OverleafPerson>>? files = null;
         if (document.RootElement.TryGetProperty("editors", out var list) && list.ValueKind == System.Text.Json.JsonValueKind.Array)
-            editors = [.. list.EnumerateArray().Select(ProjectParser.Person).OfType<OverleafPerson>()
-                .DistinctBy(person => person.Email ?? "name:" + person.Name).Take(MaxEditors)];
+        {
+            // Indexes into the connector's list (files refers to it), before dropping unusable entries.
+            var all = list.EnumerateArray().Take(MaxEditors * 2).Select(ProjectParser.Person).ToArray();
+            editors = [.. all.OfType<OverleafPerson>().DistinctBy(person => person.Email ?? "name:" + person.Name).Take(MaxEditors)];
+            if (document.RootElement.TryGetProperty("files", out var byFile) && byFile.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                files = new(StringComparer.Ordinal);
+                foreach (var file in byFile.EnumerateObject().Take(5000))
+                {
+                    if (!ResearchEvidence.IsSafePath(file.Name) || file.Value.ValueKind != System.Text.Json.JsonValueKind.Array) continue;
+                    var people = new List<OverleafPerson>();
+                    foreach (var entry in file.Value.EnumerateArray().Take(20))
+                        if (entry.ValueKind == System.Text.Json.JsonValueKind.Array && entry.GetArrayLength() == 2 &&
+                            entry[0].TryGetInt32(out int index) && index >= 0 && index < all.Length && all[index] is { } person &&
+                            entry[1].TryGetInt64(out long ms) && ms > 0)
+                            people.Add(person with { At = DateTimeOffset.FromUnixTimeMilliseconds(ms) });
+                    if (people.Count != 0) files[file.Name] = people;
+                }
+            }
+        }
         if (!document.RootElement.TryGetProperty("paths", out var paths) || paths.ValueKind != System.Text.Json.JsonValueKind.Object)
-            return new(null, editors);
+            return new(null, editors, files);
         var times = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
         foreach (var entry in paths.EnumerateObject())
         {
@@ -67,7 +90,7 @@ internal sealed class OverleafEvidenceSource(IBrowserRelay browser, IOverleafSer
                 entry.Value.TryGetInt64(out long milliseconds) && milliseconds > 0)
                 times[entry.Name] = DateTimeOffset.FromUnixTimeMilliseconds(milliseconds);
         }
-        return new(times, editors);
+        return new(times, editors, files);
     }
 
     /// <summary>At most this many editors are kept per project.</summary>

@@ -174,7 +174,7 @@ that backend requires real Google OAuth configuration. No synthetic identity is
 available in Live mode.
 
 The source manifest now uses the supplied Chrome draft public key:
-**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.6.11**, wire protocol **2**.
+**`pejcljoimoeklelcfbfddnkimlkjgfhe`**, version **0.6.12**, wire protocol **2**.
 It is a public identity key, not a signing secret.
 
 Until the private listing is approved, remove the old development-ID unpacked
@@ -319,8 +319,12 @@ How Overleaf is read:
   paper, and who is on its email threads (From, To, Cc), each once with their name
   and email addresses (either may be missing). The same person under different names
   or addresses is merged: by address and exact name locally, and by one Foundry call
-  per project only when someone new appears (OVERLEAF.md §12a). The user, mailing
-  lists and role addresses are left out.
+  per project only when someone new appears (OVERLEAF.md §12a). Only authors, people
+  who edited the project, and people whose email shows substantive work (judged by the
+  model from what they wrote that Meld used) count; recipients, assistants receiving
+  slides, owners who never edited, the user, mailing lists and role addresses do not.
+  Each changelog change shows who it rests on (you, collaborators, others): the senders
+  of the cited email, or who edited the cited files since Meld last read them.
 - **Log.** More → Log shows the local app's own activity (checks, progress per file,
   grouping, updates, warnings and errors), newest first, with level and source
   filters, as in Project Meld. Entries name projects by Overleaf id (the page shows

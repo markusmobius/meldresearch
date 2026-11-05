@@ -556,8 +556,13 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
                 characters += usable[index].Text.Length;
             }
             first += part.Count;
-            var card = ThemePlan.Themes(await store.ReadAsync(ct), account).FirstOrDefault(theme => theme.Id == cardId);
+            var known = await store.ReadAsync(ct);
+            var card = ThemePlan.Themes(known, account).FirstOrDefault(theme => theme.Id == cardId);
             if (card is null) return;
+            // Who each update rests on: the senders of the messages it cites (the user for their own).
+            var self = CollaboratorPlan.Self(known, account);
+            var senders = part.ToDictionary(message => message.Id, message => CollaboratorPlan.SenderKey(self, message), StringComparer.Ordinal);
+            var everyone = senders.Values.Where(key => key.Length != 0).Distinct(StringComparer.Ordinal).ToArray();
             var request = new DetailStepRequest(DetailSource.Gmail, Trim(card.Profile?.Title ?? card.Name ?? subject, ProfileEvidence.HardMaxTitle), null, null,
                 DetailPlan.Inputs(card.Details ?? []), [], [], subject, [.. part.Select(Detail)], [.. context.Select(Detail)]);
             DetailRules.ValidateRequest(request);
@@ -573,7 +578,8 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
                     throw StateChanged();
                 var now = clock.GetUtcNow();
                 var (details, changes) = DetailPlan.Apply(theme.Details ?? [], response,
-                    quote => new DetailSource(DetailSource.Gmail, thread.Address, threadId, quote.Item, subject, sent.GetValueOrDefault(quote.Item)));
+                    quote => new DetailSource(DetailSource.Gmail, thread.Address, threadId, quote.Item, subject, sent.GetValueOrDefault(quote.Item)),
+                    quote => senders.TryGetValue(quote.Item, out var key) && key.Length != 0 ? [key] : [], everyone);
                 return current with
                 {
                     Themes = [.. current.Themes!.Select(item => item == theme ? theme with { Details = details } : item)],
@@ -604,11 +610,11 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
     private static string PeopleKey(GmailThreadRecord item) => $"people|{item.Address}|{item.Id}";
 
     /// <summary>
-    /// A thread on a project of the profile whose people were never recorded (it was read before collaborators were kept):
-    /// it is read once more for its senders and recipients (no model call).
+    /// A thread on a project of the profile whose people were never recorded, or recorded without who sent which message (it
+    /// was read before collaborators were kept): it is read once more for its senders and recipients (no model call).
     /// </summary>
     internal GmailThreadRecord? PeopleDue(LocalResearchState state, Guid account, DateTimeOffset now) =>
-        (state.GmailThreads ?? []).FirstOrDefault(item => item.AccountId == account && item.Status == GmailThreadRecord.Assigned && item.People is null &&
+        (state.GmailThreads ?? []).FirstOrDefault(item => item.AccountId == account && item.Status == GmailThreadRecord.Assigned && CollaboratorPlan.PeopleUnread(item) &&
             item.CardId is { } card && item.FoldedMessageId == item.LastMessageId && !_runs.ContainsKey(item.Address) && !Blocked(PeopleKey(item), now) &&
             ThemePlan.Active(state, account).Any(theme => theme.Id == card) && Eligible(state, account).Any(mail => Same(mail.Address, item.Address)));
 
@@ -620,7 +626,7 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
         IReadOnlyList<MailPerson> people;
         try { people = CollaboratorPlan.PeopleOf(await connector.WithAccessAsync(credential, mail, token => google.ThreadAsync(token, item.Id, ct), ct), Addresses(state, account)); }
         catch (ResearchFailure failure) when (failure.Code == "gmail_thread_missing") { people = []; }
-        await store.ChangeAsync(current => Item(current, account, item.Address, item.Id) is { People: null } read
+        await store.ChangeAsync(current => Item(current, account, item.Address, item.Id) is { } read && CollaboratorPlan.PeopleUnread(read)
             ? current with { GmailThreads = [.. Others(current, account, item.Address, item.Id), read with { People = people }] } : current, ct);
     }
 

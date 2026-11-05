@@ -34,12 +34,18 @@ public sealed class CollaboratorTests
 
         var history = new MemoryStream(Encoding.UTF8.GetBytes("""
             {"paths":{"main.tex":1767225600000},"complete":true,"editors":[{"name":"Lukas Bolte","email":"l.bolte@example.invalid","at":1767225600000},
-            {"name":null,"email":"not an address"},{"name":"Sid Satya","email":null}]}
+            {"name":null,"email":"not an address"},{"name":"Sid Satya","email":null}],
+            "files":{"main.tex":[[0,1767225600000],[2,1767139200000],[1,1767139200000]],"../escape.tex":[[0,1]]}}
             """));
         var read = await OverleafEvidenceSource.ParseHistoryAsync(history, None);
         Assert.Equal([new OverleafPerson("Lukas Bolte", "l.bolte@example.invalid", DateTimeOffset.FromUnixTimeMilliseconds(1767225600000)), new("Sid Satya", null)],
             read.Editors);
         Assert.Single(read.EditTimes!);
+        // Who edited each file: indexes into the connector's list (an unusable editor is skipped), unsafe paths ignored.
+        var file = Assert.Single(read.FileEditors!);
+        Assert.Equal("main.tex", file.Key);
+        Assert.Equal(["Lukas Bolte", "Sid Satya"], file.Value.Select(person => person.Name!));
+        Assert.Equal(DateTimeOffset.FromUnixTimeMilliseconds(1767139200000), file.Value[1].At);
     }
 
     [Fact]
@@ -87,16 +93,20 @@ public sealed class CollaboratorTests
         Assert.Equal(["l.bolte@uni.example.invalid", "sid@example.invalid", "tanya@example.invalid"], request.Mentions.Select(mention => mention.Email).Order());
         Assert.Contains("synthetic@example.invalid", request.Self);
         Assert.Contains("L. Bolte", request.Authors);
+        // The owner who never edited the project is no collaborator.
         var card = Assert.Single(store.State.Themes!);
-        Assert.Equal([("Lukas Bolte", "author,editor"), ("Sid Satya", "author,editor"), ("Tanya Rosenblat", "owner")],
+        Assert.Equal([("Lukas Bolte", "author,editor"), ("Sid Satya", "author,editor")],
             card.Collaborators!.People.Select(person => (person.Name, string.Join(",", person.Kinds))).OrderBy(item => item.Name));
         await Drain(coordinator, force: true);
         Assert.Single(remote.People);
 
         // A thread on the project: a known person under another address joins them without a call; the office is new.
         var at = DateTimeOffset.UtcNow;
+        GmailBullet Point(string from, string quote) => new(Guid.NewGuid(), quote, [new ResearchCitation("Pilot", quote, EvidenceVersion.Current,
+            new EmailEvidence("m1", from, at))], at, at, false);
         GmailThreadRecord Thread(string id, params MailPerson[] people) => new(Account.Id, "synthetic@example.invalid", id, "Pilot", GmailThreadRecord.Assigned,
-            "1", "m1", at, at, [], CardId: card.Id, FoldedMessageId: "m1", People: people);
+            "1", "m1", at, at, [Point("Grace Hopper <grace@example.invalid>", "I reran the pilot regressions with clustered errors."),
+                Point("Pat Assistant <pat@example.invalid>", "Thanks, slides received.")], CardId: card.Id, FoldedMessageId: "m1", People: people);
         store.State = store.State with { GmailThreads = [Thread("t1", new MailPerson("Lukas Bolte", "lukas@example.invalid", 2, 1, 0, at))] };
         await Drain(coordinator);
         Assert.Single(remote.People);
@@ -104,20 +114,23 @@ public sealed class CollaboratorTests
         Assert.Equal(["l.bolte@uni.example.invalid", "lukas@example.invalid"], lukas.Emails.Order());
         Assert.Equal(4, lukas.Count);
 
-        // More mail from known people changes counts only (no call); someone new makes one call, which drops a role address.
-        store.State = store.State with { GmailThreads = [Thread("t1", new MailPerson("Lukas Bolte", "lukas@example.invalid", 5, 1, 0, at))] };
+        // More mail from known people changes counts only (no call), and so does someone only copied (they cannot be a collaborator).
+        store.State = store.State with { GmailThreads = [Thread("t1", new MailPerson("Lukas Bolte", "lukas@example.invalid", 5, 1, 0, at),
+            new MailPerson(null, "research-office@example.invalid", 0, 0, 1, at))] };
         await Drain(coordinator);
         Assert.Single(remote.People);
+        // People who wrote something Meld used are judged in one call: substantive work counts, an assistant's thanks does not.
         store.State = store.State with
         {
             GmailThreads = [Thread("t1", new MailPerson("Lukas Bolte", "lukas@example.invalid", 5, 1, 0, at), new MailPerson(null, "research-office@example.invalid", 0, 0, 1, at),
-                new MailPerson("Grace Hopper", "grace@example.invalid", 1, 0, 0, at))]
+                new MailPerson("Grace Hopper", "grace@example.invalid", 1, 0, 0, at), new MailPerson("Pat Assistant", "pat@example.invalid", 1, 1, 0, at))]
         };
         await Drain(coordinator);
         Assert.Equal(2, remote.People.Count);
+        Assert.Equal(["I reran the pilot regressions with clustered errors."], remote.People[1].Mentions.Single(mention => mention.Email == "grace@example.invalid").Points);
         var status = (await coordinator.StatusAsync(None)).Themes!.Single().Collaborators!;
-        Assert.Equal(["Grace Hopper", "Lukas Bolte", "Sid Satya", "Tanya Rosenblat"], status.Select(person => person.Name).Order());
-        Assert.DoesNotContain(status, person => person.Emails.Contains("research-office@example.invalid"));
+        Assert.Equal(["Grace Hopper", "Lukas Bolte", "Sid Satya"], status.Select(person => person.Name).Order());
+        Assert.DoesNotContain(status, person => person.Emails.Contains("research-office@example.invalid") || person.Emails.Contains("pat@example.invalid"));
         Assert.Equal(7, status.Single(person => person.Name == "Lukas Bolte").Count);
         await Drain(coordinator);
         Assert.Equal(2, remote.People.Count);
@@ -147,5 +160,64 @@ public sealed class CollaboratorTests
         Assert.Equal((CollaboratorPlan.EditorsVersion, "lukas@example.invalid"),
             (store.State.Projects.Single().EditorsFor, store.State.Projects.Single().Editors!.Single().Email));
         Assert.Equal("Lukas Bolte", store.State.Themes!.Single().Collaborators!.People.Single().Name);
+    }
+
+    [Fact]
+    public async Task EachOverleafChangeRestsOnWhoEditedTheCitedFilesSinceMeldLastReadThem()
+    {
+        var first = DateTimeOffset.UtcNow.AddDays(-3);
+        var source = new Source(Files(("main.tex", "\\documentclass{article}\n\\begin{document}\nForty participants.\n\\end{document}")))
+        {
+            EditTimes = new Dictionary<string, DateTimeOffset> { ["main.tex"] = first },
+            Editors = [new("Synthetic", "synthetic@example.invalid"), new("Lukas Bolte", "lukas@example.invalid")],
+            FileEditors = new Dictionary<string, IReadOnlyList<OverleafPerson>>
+            {
+                ["main.tex"] = [new("Synthetic", "synthetic@example.invalid", first), new("Lukas Bolte", "lukas@example.invalid", first.AddHours(-1))]
+            }
+        };
+        var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
+        var remote = new Remote();
+        using var coordinator = Create(store, remote, source);
+        await Drain(coordinator);
+        // The first reading rests on everyone who wrote the file: the user and Lukas.
+        var card = Assert.Single(store.State.Themes!);
+        var change = Assert.Single(Assert.Single(store.State.Changelog!).Changes);
+        Assert.Equal(["self", "e:lukas@example.invalid"], change.By);
+        var page = await coordinator.ChangelogAsync(card.Id, null, null, 30, None);
+        Assert.Equal(["You", "Lukas Bolte"], page.Entries.Single().Changes.Single().By);
+
+        // A later edit only by Lukas: the update rests on him alone.
+        var second = DateTimeOffset.UtcNow.AddHours(-1);
+        source.Snapshot = Files(("main.tex", "\\documentclass{article}\n\\begin{document}\nEighty participants.\n\\end{document}")) with { SourceUpdatedAt = second };
+        source.EditTimes = new Dictionary<string, DateTimeOffset> { ["main.tex"] = second };
+        source.FileEditors = new Dictionary<string, IReadOnlyList<OverleafPerson>>
+        {
+            ["main.tex"] = [new("Lukas Bolte", "lukas@example.invalid", second), new("Synthetic", "synthetic@example.invalid", first)]
+        };
+        await Drain(coordinator, force: true);
+        var latest = store.State.Changelog!.OrderByDescending(entry => entry.At).First();
+        Assert.All(latest.Changes, item => Assert.Equal(["e:lukas@example.invalid"], item.By));
+        page = await coordinator.ChangelogAsync(card.Id, null, null, 30, None);
+        Assert.All(page.Entries.First().Changes, item => Assert.Equal(["Lukas Bolte"], item.By));
+    }
+
+    [Fact]
+    public void EmailChangesRestOnTheSendersOfTheCitedMessages()
+    {
+        var details = new DetailBullet[] { new("d1", "The pilot has 40 participants.", []) };
+        var response = new DetailStepResponse([
+            new(DetailRules.Add, null, "The pilot has 80 participants.", [new("m2", 1, 1, "We now have 80.")], []),
+            new(DetailRules.Remove, "d1", null, [], [])], "Updated.", "chat");
+        var senders = new Dictionary<string, string> { ["m1"] = "self", ["m2"] = "e:lukas@example.invalid" };
+        var (_, changes) = DetailPlan.Apply(details, response, quote => new DetailSource(DetailSource.Gmail, "me@example.invalid", "t1", quote.Item, "Pilot", null),
+            quote => senders.TryGetValue(quote.Item, out var key) ? [key] : [], ["self", "e:lukas@example.invalid"]);
+        // A removal rests on everyone behind the step; an addition on whoever wrote what it cites.
+        Assert.Equal([("remove", "self,e:lukas@example.invalid"), ("add", "e:lukas@example.invalid")],
+            changes.Select(change => (change.Op, string.Join(",", change.By!))));
+
+        var card = new ResearchTheme(Account.Id, new string('a', 32), [], null, null, DateTimeOffset.UtcNow,
+            Collaborators: new CollaboratorSet("p", "a", [new("Lukas Bolte", ["lukas@example.invalid"], [Collaborators.From], 2, null, ["e:lukas@example.invalid"])], []));
+        Assert.Equal(["You", "Lukas Bolte", "Others"], CollaboratorPlan.Names(["e:pat@example.invalid", "e:lukas@example.invalid", "self"], card));
+        Assert.Null(CollaboratorPlan.Names(null, card));
     }
 }

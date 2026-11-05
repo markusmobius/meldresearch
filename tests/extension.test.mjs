@@ -78,6 +78,8 @@ test('reads only paths, last-edit times and editors from Overleaf history, pagin
     assert.deepEqual(JSON.parse(exported), {
       paths: { 'main.tex': 3000, 'sections/a.tex': 2000, 'fig.tex': 2000, 'old.tex': 1000 }, complete: true,
       editors: [{ name: null, email: 'collaborator@example.invalid', at: 3000 }, { name: 'Lukas Bolte', email: 'lukas@example.invalid', at: 2000 }],
+      // Who last edited each file, as [editor index, time].
+      files: { 'main.tex': [[0, 3000], [1, 2000]], 'sections/a.tex': [[1, 2000], [0, 2000]], 'fig.tex': [[1, 2000], [0, 2000]] },
     });
   } finally { await harness.close(); }
 });
@@ -164,7 +166,7 @@ test('automatically connects without a popup and creates a repeating reconnect a
     assert.equal(state.connected, true);
     assert.equal(state.enabled, true);
     assert.equal(state.protocolVersion, 2);
-    assert.equal(state.extensionVersion, '0.6.11');
+    assert.equal(state.extensionVersion, '0.6.12');
     assert.equal(harness.alarms.get('meld-native-reconnect').periodInMinutes, 1);
     assert.equal(harness.requests.length, 0, 'Connecting alone must not read Overleaf.');
     assert.equal(harness.tabActions.length, 0, 'Passive startup must not steal focus.');
@@ -488,7 +490,7 @@ test('the Meld page can ask the connector to reload into an updated copy, but un
     await new Promise(resolve => setTimeout(resolve, 200));
     assert.equal(harness.reloads.length, 0);
     const state = await harness.external({ type: 'reload' });
-    assert.equal(state.extensionVersion, '0.6.11', 'The reply is sent before the extension reloads.');
+    assert.equal(state.extensionVersion, '0.6.12', 'The reply is sent before the extension reloads.');
     await waitUntil(() => harness.reloads.length === 1, 'extension reload');
   } finally { await harness.close(); }
 });

@@ -462,10 +462,12 @@ public sealed class FoundryTests
         // Collaborators: groups of mention ids with a name (or null) and the author flag; the people's text is sent, a malformed answer rejected.
         var people = new CollaboratorsRequest("PCM", ["me@example.invalid"], "L. Bolte ; Sid Satya",
             [new("m1", "Lukas Bolte", "lukas@example.invalid", [Collaborators.From], 2), new("m2", null, "office@example.invalid", [Collaborators.Cc], 1)]);
-        reply = JsonSerializer.Serialize(new { people = new object[] { new { name = "Lukas Bolte", mentions = new[] { "m1" }, author = true },
-            new { name = (string?)null, mentions = Array.Empty<string>(), author = false } }, dropped = new[] { "m2" } }, ResearchJson.Options);
-        var merged2 = await foundry.CollaboratorsAsync(people, CancellationToken.None);
-        Assert.Equal(("Lukas Bolte", true, null), (merged2.People[0].Name, merged2.People[0].Author, merged2.People[1].Name));
+        reply = JsonSerializer.Serialize(new { people = new object[] { new { name = "Lukas Bolte", mentions = new[] { "m1" }, author = true, involved = true },
+            new { name = (string?)null, mentions = Array.Empty<string>(), author = false, involved = false } }, dropped = new[] { "m2" } }, ResearchJson.Options);
+        var merged2 = await foundry.CollaboratorsAsync(people with { Mentions = [people.Mentions[0] with { Points = ["I ran the robustness checks."] }, people.Mentions[1]] },
+            CancellationToken.None);
+        Assert.Equal(("Lukas Bolte", true, true, null), (merged2.People[0].Name, merged2.People[0].Author, merged2.People[0].Involved, merged2.People[1].Name));
+        Assert.Contains("I ran the robustness checks.", sent);
         Assert.Equal(["m2"], merged2.Dropped);
         Assert.Contains("L. Bolte ; Sid Satya", sent);
         reply = JsonSerializer.Serialize(new { people = "none" }, ResearchJson.Options);

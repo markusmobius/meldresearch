@@ -118,6 +118,9 @@
                                     @if (change.op === 'revise' && change.before && change.before !== change.after) {
                                       <span class="was">Was: {{ change.before }}</span>
                                     }
+                                    @if (change.by?.join(', '); as by) {
+                                      <span class="change-by" [attr.aria-label]="'From ' + by"><mat-icon>person</mat-icon>{{ by }}</span>
+                                    }
                                   </li>
                                 }
                               </ul>

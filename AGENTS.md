@@ -122,8 +122,10 @@ instruction file. Start with the [README](README.md) for setup and release detai
   `\author` blocks and the From/To/Cc of a card's threads, the user left out; known
   people merge locally by address or exact name, anything new costs one
   `/api/research/collaborators` call per card; unchanged people make zero calls.
-  The model only groups mention ids and picks names as written; never let it add
-  addresses or invented names.
+  The model only groups mention ids, picks names as written and judges email-only
+  people's involvement from quotes Meld already used; never let it add addresses or
+  invented names. Collaborators are authors, editors and substantively involved email
+  people only. Changelog changes record who they rest on (`DetailChange.By`) locally.
   Keep every remote request under Cloudflare's 100 s origin limit (45 s wait budget).
 - More → Log ([AppLog](apps/LocalBackend/Services/AppLog.cs)) records only Meld's own
   log categories. Keep log messages free of research text, project names and
@@ -275,7 +277,7 @@ Use .NET 10, Node 24/npm and PowerShell 7. Run from this repository's root, e.g.
   restore the removed application Playwright approach. Use the normal browser
   and connector; never execute downloaded TeX.
 - Current Chrome identity: `pejcljoimoeklelcfbfddnkimlkjgfhe`; extension version
-  `0.6.11`, native protocol `2`. Identity derives from the public manifest key,
+  `0.6.12`, native protocol `2`. Identity derives from the public manifest key,
   not a secret signing key. Update related identity/handshake checks together;
   compatible extension releases need not have identical version numbers.
 - Bump the connector manifest version whenever extension files change: installed

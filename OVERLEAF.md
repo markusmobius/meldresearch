@@ -299,6 +299,18 @@ shows them in the card's **Collaborators** tab.
    "nobody": the next check asks again (`MonitoredProject.EditorsFor`).
 2. **The user is left out**: their Meld and Gmail addresses, their Meld name, and
    the owner of the Overleaf projects they own.
+2a. **Only real collaborators.** A person counts when they are an **author** in
+   the author blocks, **edited** one of the card's Overleaf projects, or their
+   **email shows substantive work** on the research. For the last, each person on
+   email is sent with up to three short quotes of what they wrote that Meld used
+   (cited by the card's details or a thread's preview points, matched through the
+   ids of the messages each person sent, `MailPerson.Sent`); the model sets
+   `involved` only for work on the research itself, not scheduling, forwarding,
+   acknowledging or receiving slides. Recipients only (To/Cc), owners who never
+   edited and people without used quotes are set aside (`CollaboratorSet.Minor`)
+   but still help merging; a newcomer who cannot count on their own is set aside
+   without a call, and someone set aside is judged again only when what they wrote
+   that was used changes.
 3. **Merging.** People with the same address are one mention. When the mentions
    or author blocks change (`CollaboratorSet.For`), new mentions that match a
    known collaborator by address or exactly by name join them without a model.
@@ -315,6 +327,17 @@ shows them in the card's **Collaborators** tab.
    change.
 4. **Cost.** Unchanged people make zero calls, including after a restart; more
    mail from known people only updates counts. At most 150 mentions per call.
+   `CollaboratorPlan.Version` 2 (substantive involvement) makes every card's
+   collaborators once more.
+4a. **Who each change rests on.** Every change in the changelog records who it
+   rests on (`DetailChange.By`, person keys or `self`), with no model call: for
+   email, the senders of the messages its quotes cite; for Overleaf, who edited
+   the cited files since the version Meld read before (the connector reports when
+   each editor last edited each file, `ProjectManifest.FileEditors`; else the
+   file's latest editor). Removals rest on everyone behind the step. The changelog
+   shows them as "You", collaborators' names, and "Others" for anyone who is no
+   collaborator; email changes recorded before this are traced through the
+   messages their details cite now.
 5. Collaborators sync with the card; skipped cards are not processed.
 
 ## 13. Fresh start

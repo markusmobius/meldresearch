@@ -525,7 +525,7 @@ internal sealed class FoundryService : IFoundryService, IDisposable
             var people = result.GetProperty("people").EnumerateArray().Select(person => new CollaboratorGroup(
                 person.GetProperty("name").ValueKind == JsonValueKind.Null ? null : person.GetProperty("name").GetString(),
                 [.. person.GetProperty("mentions").EnumerateArray().Select(id => id.GetString() ?? "")],
-                person.GetProperty("author").GetBoolean())).ToArray();
+                person.GetProperty("author").GetBoolean(), person.GetProperty("involved").GetBoolean())).ToArray();
             var dropped = result.GetProperty("dropped").EnumerateArray().Select(id => id.GetString() ?? "").ToArray();
             if (people.Length > Collaborators.MaxMentions * 2 || people.Any(person => person.Name is { Length: > Collaborators.MaxName }))
                 throw new JsonException("Too many people.");
@@ -1068,26 +1068,32 @@ internal sealed class FoundryService : IFoundryService, IDisposable
         Input: the project's title; self: the researcher's own email addresses and names; authors: the author blocks of the
         project's papers as plain text (names, maybe affiliations and email addresses; authors separated by ";"); mentions:
         people who appear on the project, each with an id, a name and/or an email address, how they appear (editor: edited
-        its Overleaf project; owner: owns it; from/to/cc: on its email threads) and how often.
-        Return people: one entry per distinct person who works on the research with the researcher:
+        its Overleaf project; owner: owns it; from/to/cc: on its email threads), how often, and points: up to three short
+        quotes of what they wrote in the project's email that the researcher's notes used (none when nothing they wrote was).
+        Return people: one entry per distinct person who appears on the project:
         - mentions: the ids of ALL mentions that are this person: the same name with different addresses, initials or a
           nickname for a full name ("J. Smith", "John Smith", "Smith, John"), or an address that clearly belongs to a named
           person (j.smith@uni.edu for John Smith). Merge only when you are confident they are the same person.
         - name: the person's fullest name exactly as written in a mention or in the author blocks, or null when none is
           known. Never guess a name from an email address and never invent one.
         - author: true when the person is an author in the author blocks.
+        - involved: true only when their points show substantive work on the research itself (ideas, analysis, data,
+          writing, results, decisions about the research). False for administrative or logistic roles (scheduling,
+          booking, forwarding, acknowledging, receiving slides or drafts), for people who are only recipients or copied,
+          and for anyone without points. Authors and editors are kept regardless, so judge involved from the points only.
         An author who appears only in the author blocks is a person with no mentions; never list an affiliation, a
         department or a funder as a person.
         Return dropped: the ids of mentions that are the researcher (matching self), mailing lists, group or role addresses
-        (info@, admin@, noreply, help desks) and automated senders. When unsure whether someone collaborates, keep them.
+        (info@, admin@, noreply, help desks) and automated senders.
         Every mention id appears exactly once, in people or in dropped.
         Return only the requested JSON schema.
         """;
 
     private const string CollaboratorsSchema = """
         {"type":"object","additionalProperties":false,"required":["people","dropped"],"properties":{"people":{"type":"array","items":
-        {"type":"object","additionalProperties":false,"required":["name","mentions","author"],"properties":{"name":{"type":["string","null"]},
-        "mentions":{"type":"array","items":{"type":"string"}},"author":{"type":"boolean"}}}},"dropped":{"type":"array","items":{"type":"string"}}}}
+        {"type":"object","additionalProperties":false,"required":["name","mentions","author","involved"],"properties":{"name":{"type":["string","null"]},
+        "mentions":{"type":"array","items":{"type":"string"}},"author":{"type":"boolean"},"involved":{"type":"boolean"}}}},
+        "dropped":{"type":"array","items":{"type":"string"}}}}
         """;
 
     private const string ThreadTitlesSchema = """

@@ -87,8 +87,14 @@ export interface DetailSource {
 }
 /** One sentence of a research project's current state, with the sources it rests on. */
 export interface ResearchDetail { id: string; text: string; sources: ReadonlyArray<DetailSource>; }
-/** What one source did to one detail: added, revised (before and after) or removed it. */
-export interface DetailChange { op: 'add' | 'revise' | 'remove'; detailId: string; before: string | null; after: string | null; }
+/**
+ * What one source did to one detail: added, revised (before and after) or removed it. by: who it rests on ("You", the
+ * project's collaborators by name, "Others"): the senders of the cited email, or who edited the cited files since Meld last
+ * read them; absent when not known.
+ */
+export interface DetailChange {
+  op: 'add' | 'revise' | 'remove'; detailId: string; before: string | null; after: string | null; by?: ReadonlyArray<string> | null;
+}
 /**
  * A changelog entry of a research project: a source that updated it (kind overleaf: documents of one tree; gmail: new email
  * of a thread), a removed source, the user's change, a merge, or a periodic review (overlaps merged, overtaken plans

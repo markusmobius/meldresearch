@@ -73,6 +73,11 @@ internal sealed class DummyBrowserRelay : IBrowserRelay
                         new { name = "Demo Researcher", email = "researcher.gmail@example.invalid", at = DateTimeOffset.UtcNow.AddDays(-1).ToUnixTimeMilliseconds() },
                         new { name = "Lukas Bolte", email = "l.bolte@university.example.invalid", at = DateTimeOffset.UtcNow.AddDays(-3).ToUnixTimeMilliseconds() },
                         new { name = "Sid Satya", email = "sid@example.invalid", at = DateTimeOffset.UtcNow.AddDays(-5).ToUnixTimeMilliseconds() }
+                    },
+                    // Who last edited each file: Lukas and the user wrote main.tex.
+                    files = new Dictionary<string, long[][]>
+                    {
+                        ["main.tex"] = [[0, DateTimeOffset.UtcNow.AddMinutes(-revision).ToUnixTimeMilliseconds()], [1, DateTimeOffset.UtcNow.AddMinutes(-revision - 1).ToUnixTimeMilliseconds()]]
                     }
                 }, WireProtocol.Json, ct);
                 return new(path, "application/json");

@@ -108,14 +108,18 @@ internal static class DetailPlan
     /// <summary>
     /// Applies a step's edits, removals first (so a full list makes room before additions); a detail left without citations
     /// is removed, and an addition beyond <see cref="DetailRules.MaxDetails"/> is not made. Returns the details and what changed.
+    /// With <paramref name="by"/>, each change records who it rests on: the people behind the quotes it adds, else (a removal,
+    /// or a rewording without new quotes) everyone behind the step (<paramref name="everyone"/>).
     /// </summary>
     public static (IReadOnlyList<DetailBullet> Details, IReadOnlyList<DetailChange> Changes) Apply(IReadOnlyList<DetailBullet> details,
-        DetailStepResponse response, Func<DetailQuote, DetailSource> source)
+        DetailStepResponse response, Func<DetailQuote, DetailSource> source, Func<DetailQuote, IEnumerable<string>>? by = null,
+        IReadOnlyList<string>? everyone = null)
     {
         var result = details.ToList();
         var changes = new List<DetailChange>();
         foreach (var op in response.Ops.OrderBy(op => DetailRules.Order(op.Op)))
         {
+            int before0 = changes.Count;
             var citations = op.Add.Select(quote => new DetailCitation(source(quote), quote.Quote)).ToArray();
             switch (op.Op)
             {
@@ -147,9 +151,17 @@ internal static class DetailPlan
                     result.RemoveAt(gone);
                     break;
             }
+            if (by is null || changes.Count == before0) continue;
+            var people = op.Add.SelectMany(by).Distinct(StringComparer.Ordinal).ToArray();
+            var change = changes[^1];
+            changes[^1] = change with { By = change.Op != DetailRules.Remove && people.Length != 0 ? people : everyone is { Count: > 0 } ? everyone : null };
         }
         return (result, changes);
     }
+
+    /// <summary>The changes, with those that do not record who they rest on credited to everyone behind the step.</summary>
+    public static IReadOnlyList<DetailChange> By(IReadOnlyList<DetailChange> changes, IReadOnlyList<string> everyone) =>
+        everyone.Count == 0 ? changes : [.. changes.Select(change => change.By is null ? change with { By = everyone } : change)];
 
     /// <summary>
     /// Applies a review (OVERLEAF.md §8a): each kept detail keeps the id and place of the first detail it came from and the

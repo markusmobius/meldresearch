@@ -675,10 +675,14 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         return new([.. entries.Take(size).Select(entry => Change(entry, themes, state))], entries.Length > size);
     }
 
-    private static ChangeResponse Change(ChangelogEntry entry, IReadOnlyList<ResearchTheme> themes, LocalResearchState state) =>
-        new(entry.Id, entry.CardId, themes.FirstOrDefault(theme => theme.Id == entry.CardId) is { } card ? ThemePlan.DisplayTitle(card) : null, entry.At, entry.Kind, entry.Title,
+    private static ChangeResponse Change(ChangelogEntry entry, IReadOnlyList<ResearchTheme> themes, LocalResearchState state)
+    {
+        var card = themes.FirstOrDefault(theme => theme.Id == entry.CardId);
+        return new(entry.Id, entry.CardId, card is not null ? ThemePlan.DisplayTitle(card) : null, entry.At, entry.Kind, entry.Title,
             entry.ProjectId is { } project ? state.Projects.FirstOrDefault(item => item.ProjectId == project)?.Name : null, entry.Documents,
-            [.. entry.Changes.Select(change => new DetailChangeResponse(change.Op, change.DetailId, change.Before, change.After))]);
+            [.. entry.Changes.Select(change => new DetailChangeResponse(change.Op, change.DetailId, change.Before, change.After,
+                CollaboratorPlan.Names(change.By ?? CollaboratorPlan.EmailBy(change, entry, card, state), card)))]);
+    }
 
     private static ThemeCandidate Candidate(ResearchTheme theme)
     {
@@ -1359,7 +1363,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                     return;
                 }
                 var history = await source.HistoryAsync(project.ProjectId, token);
-                manifest = manifest with { EditTimes = history.EditTimes };
+                manifest = manifest with { EditTimes = history.EditTimes, FileEditors = history.FileEditors };
                 var texts = await DetailPlan.TextsAsync(store, project, manifest, token);
                 var trees = DetailPlan.Trees(project, manifest, texts, now, SummaryWindow);
                 await CommitAsync(credential, project, item => Clean(item) with
@@ -1431,6 +1435,19 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             DetailRules.ValidateResponse(request, response);
             DateTimeOffset Edited(string path) =>
                 pending.EditTimes is { } times && times.TryGetValue(path, out var time) ? time : pending.SourceUpdatedAt ?? pending.ObservedAt;
+            // Who an update rests on: who edited the cited files since the version Meld read before (else their latest editor).
+            var self = CollaboratorPlan.Self(await store.ReadAsync(token), account);
+            IReadOnlyList<string> EditedBy(string path)
+            {
+                if (pending.FileEditors?.GetValueOrDefault(path) is not { Count: > 0 } people) return [];
+                var since = project.Processed?.ContainsKey(path) == true && project.Baseline?.EditTimes is { } before &&
+                    before.TryGetValue(path, out var previous) ? previous : DateTimeOffset.MinValue;
+                var recent = people.Where(person => person.At > since).ToArray();
+                if (recent.Length == 0) recent = [people.MaxBy(person => person.At)!];
+                return [.. recent.Select(person => CollaboratorPlan.IsSelf(self, person.Name, person.Email) ? CollaboratorPlan.SelfKey : CollaboratorPlan.Key(person.Name, person.Email))
+                    .Distinct(StringComparer.Ordinal)];
+            }
+            var everyone = sent.SelectMany(EditedBy).Distinct(StringComparer.Ordinal).ToArray();
             int count = 0;
             await store.ChangeAsync(current =>
             {
@@ -1442,7 +1459,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 var theme = ThemePlan.CardOf(current, account, project.ProjectId)!;
                 // Edits apply to the card as it is now (another project or email may have changed it meanwhile).
                 var (details, changes) = DetailPlan.Apply(theme.Details ?? [], response,
-                    quote => new DetailSource(DetailSource.Overleaf, project.ProjectId, quote.Item, hashes[quote.Item], quote.Item, Edited(quote.Item)));
+                    quote => new DetailSource(DetailSource.Overleaf, project.ProjectId, quote.Item, hashes[quote.Item], quote.Item, Edited(quote.Item)),
+                    quote => EditedBy(quote.Item), everyone);
                 var processed = new Dictionary<string, string>(item.Processed ?? new Dictionary<string, string>(), StringComparer.Ordinal);
                 var partial = new Dictionary<string, string>(item.Partial ?? new Dictionary<string, string>(), StringComparer.Ordinal);
                 foreach (var path in sent)
@@ -1455,7 +1473,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                         var (kept, dropped) = DetailPlan.Without(details, source => source.Kind == DetailSource.Overleaf &&
                             source.Container == project.ProjectId && source.Item == path && source.Version != hashes[path]);
                         details = kept;
-                        changes = [.. changes, .. dropped];
+                        changes = [.. changes, .. DetailPlan.By(dropped, everyone)];
                     }
                     else partial[path] = $"{hashes[path]}:{part.Documents.Where(document => document.Path == path).Max(document => document.FirstLine)}";
                 }

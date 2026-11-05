@@ -402,6 +402,8 @@ public sealed class ResearchCoordinatorTests
         public IReadOnlyDictionary<string, DateTimeOffset>? EditTimes { get; set; }
         /// <summary>Who edited the project (Overleaf's history) and who owns it (the project list); none by default.</summary>
         public IReadOnlyList<OverleafPerson>? Editors { get; set; }
+        /// <summary>Who edited each file and when they last did (Overleaf's history); none by default.</summary>
+        public IReadOnlyDictionary<string, IReadOnlyList<OverleafPerson>>? FileEditors { get; set; }
         public OverleafPerson? Owner { get; set; }
         public bool Owned { get; set; }
         public int HistoryReads { get; private set; }
@@ -416,7 +418,7 @@ public sealed class ResearchCoordinatorTests
         { Reads++; return Task.FromResult(Snapshot with { ObservedAt = DateTimeOffset.UtcNow }); }
         public Task<IReadOnlyDictionary<string, DateTimeOffset>?> EditTimesAsync(string projectId, CancellationToken ct) => Task.FromResult(EditTimes);
         public Task<OverleafHistory> HistoryAsync(string projectId, CancellationToken ct)
-        { HistoryReads++; return Task.FromResult(new OverleafHistory(EditTimes, Editors)); }
+        { HistoryReads++; return Task.FromResult(new OverleafHistory(EditTimes, Editors, FileEditors)); }
     }
 
     internal sealed class Remote : IResearchRemote
@@ -529,7 +531,8 @@ public sealed class ResearchCoordinatorTests
         public List<CollaboratorsRequest> People { get; } = [];
         /// <summary>
         /// The merged collaborators; by default mentions whose names share the last word are one person (named by the longest
-        /// name), an author block name with that last word marks them as an author, and role addresses (office) are dropped.
+        /// name), an author block name with that last word marks them as an author, role addresses (office) are dropped, and
+        /// a person is involved when they wrote a used point that is not just thanks.
         /// </summary>
         public Func<CollaboratorsRequest, CollaboratorsResponse>? Collaborate { get; set; }
         public Task<CollaboratorsResponse> CollaboratorsAsync(string token, CollaboratorsRequest request, CancellationToken ct)
@@ -541,7 +544,8 @@ public sealed class ResearchCoordinatorTests
             var groups = request.Mentions.Where(mention => !dropped.Contains(mention.Id))
                 .GroupBy(mention => Last(mention.Name) is { Length: > 0 } last ? last : mention.Id)
                 .Select(group => new CollaboratorGroup(group.Select(mention => mention.Name).OfType<string>().MaxBy(name => name.Length),
-                    [.. group.Select(mention => mention.Id)], request.Authors is { } authors && Collaborators.Normalize(authors).Split(' ').Contains(group.Key)))
+                    [.. group.Select(mention => mention.Id)], request.Authors is { } authors && Collaborators.Normalize(authors).Split(' ').Contains(group.Key),
+                    group.Any(mention => mention.Points?.Any(point => !point.Contains("thank", StringComparison.OrdinalIgnoreCase)) == true)))
                 .ToArray();
             return Task.FromResult(new CollaboratorsResponse(groups, dropped, "chat"));
         }

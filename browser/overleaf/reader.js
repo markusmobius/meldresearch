@@ -32,10 +32,13 @@
     }
 
     // Reads when each file was last edited and who edited the project, from Overleaf's project history. Only paths and
-    // times, and each editor's name, email and latest edit, leave the tab; the changes themselves are discarded here.
+    // times, each editor's name, email and latest edit, and when each editor last edited each file leave the tab; the
+    // changes themselves are discarded here.
     async function* history() {
       const paths = {};
       const editors = {};
+      const index = {};
+      const files = {};
       let before = null;
       let complete = false;
       for (let page = 0; page < 40 && !complete; page++) {
@@ -68,14 +71,26 @@
           for (const user of Array.isArray(update?.meta?.users) ? update.meta.users : []) {
             const editor = person(user?.first_name, user?.last_name, user?.email);
             const key = editor && (editor.email ?? `name:${editor.name}`);
-            if (key && !(key in editors) && Object.keys(editors).length < 200) editors[key] = { ...editor, at: time };
+            if (key && !(key in editors) && Object.keys(editors).length < 200) {
+              index[key] = Object.keys(editors).length;
+              editors[key] = { ...editor, at: time };
+            }
+            if (!(key in index)) continue;
+            // Newest first, so the first time an editor appears for a file is their latest edit of it.
+            for (const name of names) {
+              if (typeof name !== 'string' || name.length > 1024) continue;
+              const path = name.replace(/^\/+/, '');
+              if (!(path in paths)) continue;
+              const seen = files[path] ??= [];
+              if (seen.length < 20 && !seen.some(entry => entry[0] === index[key])) seen.push([index[key], time]);
+            }
           }
         }
         const next = Number(data.nextBeforeTimestamp);
         if (!Number.isInteger(next) || next <= 0) complete = true;
         else before = next;
       }
-      const bytes = new TextEncoder().encode(JSON.stringify({ paths, complete, editors: Object.values(editors) }));
+      const bytes = new TextEncoder().encode(JSON.stringify({ paths, complete, editors: Object.values(editors), files }));
       yield { contentType: 'application/json' };
       yield* chunks(bytes);
     }

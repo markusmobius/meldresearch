@@ -60,9 +60,13 @@ internal sealed record SyncState(Guid AccountId, string DataKey, DateTimeOffset 
 /// </summary>
 internal sealed record PendingTree(string Root, DateTimeOffset Date, IReadOnlyList<string> Order, IReadOnlyList<string> Send);
 
-/// <summary>An observed project's files by hash; the text of analyzed files is in the encrypted text store.</summary>
+/// <summary>
+/// An observed project's files by hash; the text of analyzed files is in the encrypted text store. FileEditors: who edited
+/// each file and when they last did (from Overleaf's history), to say who the updates from this version rest on.
+/// </summary>
 internal sealed record ProjectManifest(string Revision, DateTimeOffset ObservedAt, DateTimeOffset? SourceUpdatedAt,
-    IReadOnlyList<ManifestFile> Files, IReadOnlyDictionary<string, DateTimeOffset>? EditTimes = null);
+    IReadOnlyList<ManifestFile> Files, IReadOnlyDictionary<string, DateTimeOffset>? EditTimes = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, IReadOnlyList<OverleafPerson>>? FileEditors = null);
 internal sealed record ManifestFile(string Path, string Sha256, long Bytes, bool Analyzed);
 /// <summary>
 /// A one-paragraph description of an Overleaf project from its main .tex file, made only when the user chose Summarize for
@@ -108,9 +112,12 @@ internal sealed record ResearchTheme(Guid AccountId, string Id, IReadOnlyList<st
 /// <summary>
 /// A research project's collaborators (OVERLEAF.md §12a), merged from its people: For is the fingerprint of the people and
 /// author blocks they were merged from (CollaboratorPlan.Fingerprint), AuthorsFor of the author blocks alone. Dropped are the
-/// keys of people who are no collaborators (the user, mailing lists, role addresses).
+/// keys of people who are no collaborators (the user, mailing lists, role addresses). Minor are the people on the project
+/// without substantive involvement (only on email, not authors or editors): "key|hash of their points", so they are judged
+/// again only when what they wrote that Meld used changes.
 /// </summary>
-internal sealed record CollaboratorSet(string For, string AuthorsFor, IReadOnlyList<Collaborator> People, IReadOnlyList<string> Dropped);
+internal sealed record CollaboratorSet(string For, string AuthorsFor, IReadOnlyList<Collaborator> People, IReadOnlyList<string> Dropped,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? Minor = null);
 
 /// <summary>
 /// One collaborator: a name (null when only an address is known), their email addresses (none when only a name is known),
@@ -120,8 +127,12 @@ internal sealed record CollaboratorSet(string For, string AuthorsFor, IReadOnlyL
 internal sealed record Collaborator(string? Name, IReadOnlyList<string> Emails, IReadOnlyList<string> Kinds, int Count,
     DateTimeOffset? At, IReadOnlyList<string> Keys);
 
-/// <summary>A person on an email thread: their address (lower case), the name they used, and how many messages they sent, received or were copied on.</summary>
-internal sealed record MailPerson(string? Name, string Email, int From, int To, int Cc, DateTimeOffset At);
+/// <summary>
+/// A person on an email thread: their address (lower case), the name they used, how many messages they sent, received or were
+/// copied on, and the ids of the messages they sent (Sent; null when read before it was kept), to find what they wrote.
+/// </summary>
+internal sealed record MailPerson(string? Name, string Email, int From, int To, int Cc, DateTimeOffset At,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? Sent = null);
 
 /// <summary>
 /// One entry of a research project's changelog (OVERLEAF.md §8): a source that updated it (an Overleaf root tree, an email
@@ -135,8 +146,13 @@ internal sealed record ChangelogEntry(Guid Id, Guid AccountId, string CardId, Da
     public const string Overleaf = "overleaf", Gmail = "gmail", Removed = "removed", User = "user", Merge = "merge", Review = "review";
 }
 
-/// <summary>What one update did to one detail: added, revised (Before and After) or removed it.</summary>
-internal sealed record DetailChange(string Op, string DetailId, string? Before, string? After);
+/// <summary>
+/// What one update did to one detail: added, revised (Before and After) or removed it. By: who it rests on, as person keys
+/// (CollaboratorPlan.Key) or "self" for the user: the senders of the cited email, or who edited the cited files since Meld
+/// last read them; null when not known (earlier updates, or the user's own changes).
+/// </summary>
+internal sealed record DetailChange(string Op, string DetailId, string? Before, string? After,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? By = null);
 
 /// <summary>
 /// An Overleaf file the user removed as a source of a research project (OVERLEAF.md §10). It waits in Housekeeping until

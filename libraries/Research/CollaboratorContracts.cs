@@ -6,9 +6,11 @@ namespace MeldResearch.Research;
 
 /// <summary>
 /// One way a person appears on a research project: a name and/or an email address, how they appear (Kinds: editor or owner
-/// of an Overleaf project, from/to/cc on its email threads) and how often (Count).
+/// of an Overleaf project, from/to/cc on its email threads) and how often (Count). Points: up to three short quotes of what
+/// they wrote in the project's email that Meld used (cited in its details or a thread's preview), to judge their involvement.
 /// </summary>
-public sealed record PersonMention(string Id, string? Name, string? Email, IReadOnlyList<string> Kinds, int Count);
+public sealed record PersonMention(string Id, string? Name, string? Email, IReadOnlyList<string> Kinds, int Count,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? Points = null);
 
 /// <summary>
 /// The people of one research project, to be merged into collaborators (one call per project, only when its people changed).
@@ -16,8 +18,11 @@ public sealed record PersonMention(string Id, string? Name, string? Email, IRead
 /// </summary>
 public sealed record CollaboratorsRequest(string Project, IReadOnlyList<string> Self, string? Authors, IReadOnlyList<PersonMention> Mentions);
 
-/// <summary>One collaborator: the mentions that are this person, their name as written (or null) and whether they are an author.</summary>
-public sealed record CollaboratorGroup(string? Name, IReadOnlyList<string> Mentions, bool Author);
+/// <summary>
+/// One person: the mentions that are this person, their name as written (or null), whether they are an author, and whether
+/// their email shows substantive work on the research (Involved; not scheduling, forwarding, acknowledging or receiving).
+/// </summary>
+public sealed record CollaboratorGroup(string? Name, IReadOnlyList<string> Mentions, bool Author, bool Involved = false);
 
 /// <summary>People: the collaborators. Dropped: mentions of the researcher or of no collaborator (lists, role addresses).</summary>
 public sealed record CollaboratorsResponse(IReadOnlyList<CollaboratorGroup> People, IReadOnlyList<string> Dropped, string ChatModel);
@@ -29,7 +34,7 @@ public sealed record CollaboratorsResponse(IReadOnlyList<CollaboratorGroup> Peop
 /// </summary>
 public static partial class Collaborators
 {
-    public const int MaxMentions = 150, MaxSelf = 20, MaxAuthors = 4000, MaxName = 200, MaxEmail = 320, MaxProject = 300;
+    public const int MaxMentions = 150, MaxSelf = 20, MaxAuthors = 4000, MaxName = 200, MaxEmail = 320, MaxProject = 300, MaxPoints = 3, MaxPoint = 300;
     public const string Editor = "editor", Owner = "owner", Author = "author", From = "from", To = "to", Cc = "cc";
     private static readonly HashSet<string> MentionKinds = [Editor, Owner, From, To, Cc];
 
@@ -39,7 +44,8 @@ public static partial class Collaborators
             (mention.Name is not null || mention.Email is not null) &&
             (mention.Name is null || !string.IsNullOrWhiteSpace(mention.Name) && mention.Name.Length <= MaxName) &&
             (mention.Email is null || mention.Email.Length <= MaxEmail && mention.Email.Contains('@')) &&
-            mention.Kinds is { Count: > 0 and <= 5 } && mention.Kinds.All(kind => kind is not null && MentionKinds.Contains(kind)) && mention.Count >= 1;
+            mention.Kinds is { Count: > 0 and <= 5 } && mention.Kinds.All(kind => kind is not null && MentionKinds.Contains(kind)) && mention.Count >= 1 &&
+            (mention.Points is null || mention.Points.Count <= MaxPoints && mention.Points.All(point => !string.IsNullOrWhiteSpace(point) && point.Length <= MaxPoint));
         if (request is null || string.IsNullOrWhiteSpace(request.Project) || request.Project.Length > MaxProject ||
             request.Self is not { Count: <= MaxSelf } || request.Self.Any(item => string.IsNullOrWhiteSpace(item) || item.Length > MaxEmail) ||
             request.Authors is { Length: > MaxAuthors } || request.Mentions is not { Count: <= MaxMentions } ||
@@ -71,9 +77,9 @@ public static partial class Collaborators
                 ? trimmed : fallback;
             if (ids.Length == 0 && (!group.Author || name is null)) continue;
             if (ids.Length == 0 && people.Any(person => person.Name is not null && Normalize(person.Name) == Normalize(name!))) continue;
-            people.Add(new(name, ids, group.Author && authors.Length != 0));
+            people.Add(new(name, ids, group.Author && authors.Length != 0, group.Involved));
         }
-        people.AddRange(request.Mentions.Where(mention => !used.Contains(mention.Id)).Select(mention => new CollaboratorGroup(mention.Name, [mention.Id], false)));
+        people.AddRange(request.Mentions.Where(mention => !used.Contains(mention.Id)).Select(mention => new CollaboratorGroup(mention.Name, [mention.Id], false, false)));
         return (people, dropped);
     }
 

@@ -146,7 +146,7 @@ describe('About me: my projects', () => {
 
   it('shows the changelog newest first and loads earlier entries on request', async () => {
     const first = change('c1', '2026-10-02T12:00:00Z', { kind: 'gmail', title: 'Pilot results', projectName: null,
-      changes: [{ op: 'revise', detailId: 'd2', before: 'A pilot is planned.', after: 'A pilot with 80 publishers is running.' }] });
+      changes: [{ op: 'revise', detailId: 'd2', before: 'A pilot is planned.', after: 'A pilot with 80 publishers is running.', by: ['You', 'Lukas Bolte'] }] });
     const second = change('c2', '2026-09-01T12:00:00Z', { changes: [] });
     const review = change('c3', '2026-08-01T12:00:00Z', { kind: 'review', title: 'Review: overlapping details merged, overtaken plans retired', projectName: null,
       changes: [{ op: 'remove', detailId: 'd9', before: 'A pilot is planned.', after: null }] });
@@ -160,6 +160,8 @@ describe('About me: my projects', () => {
     expect(entry.querySelector('.change-kind')?.textContent).toBe('Email');
     expect(entry.querySelector('.op-revise')?.textContent).toContain('A pilot with 80 publishers is running.');
     expect(entry.querySelector('.was')?.textContent).toContain('Was: A pilot is planned.');
+    // Who the change rests on.
+    expect(entry.querySelector('.change-by')?.textContent?.trim()).toBe('personYou, Lukas Bolte');
 
     card.querySelector<HTMLButtonElement>('.changelog-state button')!.click();
     await vi.waitFor(() => { fixture.detectChanges(); expect(card.querySelectorAll('.change')).toHaveLength(3); });
@@ -167,6 +169,7 @@ describe('About me: my projects', () => {
     expect(card.querySelectorAll('.change')[1].textContent).toContain('Read; no change to the details.');
     expect(card.querySelectorAll('.change')[2].querySelector('.change-kind')?.textContent).toBe('Review');
     expect(card.querySelectorAll('.change')[2].querySelector('.op-remove')?.textContent).toContain('A pilot is planned.');
+    expect(card.querySelectorAll('.change')[2].querySelector('.change-by')).toBeNull();
     expect(card.querySelector('.changelog-state')?.textContent).toContain("Beginning of this project's history.");
     fixture.destroy();
   });

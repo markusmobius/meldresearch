@@ -38,7 +38,9 @@ public sealed record DetailSourceResponse(string Key, string Kind, string Label,
 /// <summary>A changelog entry: a source that updated a research project and what it did to the details.</summary>
 public sealed record ChangeResponse(Guid Id, string CardId, string? CardTitle, DateTimeOffset At, string Kind, string Title, string? ProjectName,
     IReadOnlyList<string> Documents, IReadOnlyList<DetailChangeResponse> Changes);
-public sealed record DetailChangeResponse(string Op, string DetailId, string? Before, string? After);
+/// <summary>What one update did to one detail. By: who it rests on ("You", collaborators' names, "Others"); null when not known.</summary>
+public sealed record DetailChangeResponse(string Op, string DetailId, string? Before, string? After,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? By = null);
 public sealed record ChangelogPageResponse(IReadOnlyList<ChangeResponse> Entries, bool More);
 /// <summary>A file removed as a source of a research project, waiting in Housekeeping.</summary>
 public sealed record PendingFileResponse(string ProjectId, string ProjectName, string Path, string FromCardId, string? FromCardTitle, DateTimeOffset RemovedAt);
