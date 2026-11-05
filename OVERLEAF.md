@@ -338,7 +338,20 @@ shows them in the card's **Collaborators** tab.
    shows them as "You", collaborators' names, and "Others" for anyone who is no
    collaborator; email changes recorded before this are traced through the
    messages their details cite now.
-4b. **Shares of the current details.** Each citation records who its source
+4b. **Credit is fixed when a detail is written** (`DetailCitation.By`). A new
+   Overleaf quote is credited to who wrote its lines in the version read: the
+   connector (0.6.14) reads the file's history diff once and passes on, per line,
+   a short hash and the characters each person wrote (`FileAuthorship`); people
+   with at least 25% of a quote's characters are credited (at least the largest),
+   and text without an author (an upload, a copy, history Overleaf no longer
+   keeps) counts for who added the file, else the project's owner. A revision that
+   keeps the wording only re-quotes the source after someone rewrote it, so its new
+   quotes keep the earlier credit: rewording earns none. An email quote is credited
+   to the message's sender. When the lines cannot be found or the history is too
+   long to rebuild, the quote falls back to who edited its file since the last
+   read. Existing details are re-credited by their quoted lines once
+   (`ResearchTheme.CreditedFor`). Building details does not change.
+4c. **Shares of the current details.** Each citation records who its source
    rests on when it is cited (`DetailCitation.By`); older citations are traced
    through the cited message's sender, or everyone who edited the cited file
    (`Baseline.FileEditors`, read once more with `EditorsVersion` 3). That read

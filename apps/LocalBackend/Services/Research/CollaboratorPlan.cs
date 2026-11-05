@@ -1,3 +1,4 @@
+using MeldResearch.LocalBackend.Contracts;
 using MeldResearch.Research;
 
 namespace MeldResearch.LocalBackend.Services.Research;
@@ -18,9 +19,9 @@ internal static class CollaboratorPlan
     /// <summary>
     /// How Overleaf editors are read (connector 0.6.11 reports them); a project read another way reads its history again.
     /// Version 2: editors stored as "none" by an older connector during the update are read again. Version 3: who edited
-    /// each file (connector 0.6.12), for the shares of details read before.
+    /// each file (connector 0.6.12), for the shares of details read before. Version 4: who added each file (connector 0.6.14).
     /// </summary>
-    public const int EditorsVersion = 3;
+    public const int EditorsVersion = 4;
     /// <summary>At most this many people are kept per email thread, and this many of each person's sent messages.</summary>
     public const int MaxThreadPeople = 50, MaxSent = 30;
 
@@ -42,6 +43,48 @@ internal static class CollaboratorPlan
     public static string Key(string? name, string? email) => email is not null ? "e:" + email : "n:" + Collaborators.Normalize(name ?? "");
     /// <summary>The key of the user in DetailChange.By.</summary>
     public const string SelfKey = "self";
+    /// <summary>How Overleaf quotes are credited: version 1 by who wrote the quoted lines (Overleaf's history diff).</summary>
+    public const int CreditVersion = 1;
+    /// <summary>A person who wrote less than this share of a quote's characters (for example a typo fix) is not credited.</summary>
+    public const double MinCreditShare = 0.25;
+
+    /// <summary>A line's key in FileAuthorship: the first 6 bytes of the SHA-256 of its trimmed text, in hex (as the connector computes it).</summary>
+    public static string LineHash(string line) =>
+        Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(line.Trim())))[..12];
+
+    /// <summary>
+    /// Who wrote a quote (OVERLEAF.md §12a): its lines' characters by author, with text without an author credited to
+    /// <paramref name="adder"/> (who added the file, else the project's owner). Everyone with at least
+    /// <see cref="MinCreditShare"/> of the characters is credited, and at least the one who wrote the most. Null when none
+    /// of the quote's lines are found (the file changed since, or the authorship could not be read).
+    /// </summary>
+    public static IReadOnlyList<string>? LineCredit(string quote, FileAuthorship authorship, OverleafPerson? adder,
+        (IReadOnlySet<string> Emails, IReadOnlySet<string> Names) self)
+    {
+        var chars = new Dictionary<string, int>(StringComparer.Ordinal);
+        string? Who(int index)
+        {
+            var person = index >= 0 && index < authorship.Users.Count ? authorship.Users[index] : adder;
+            if (person is null || person.Name is null && person.Email is null) return null;
+            return IsSelf(self, person.Name, person.Email) ? SelfKey : Key(person.Name, person.Email);
+        }
+        bool found = false;
+        foreach (string line in quote.Split('\n').Select(line => line.Trim()).Where(line => line.Length != 0))
+        {
+            if (!authorship.Lines.TryGetValue(LineHash(line), out var counts)) continue;
+            found = true;
+            foreach (var (index, count) in counts)
+                if (Who(index) is { } key) chars[key] = chars.GetValueOrDefault(key) + count;
+        }
+        if (!found || chars.Count == 0) return null;
+        int total = chars.Values.Sum(), most = chars.Values.Max();
+        return [.. chars.Where(item => item.Value == most || item.Value >= MinCreditShare * total)
+            .OrderByDescending(item => item.Value).ThenBy(item => item.Key, StringComparer.Ordinal).Select(item => item.Key)];
+    }
+
+    /// <summary>Who added a file of a project (credited with text without an author): the history's adder, else the project's owner.</summary>
+    public static OverleafPerson? Adder(MonitoredProject project, ProjectManifest? manifest, string path) =>
+        manifest?.FileAdders?.GetValueOrDefault(path) ?? project.Baseline?.FileAdders?.GetValueOrDefault(path) ?? project.Owner;
 
     /// <summary>
     /// How a change's people are shown: "You" first, then the card's collaborators by name (else address), then "Others" for

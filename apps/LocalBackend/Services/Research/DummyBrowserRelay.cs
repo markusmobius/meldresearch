@@ -39,15 +39,15 @@ internal sealed class DummyBrowserRelay : IBrowserRelay
     public Task ConnectAsync(WebSocket socket, string localUrl, CancellationToken cancellationToken) =>
         throw new InvalidOperationException("Dummy evidence does not accept a real browser connection.");
 
-    public async Task<BrowserResponse> FetchAsync(string operation, string? projectId, CancellationToken ct)
+    public async Task<BrowserResponse> FetchAsync(string operation, string? projectId, CancellationToken ct, string? path = null)
     {
         string directory = Path.Combine(RuntimeFiles.Root, "incoming");
         RuntimeFiles.CreatePrivateDirectory(directory);
-        string path = Path.Combine(directory, Guid.NewGuid().ToString("N") + ".partial");
+        string file = Path.Combine(directory, Guid.NewGuid().ToString("N") + ".partial");
         int revision = Volatile.Read(ref _revision);
         try
         {
-            await using var stream = RuntimeFiles.CreatePrivateFile(path);
+            await using var stream = RuntimeFiles.CreatePrivateFile(file);
             if (operation == "listProjects")
             {
                 // Recent (noon UTC on the first of this month), so Dummy exercises the required include/exclude choice. The date is stable
@@ -59,7 +59,7 @@ internal sealed class DummyBrowserRelay : IBrowserRelay
                     lastUpdated = new DateTimeOffset(now.Year, now.Month, 1, 12, 0, 0, TimeSpan.Zero).AddMinutes(revision),
                     owner = new { name = "Demo Researcher", email = "researcher.gmail@example.invalid" }, owned = true
                 } } }, WireProtocol.Json, ct);
-                return new(path, "application/json");
+                return new(file, "application/json");
             }
             if (operation == "projectHistory" && projectId == ProjectId)
             {
@@ -74,20 +74,46 @@ internal sealed class DummyBrowserRelay : IBrowserRelay
                         new { name = "Lukas Bolte", email = "l.bolte@university.example.invalid", at = DateTimeOffset.UtcNow.AddDays(-3).ToUnixTimeMilliseconds() },
                         new { name = "Sid Satya", email = "sid@example.invalid", at = DateTimeOffset.UtcNow.AddDays(-5).ToUnixTimeMilliseconds() }
                     },
-                    // Who last edited each file: Lukas and the user wrote main.tex.
+                    // Who last edited each file: Lukas and the user wrote main.tex; the user added it (uploaded).
                     files = new Dictionary<string, long[][]>
                     {
                         ["main.tex"] = [[0, DateTimeOffset.UtcNow.AddMinutes(-revision).ToUnixTimeMilliseconds()], [1, DateTimeOffset.UtcNow.AddMinutes(-revision - 1).ToUnixTimeMilliseconds()]]
-                    }
+                    },
+                    added = new Dictionary<string, int> { ["main.tex"] = 0 }
                 }, WireProtocol.Json, ct);
-                return new(path, "application/json");
+                return new(file, "application/json");
+            }
+            if (operation == "fileAuthors" && projectId == ProjectId && path == "main.tex")
+            {
+                // The uploaded text has no author in the history (it is credited to the user, who added the file); Lukas wrote
+                // the pilot's results.
+                await JsonSerializer.SerializeAsync(stream, new
+                {
+                    users = new object[] { new { name = "Lukas Bolte", email = "l.bolte@university.example.invalid" } },
+                    lines = MainTex(revision).Split('\n').Select(line => line.Trim()).Where(line => line.Length != 0).Distinct()
+                        .Select(line => new object[] { CollaboratorPlan.LineHash(line), new[] { new[] { LukasWrote.Any(line.Contains) ? 0 : -1, line.Replace(" ", "").Length } } })
+                }, WireProtocol.Json, ct);
+                return new(file, "application/json");
             }
             if (operation != "downloadProject" || projectId != ProjectId)
                 throw new InvalidOperationException("Unknown synthetic Overleaf operation.");
             using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
             {
                 using var writer = new StreamWriter(archive.CreateEntry("main.tex").Open(), new UTF8Encoding(false));
-                await writer.WriteAsync(("""
+                await writer.WriteAsync(MainTex(revision).AsMemory(), ct);
+            }
+            return new(file, "application/zip");
+        }
+        catch
+        {
+            if (File.Exists(file)) File.Delete(file);
+            throw;
+        }
+    }
+
+    /// <summary>The synthetic paper at a revision (revision 0 plans the pilot; later revisions report it).</summary>
+    private static string MainTex(int revision) =>
+        """
                     \documentclass{article}
                     \title{Synthetic study of research collaboration}
                     \author{Demo Researcher \and L.~Bolte \and Sid Satya\thanks{sid@example.invalid}}
@@ -107,14 +133,8 @@ internal sealed class DummyBrowserRelay : IBrowserRelay
                     The pilot now includes 80 participants. Data collection is complete.
                     The analysis reports a 15 percent improvement in task completion in the feedback group.
                     The previous plan of 40 participants is superseded by the completed 80-participant pilot.
-                    """) + "\n\\end{document}\n").AsMemory(), ct);
-            }
-            return new(path, "application/zip");
-        }
-        catch
-        {
-            if (File.Exists(path)) File.Delete(path);
-            throw;
-        }
-    }
+                    """) + "\n\\end{document}\n";
+
+    /// <summary>The lines Lukas wrote (the pilot's results); the rest was uploaded by the user.</summary>
+    private static readonly string[] LukasWrote = ["80 participants", "15 percent", "superseded"];
 }

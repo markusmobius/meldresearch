@@ -78,9 +78,53 @@ test('reads only paths, last-edit times and editors from Overleaf history, pagin
     assert.deepEqual(JSON.parse(exported), {
       paths: { 'main.tex': 3000, 'sections/a.tex': 2000, 'fig.tex': 2000, 'old.tex': 1000 }, complete: true,
       editors: [{ name: null, email: 'collaborator@example.invalid', at: 3000 }, { name: 'Lukas Bolte', email: 'lukas@example.invalid', at: 2000 }],
-      // Who last edited each file, as [editor index, time].
+      // Who last edited each file, as [editor index, time], and who added each file (the first person of the update that added it).
       files: { 'main.tex': [[0, 3000], [1, 2000]], 'sections/a.tex': [[1, 2000], [0, 2000]], 'fig.tex': [[1, 2000], [0, 2000]] },
+      added: { 'fig.tex': 1 },
     });
+  } finally { await harness.close(); }
+});
+
+test('reads who wrote each line of a file from the history diff, exporting only line hashes and character counts', async () => {
+  const pages = {
+    updates: { updates: [{ fromV: 4, toV: 9, meta: { end_ts: 3000, users: [] }, pathnames: ['main.tex'] }] },
+    diff: { diff: [
+      { u: 'Uploaded intro line.\n' },
+      { i: 'Lukas wrote this ', meta: { users: [{ id: 'u2', first_name: 'Lukas', last_name: 'Bolte', email: 'lukas@example.invalid' }] } },
+      { d: 'DELETED-NOT-EXPORTED', meta: { users: [{ id: 'u3', email: 'x@example.invalid' }] } },
+      { u: 'line.\n\n' },
+      { i: 'SECRET-LINE-TEXT\n', meta: { users: [{ id: 'u2', first_name: 'Lukas', last_name: 'Bolte', email: 'lukas@example.invalid' }] } },
+    ] },
+  };
+  const { harness, host, messages } = await connected(async url => url.includes('/diff?')
+    ? response(JSON.stringify(pages.diff), { type: 'application/json', url })
+    : response(JSON.stringify(pages.updates), { type: 'application/json', url }));
+  try {
+    host.postMessage({ type: 'request', id: requestId, operation: 'fileAuthors', projectId, path: 'sections/main file.tex' });
+    await waitUntil(() => messages.some(message => message.type === 'complete'), 'authors response');
+    assert.deepEqual(harness.requests.map(request => request.url), [
+      `https://www.overleaf.com/project/${projectId}/updates?min_count=1`,
+      `https://www.overleaf.com/project/${projectId}/diff?pathname=sections%2Fmain%20file.tex&from=0&to=9`,
+    ]);
+    const exported = Buffer.concat(messages.filter(message => message.type === 'chunk')
+      .map(message => Buffer.from(message.data, 'base64'))).toString();
+    for (const secret of ['DELETED', 'SECRET', 'Uploaded', 'x@example.invalid']) assert.equal(exported.includes(secret), false);
+    const hash = async line => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(line)))].slice(0, 6)
+      .map(byte => byte.toString(16).padStart(2, '0')).join('');
+    assert.deepEqual(JSON.parse(exported), {
+      users: [{ name: 'Lukas Bolte', email: 'lukas@example.invalid' }],
+      lines: [[await hash('Uploaded intro line.'), [[-1, 18]]], [await hash('Lukas wrote this line.'), [[0, 14], [-1, 5]]],
+        [await hash('SECRET-LINE-TEXT'), [[0, 16]]]],
+    });
+  } finally { await harness.close(); }
+});
+
+test('refuses a file read with an unsafe path before any Overleaf request', async () => {
+  const { harness, host } = await connected(async () => response('{}', { type: 'application/json' }));
+  try {
+    host.postMessage({ type: 'request', id: requestId, operation: 'fileAuthors', projectId, path: '../outside.tex' });
+    await waitUntil(async () => !(await harness.send({ type: 'status' })).connected, 'connection refused');
+    assert.equal(harness.requests.length, 0);
   } finally { await harness.close(); }
 });
 
@@ -166,7 +210,7 @@ test('automatically connects without a popup and creates a repeating reconnect a
     assert.equal(state.connected, true);
     assert.equal(state.enabled, true);
     assert.equal(state.protocolVersion, 2);
-    assert.equal(state.extensionVersion, '0.6.13');
+    assert.equal(state.extensionVersion, '0.6.14');
     assert.equal(harness.alarms.get('meld-native-reconnect').periodInMinutes, 1);
     assert.equal(harness.requests.length, 0, 'Connecting alone must not read Overleaf.');
     assert.equal(harness.tabActions.length, 0, 'Passive startup must not steal focus.');
@@ -490,7 +534,7 @@ test('the Meld page can ask the connector to reload into an updated copy, but un
     await new Promise(resolve => setTimeout(resolve, 200));
     assert.equal(harness.reloads.length, 0);
     const state = await harness.external({ type: 'reload' });
-    assert.equal(state.extensionVersion, '0.6.13', 'The reply is sent before the extension reloads.');
+    assert.equal(state.extensionVersion, '0.6.14', 'The reply is sent before the extension reloads.');
     await waitUntil(() => harness.reloads.length === 1, 'extension reload');
   } finally { await harness.close(); }
 });

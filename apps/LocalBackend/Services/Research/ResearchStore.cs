@@ -62,11 +62,13 @@ internal sealed record PendingTree(string Root, DateTimeOffset Date, IReadOnlyLi
 
 /// <summary>
 /// An observed project's files by hash; the text of analyzed files is in the encrypted text store. FileEditors: who edited
-/// each file and when they last did (from Overleaf's history), to say who the updates from this version rest on.
+/// each file and when they last did (from Overleaf's history), to say who the updates from this version rest on; FileAdders:
+/// who added each file (credited with text that was there when it was added, such as an upload or a copy).
 /// </summary>
 internal sealed record ProjectManifest(string Revision, DateTimeOffset ObservedAt, DateTimeOffset? SourceUpdatedAt,
     IReadOnlyList<ManifestFile> Files, IReadOnlyDictionary<string, DateTimeOffset>? EditTimes = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, IReadOnlyList<OverleafPerson>>? FileEditors = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, IReadOnlyList<OverleafPerson>>? FileEditors = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, OverleafPerson>? FileAdders = null);
 internal sealed record ManifestFile(string Path, string Sha256, long Bytes, bool Analyzed);
 /// <summary>
 /// A one-paragraph description of an Overleaf project from its main .tex file, made only when the user chose Summarize for
@@ -90,7 +92,8 @@ internal sealed record ProjectSummaryState(Guid AccountId, string ProjectId, str
 /// changed. ShortName is the short name (2-5 words) the summary step writes with the summary ("" once asked without an
 /// answer); ChosenName is the user's own name for the project. A card is shown as ChosenName, else Name (the name the user
 /// gave a project started from email), else ShortName, else its title (the main paper's full title); see ThemePlan.DisplayTitle.
-/// Collaborators: the people the research is done with (CollaboratorPlan).
+/// Collaborators: the people the research is done with (CollaboratorPlan). CreditedFor: the way of crediting its Overleaf
+/// quotes (CollaboratorPlan.CreditVersion) its existing details were credited by.
 /// </summary>
 internal sealed record ResearchTheme(Guid AccountId, string Id, IReadOnlyList<string> Members, ProjectProfile? Profile,
     IReadOnlyDictionary<string, string>? MergedFrom, DateTimeOffset CreatedAt, IReadOnlyList<string>? Pinned = null,
@@ -107,7 +110,8 @@ internal sealed record ResearchTheme(Guid AccountId, string Id, IReadOnlyList<st
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateTimeOffset? ReviewedAt = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ShortName = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ChosenName = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CollaboratorSet? Collaborators = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CollaboratorSet? Collaborators = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? CreditedFor = null);
 
 /// <summary>
 /// A research project's collaborators (OVERLEAF.md §12a), merged from its people: For is the fingerprint of the people and

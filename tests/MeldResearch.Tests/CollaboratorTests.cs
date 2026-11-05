@@ -192,6 +192,114 @@ public sealed class CollaboratorTests
     }
 
     [Fact]
+    public void AQuoteIsCreditedToWhoWroteMostOfItsLines()
+    {
+        var lukas = new OverleafPerson("Lukas Bolte", "lukas@example.invalid");
+        var nicole = new OverleafPerson("Nicole Immorlica", "nicimm@example.invalid");
+        var me = new OverleafPerson("Synthetic", "synthetic@example.invalid");
+        var self = CollaboratorPlan.Self(new LocalResearchState(1, Credential, null, null, [], []), Account.Id);
+        var lines = Authors([lukas, nicole], ("Forty participants joined the pilot.", [(0, 25), (1, 3)]), ("Data collection is complete.", [(-1, 24)]),
+            ("We estimate the effect.", [(1, 19)]));
+        // A typo fix (3 of 28 characters) earns no credit; the person who wrote most of it is always credited.
+        Assert.Equal(["e:lukas@example.invalid"], CollaboratorPlan.LineCredit("  Forty participants joined the pilot.  ", lines, me, self));
+        // Text without an author goes to who added the file (here the user).
+        Assert.Equal(["e:lukas@example.invalid", "self"], CollaboratorPlan.LineCredit("Forty participants joined the pilot.\nData collection is complete.", lines, me, self));
+        Assert.Equal(["e:nicimm@example.invalid"], CollaboratorPlan.LineCredit("We estimate the effect.", lines, me, self));
+        // Lines not found (the file changed since): no line credit.
+        Assert.Null(CollaboratorPlan.LineCredit("A line that is not there.", lines, me, self));
+    }
+
+    private static FileAuthorship Authors(OverleafPerson[] users, params (string Line, (int Who, int Chars)[] Counts)[] lines) =>
+        new(users, lines.ToDictionary(line => CollaboratorPlan.LineHash(line.Line), line => (IReadOnlyList<(int, int)>)line.Counts));
+
+    [Fact]
+    public async Task DetailsAreCreditedToWhoWroteTheQuotedLinesAndRewordingKeepsTheCredit()
+    {
+        static string Paper(params string[] body) => "\\documentclass{article}\n\\begin{document}\n" + string.Join("\n", body) + "\n\\end{document}";
+        var lukas = new OverleafPerson("Lukas Bolte", "lukas@example.invalid", DateTimeOffset.UtcNow);
+        // The user uploaded the paper: its text has no author in Overleaf's history, and the user added the file; Lukas edited it since.
+        var source = new Source(Files(("main.tex", Paper("Forty participants joined."))))
+        {
+            Editors = [lukas], FileEditors = new Dictionary<string, IReadOnlyList<OverleafPerson>> { ["main.tex"] = [lukas] },
+            FileAdders = new Dictionary<string, OverleafPerson> { ["main.tex"] = new("Synthetic", "synthetic@example.invalid") }
+        };
+        source.Authorship["main.tex"] = Authors([lukas], ("Forty participants joined.", [(-1, 23)]));
+        var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
+        var remote = new Remote
+        {
+            // The model keeps the pilot detail (re-quoting it with the same wording) and adds a detail for a results line.
+            Detail = request =>
+            {
+                var document = request.Documents.Single();
+                var text = document.Text.Split('\n');
+                DetailQuote Quote(string part) { int index = Array.FindIndex(text, line => line.Contains(part)); return new(document.Path, document.FirstLine + index, document.FirstLine + index, text[index].Trim()); }
+                var ops = new List<DetailOp>();
+                var pilot = request.Details.FirstOrDefault(detail => detail.Text.Contains("pilot"));
+                ops.Add(pilot is null ? new(DetailRules.Add, null, "The pilot has 40 participants.", [Quote("Forty")], [])
+                    : new(DetailRules.Revise, pilot.Id, pilot.Text, [Quote("Forty")], []));
+                if (text.Any(line => line.Contains("Results")) && !request.Details.Any(detail => detail.Text.Contains("gains")))
+                    ops.Add(new(DetailRules.Add, null, "Results show 15 percent gains.", [Quote("Results")], []));
+                return new(ops, "Folded.", "chat");
+            }
+        };
+        using var coordinator = Create(store, remote, source);
+        await Drain(coordinator);
+        // The user's uploaded line: credited to the user, although Overleaf lists only Lukas as an editor of the file.
+        Assert.Equal(["self"], store.State.Themes!.Single().Details!.Single().Citations.Single().By);
+        Assert.Equal(CollaboratorPlan.CreditVersion, store.State.Themes!.Single().CreditedFor);
+
+        // Lukas rewords the line: the detail keeps its wording and is quoted again, and keeps the user's credit.
+        source.Snapshot = Files(("main.tex", Paper("Forty people took part."))) with { SourceUpdatedAt = DateTimeOffset.UtcNow };
+        source.Authorship["main.tex"] = Authors([lukas], ("Forty people took part.", [(0, 19)]));
+        await Drain(coordinator, force: true);
+        var pilot = store.State.Themes!.Single().Details!.Single();
+        Assert.Equal(("The pilot has 40 participants.", "Forty people took part."), (pilot.Text, pilot.Citations.Single().Quote));
+        Assert.Equal(["self"], pilot.Citations.Single().By);
+
+        // Lukas adds a result: that detail is his.
+        source.Snapshot = Files(("main.tex", Paper("Forty people took part.", "Results show 15 percent gains."))) with { SourceUpdatedAt = DateTimeOffset.UtcNow };
+        source.Authorship["main.tex"] = Authors([lukas], ("Forty people took part.", [(0, 19)]), ("Results show 15 percent gains.", [(0, 26)]));
+        await Drain(coordinator, force: true);
+        var theme = (await coordinator.StatusAsync(None)).Themes!.Single();
+        Assert.Equal([("The pilot has 40 participants.", "You"), ("Results show 15 percent gains.", "Lukas Bolte")],
+            theme.Details!.Select(detail => (detail.Text, string.Join(", ", detail.By!))));
+        Assert.Equal((0.5, 0.5), (theme.YourShare, theme.Collaborators!.Single().Share));
+    }
+
+    [Fact]
+    public async Task ExistingDetailsAreCreditedByLineOnceTheConnectorCanSay()
+    {
+        var lukas = new OverleafPerson("Lukas Bolte", "lukas@example.invalid", DateTimeOffset.UtcNow);
+        var source = new Source(Files(("main.tex", "\\documentclass{article}\n\\begin{document}\nForty participants joined.\n\\end{document}")))
+        {
+            Editors = [lukas], FileEditors = new Dictionary<string, IReadOnlyList<OverleafPerson>> { ["main.tex"] = [lukas] },
+            FileAdders = new Dictionary<string, OverleafPerson> { ["main.tex"] = new("Synthetic", "synthetic@example.invalid") },
+            ReadsFileAuthors = false
+        };
+        var store = new MemoryStore(new(1, Credential, null, null, [Included()], []));
+        var remote = new Remote();
+        using var coordinator = Create(store, remote, source);
+        await Drain(coordinator);
+        // An older connector: credited to who edited the file (Lukas), and not yet by line.
+        var card = store.State.Themes!.Single();
+        Assert.Null(card.CreditedFor);
+        Assert.All(card.Details!.SelectMany(detail => detail.Citations), citation => Assert.Equal(["e:lukas@example.invalid"], citation.By));
+
+        // The current connector: each quote's lines are read once; the uploaded text is the user's (who added the file).
+        source.ReadsFileAuthors = true;
+        source.Authorship["main.tex"] = Authors([lukas], ("\\documentclass{article}", [(-1, 22)]), ("\\begin{document}", [(-1, 15)]),
+            ("Forty participants joined.", [(-1, 23)]), ("\\end{document}", [(-1, 13)]));
+        await Drain(coordinator);
+        await Drain(coordinator);
+        card = store.State.Themes!.Single();
+        Assert.Equal(CollaboratorPlan.CreditVersion, card.CreditedFor);
+        Assert.All(card.Details!.SelectMany(detail => detail.Citations), citation => Assert.Equal(["self"], citation.By));
+        Assert.Equal(1, source.AuthorReads);
+        Assert.Equal(1.0, (await coordinator.StatusAsync(None)).Themes!.Single().YourShare);
+        Assert.Equal(0, remote.Calls - remote.DetailRequests.Count);
+    }
+
+    [Fact]
     public async Task EachOverleafChangeRestsOnWhoEditedTheCitedFilesSinceMeldLastReadThem()
     {
         var first = DateTimeOffset.UtcNow.AddDays(-3);

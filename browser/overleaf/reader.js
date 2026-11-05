@@ -6,7 +6,7 @@
     }
   }
 
-  function createReader({ operation, projectId, signal }) {
+  function createReader({ operation, projectId, path: filePath, signal }) {
     const origin = 'https://www.overleaf.com';
     const controller = new AbortController();
     const abort = () => controller.abort();
@@ -39,6 +39,7 @@
       const editors = {};
       const index = {};
       const files = {};
+      const added = {};
       let before = null;
       let complete = false;
       for (let page = 0; page < 40 && !complete; page++) {
@@ -68,6 +69,11 @@
             const path = name.replace(/^\/+/, '');
             if (path && !(path in paths) && Object.keys(paths).length < 5000) paths[path] = time;
           }
+          // Who added a file (updates arrive newest first, so the last add seen is the first one): text that was there
+          // when it was added (an upload or a copy) has no author of its own in the history.
+          const adds = (Array.isArray(update.project_ops) ? update.project_ops : []).map(op => op?.add?.pathname)
+            .filter(name => typeof name === 'string' && name.length <= 1024).map(name => name.replace(/^\/+/, ''));
+          let adder = null;
           for (const user of Array.isArray(update?.meta?.users) ? update.meta.users : []) {
             const editor = person(user?.first_name, user?.last_name, user?.email);
             const key = editor && (editor.email ?? `name:${editor.name}`);
@@ -76,6 +82,7 @@
               editors[key] = { ...editor, at: time };
             }
             if (!(key in index)) continue;
+            adder ??= index[key];
             // Newest first, so the first time an editor appears for a file is their latest edit of it.
             for (const name of names) {
               if (typeof name !== 'string' || name.length > 1024) continue;
@@ -85,12 +92,75 @@
               if (seen.length < 20 && !seen.some(entry => entry[0] === index[key])) seen.push([index[key], time]);
             }
           }
+          if (adder !== null) for (const name of adds) if (Object.keys(added).length < 5000 || name in added) added[name] = adder;
         }
         const next = Number(data.nextBeforeTimestamp);
         if (!Number.isInteger(next) || next <= 0) complete = true;
         else before = next;
       }
-      const bytes = new TextEncoder().encode(JSON.stringify({ paths, complete, editors: Object.values(editors), files }));
+      const bytes = new TextEncoder().encode(JSON.stringify({ paths, complete, editors: Object.values(editors), files, added }));
+      yield { contentType: 'application/json' };
+      yield* chunks(bytes);
+    }
+
+    // Who wrote each line of a file now, from Overleaf's history diff of the file over its whole history: each line's
+    // characters by author (-1: no author, such as text that was there when the file was added). Lines leave the tab only
+    // as short hashes, the text and the deleted text are discarded here.
+    async function* fileAuthors() {
+      const get = async url => {
+        const response = await fetch(new URL(url, origin).href, {
+          method: 'GET', credentials: 'include', cache: 'no-store', redirect: 'follow', signal: controller.signal,
+          headers: { Accept: 'application/json' },
+        });
+        const finalUrl = new URL(response.url);
+        if (finalUrl.origin !== origin || /^\/(?:login|register)(?:\/|$)/.test(finalUrl.pathname)) throw new ReadError('sign_in_required');
+        if (response.status !== 200) throw new ReadError('history_unavailable');
+        const text = await response.text();
+        if (text.length > 8 * 1024 * 1024) throw new ReadError('response_too_large');
+        try { return JSON.parse(text); } catch { throw new ReadError('history_unavailable'); }
+      };
+      const latest = await get(`/project/${projectId}/updates?min_count=1`);
+      const to = Number(latest?.updates?.[0]?.toV);
+      if (!Number.isInteger(to) || to < 0) throw new ReadError('history_unavailable');
+      const data = await get(`/project/${projectId}/diff?pathname=${encodeURIComponent(filePath)}&from=0&to=${to}`);
+      if (!Array.isArray(data?.diff)) throw new ReadError('history_unavailable');
+      const users = [];
+      const userIndex = {};
+      const lines = [];
+      let line = '';
+      let counts = new Map();
+      const author = part => {
+        const user = (Array.isArray(part?.meta?.users) ? part.meta.users : []).map(item => person(item?.first_name, item?.last_name, item?.email)).find(Boolean);
+        if (!user) return -1;
+        const key = user.email ?? `name:${user.name}`;
+        if (!(key in userIndex) && users.length < 200) { userIndex[key] = users.length; users.push(user); }
+        return userIndex[key] ?? -1;
+      };
+      const finish = async () => {
+        const trimmed = line.trim();
+        if (trimmed && lines.length < 20000) {
+          const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(trimmed)));
+          const hash = [...digest.slice(0, 6)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+          lines.push([hash, [...counts].map(([who, chars]) => [who, chars])]);
+        }
+        line = '';
+        counts = new Map();
+      };
+      for (const part of data.diff) {
+        // Deleted text is not in the file now.
+        const text = typeof part?.u === 'string' ? part.u : typeof part?.i === 'string' ? part.i : null;
+        if (text === null) continue;
+        const who = typeof part.i === 'string' ? author(part) : -1;
+        for (const piece of text.split(/(\n)/)) {
+          if (piece === '\n') { await finish(); continue; }
+          if (!piece) continue;
+          line += piece;
+          const chars = piece.replace(/\s+/g, '').length;
+          if (chars) counts.set(who, (counts.get(who) ?? 0) + chars);
+        }
+      }
+      await finish();
+      const bytes = new TextEncoder().encode(JSON.stringify({ users, lines }));
       yield { contentType: 'application/json' };
       yield* chunks(bytes);
     }
@@ -108,9 +178,15 @@
         const list = operation === 'listProjects';
         const download = operation === 'downloadProject' && /^[a-f0-9]{24}$/.test(projectId ?? '');
         const edits = operation === 'projectHistory' && /^[a-f0-9]{24}$/.test(projectId ?? '');
-        if ((!list && !download && !edits) || location.origin !== origin) throw new ReadError('invalid_request');
+        const authors = operation === 'fileAuthors' && /^[a-f0-9]{24}$/.test(projectId ?? '') && typeof filePath === 'string' &&
+          filePath.length > 0 && filePath.length <= 1024 && !filePath.split('/').some(part => part === '' || part === '.' || part === '..');
+        if ((!list && !download && !edits && !authors) || location.origin !== origin) throw new ReadError('invalid_request');
         if (edits) {
           yield* history();
+          return;
+        }
+        if (authors) {
+          yield* fileAuthors();
           return;
         }
         const path = list ? '/' : `/project/${projectId}/download/zip`;

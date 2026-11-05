@@ -11,7 +11,8 @@ internal interface IBrowserRelay
 {
     BridgeStatusResponse Status { get; }
     Task ConnectAsync(WebSocket socket, string localUrl, CancellationToken cancellationToken);
-    Task<BrowserResponse> FetchAsync(string operation, string? projectId, CancellationToken cancellationToken);
+    /// <summary>One read through the connector; Path names a project file (fileAuthors).</summary>
+    Task<BrowserResponse> FetchAsync(string operation, string? projectId, CancellationToken cancellationToken, string? path = null);
 }
 
 internal sealed class BrowserRelay(ILogger<BrowserRelay> logger) : IBrowserRelay
@@ -112,7 +113,7 @@ internal sealed class BrowserRelay(ILogger<BrowserRelay> logger) : IBrowserRelay
         }
     }
 
-    public async Task<BrowserResponse> FetchAsync(string operation, string? projectId, CancellationToken cancellationToken)
+    public async Task<BrowserResponse> FetchAsync(string operation, string? projectId, CancellationToken cancellationToken, string? path = null)
     {
         // The extension serves one request at a time; later requests queue behind it rather than failing.
         await _operationGate.WaitAsync(cancellationToken);
@@ -139,7 +140,7 @@ internal sealed class BrowserRelay(ILogger<BrowserRelay> logger) : IBrowserRelay
             string contentType;
             await using (var destination = RuntimeFiles.CreatePrivateFile(temporary))
             {
-                await SendAsync(socket, new("request", transfer.Id, operation, projectId), deadline.Token);
+                await SendAsync(socket, new("request", transfer.Id, operation, projectId, Path: path), deadline.Token);
                 contentType = await ReceiveAsync(socket, transfer, destination,
                     operation == "downloadProject" ? WireProtocol.MaxArchiveBytes : WireProtocol.MaxHtmlBytes, deadline.Token);
                 await destination.FlushAsync(deadline.Token);

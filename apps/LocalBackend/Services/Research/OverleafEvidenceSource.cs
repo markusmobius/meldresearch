@@ -16,14 +16,28 @@ internal interface IOverleafEvidenceSource
     Task<IReadOnlyDictionary<string, DateTimeOffset>?> EditTimesAsync(string projectId, CancellationToken ct);
     /// <summary>The edit times and the people who edited the project (Editors null when unknown), from one history read.</summary>
     async Task<OverleafHistory> HistoryAsync(string projectId, CancellationToken ct) => new(await EditTimesAsync(projectId, ct), null);
+    /// <summary>
+    /// Who wrote each line of a file now (Overleaf's history diff); null when the connector cannot say (an older connector,
+    /// a history too long to rebuild, a binary file).
+    /// </summary>
+    Task<FileAuthorship?> FileAuthorsAsync(string projectId, string path, CancellationToken ct) => Task.FromResult<FileAuthorship?>(null);
+    /// <summary>Whether the connected connector reads who wrote each line (FileAuthorsAsync).</summary>
+    bool ReadsFileAuthors => false;
 }
 
 /// <summary>
-/// What Overleaf's history says about a project: when each file was last edited, who edited it, and who edited each file
-/// (FileEditors: each person with their latest edit of that file), to say who an update rests on.
+/// Who wrote a file's current lines: each non-empty line by a short hash of its trimmed text (CollaboratorPlan.LineHash) with
+/// its characters by author (an index into Users, or -1 for text without an author, such as text there when the file was added).
+/// </summary>
+internal sealed record FileAuthorship(IReadOnlyList<OverleafPerson> Users, IReadOnlyDictionary<string, IReadOnlyList<(int Who, int Chars)>> Lines);
+
+/// <summary>
+/// What Overleaf's history says about a project: when each file was last edited, who edited it, who edited each file
+/// (FileEditors: each person with their latest edit of that file), to say who an update rests on, and who added each file
+/// (FileAdders: credited with text that was there when the file was added).
 /// </summary>
 internal sealed record OverleafHistory(IReadOnlyDictionary<string, DateTimeOffset>? EditTimes, IReadOnlyList<OverleafPerson>? Editors,
-    IReadOnlyDictionary<string, IReadOnlyList<OverleafPerson>>? FileEditors = null);
+    IReadOnlyDictionary<string, IReadOnlyList<OverleafPerson>>? FileEditors = null, IReadOnlyDictionary<string, OverleafPerson>? FileAdders = null);
 
 internal sealed class OverleafEvidenceSource(IBrowserRelay browser, IOverleafService overleaf) : IOverleafEvidenceSource
 {
@@ -33,6 +47,52 @@ internal sealed class OverleafEvidenceSource(IBrowserRelay browser, IOverleafSer
     public Task<IReadOnlyList<OverleafProjectResponse>> ProjectsAsync(CancellationToken ct) => overleaf.RefreshAsync(ct);
     public async Task<IReadOnlyDictionary<string, DateTimeOffset>?> EditTimesAsync(string projectId, CancellationToken ct) =>
         (await HistoryAsync(projectId, ct)).EditTimes;
+
+    /// <summary>The first connector version that reads who wrote each line (fileAuthors).</summary>
+    private static readonly Version FileAuthorsSince = new(0, 6, 14);
+
+    public bool ReadsFileAuthors => browser.Status is { Connected: true } status &&
+        (status.Dummy || Version.TryParse(status.ConnectionVersion, out var version) && version >= FileAuthorsSince);
+
+    public async Task<FileAuthorship?> FileAuthorsAsync(string projectId, string path, CancellationToken ct)
+    {
+        if (!ReadsFileAuthors || !ResearchEvidence.IsSafePath(path)) return null;
+        try
+        {
+            await using var response = await browser.FetchAsync("fileAuthors", projectId, ct, path);
+            if (!response.ContentType.StartsWith("application/json", StringComparison.OrdinalIgnoreCase)) return null;
+            await using var stream = File.OpenRead(response.Path);
+            return await ParseFileAuthorsAsync(stream, ct);
+        }
+        // History too long to rebuild, a binary file or an Overleaf change: the details keep the per-file credit.
+        catch (Exception error) when (error is MeldResearch.LocalBackend.Middleware.ApiFailure or System.Text.Json.JsonException or InvalidDataException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The connector's line authorship: { users: [{ name, email }], lines: [[hash, [[who, chars], ...]], ...] }.</summary>
+    internal static async Task<FileAuthorship?> ParseFileAuthorsAsync(Stream stream, CancellationToken ct)
+    {
+        using var document = await System.Text.Json.JsonDocument.ParseAsync(stream, new() { MaxDepth = 8 }, ct);
+        var root = document.RootElement;
+        if (!root.TryGetProperty("users", out var users) || users.ValueKind != System.Text.Json.JsonValueKind.Array ||
+            !root.TryGetProperty("lines", out var lines) || lines.ValueKind != System.Text.Json.JsonValueKind.Array) return null;
+        var people = users.EnumerateArray().Take(200).Select(user => ProjectParser.Person(user) ?? new OverleafPerson(null, null)).ToArray();
+        var result = new Dictionary<string, IReadOnlyList<(int, int)>>(StringComparer.Ordinal);
+        foreach (var line in lines.EnumerateArray().Take(20000))
+        {
+            if (line.ValueKind != System.Text.Json.JsonValueKind.Array || line.GetArrayLength() != 2 || line[0].GetString() is not { Length: 12 } hash ||
+                line[1].ValueKind != System.Text.Json.JsonValueKind.Array || result.ContainsKey(hash)) continue;
+            var counts = new List<(int, int)>();
+            foreach (var count in line[1].EnumerateArray().Take(50))
+                if (count.ValueKind == System.Text.Json.JsonValueKind.Array && count.GetArrayLength() == 2 && count[0].TryGetInt32(out int who) &&
+                    who >= -1 && who < people.Length && count[1].TryGetInt32(out int chars) && chars > 0)
+                    counts.Add((who, chars));
+            result[hash] = counts;
+        }
+        return new(people, result);
+    }
 
     public async Task<OverleafHistory> HistoryAsync(string projectId, CancellationToken ct)
     {
@@ -59,6 +119,7 @@ internal sealed class OverleafEvidenceSource(IBrowserRelay browser, IOverleafSer
         using var document = await System.Text.Json.JsonDocument.ParseAsync(stream, new() { MaxDepth = 8 }, ct);
         IReadOnlyList<OverleafPerson>? editors = null;
         Dictionary<string, IReadOnlyList<OverleafPerson>>? files = null;
+        Dictionary<string, OverleafPerson>? adders = null;
         if (document.RootElement.TryGetProperty("editors", out var list) && list.ValueKind == System.Text.Json.JsonValueKind.Array)
         {
             // Indexes into the connector's list (files refers to it), before dropping unusable entries.
@@ -79,9 +140,16 @@ internal sealed class OverleafEvidenceSource(IBrowserRelay browser, IOverleafSer
                     if (people.Count != 0) files[file.Name] = people;
                 }
             }
+            if (document.RootElement.TryGetProperty("added", out var byAdd) && byAdd.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                adders = new(StringComparer.Ordinal);
+                foreach (var file in byAdd.EnumerateObject().Take(5000))
+                    if (ResearchEvidence.IsSafePath(file.Name) && file.Value.TryGetInt32(out int index) && index >= 0 && index < all.Length && all[index] is { } person)
+                        adders[file.Name] = person with { At = null };
+            }
         }
         if (!document.RootElement.TryGetProperty("paths", out var paths) || paths.ValueKind != System.Text.Json.JsonValueKind.Object)
-            return new(null, editors, files);
+            return new(null, editors, files, adders);
         var times = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
         foreach (var entry in paths.EnumerateObject())
         {
@@ -90,7 +158,7 @@ internal sealed class OverleafEvidenceSource(IBrowserRelay browser, IOverleafSer
                 entry.Value.TryGetInt64(out long milliseconds) && milliseconds > 0)
                 times[entry.Name] = DateTimeOffset.FromUnixTimeMilliseconds(milliseconds);
         }
-        return new(times, editors, files);
+        return new(times, editors, files, adders);
     }
 
     /// <summary>At most this many editors are kept per project.</summary>

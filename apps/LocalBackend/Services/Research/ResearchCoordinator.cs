@@ -1166,7 +1166,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         bool mail = importer?.HasWork(state, credential.Account.Id, now) == true;
         bool rank = RankDue(state, credential.Account.Id, now);
         var unread = source.Available ? selected.Where(project => !due.Contains(project) && EditorsDue(project, now)).Take(5).ToArray() : [];
-        if (due.Length == 0 && !queued && summaries.Length == 0 && !themes && !mail && !rank && unread.Length == 0) return false;
+        var credit = source.Available && source.ReadsFileAuthors ? CreditDue(state, credential.Account.Id, now) : null;
+        if (due.Length == 0 && !queued && summaries.Length == 0 && !themes && !mail && !rank && unread.Length == 0 && credit is null) return false;
         Interlocked.Exchange(ref _busy, 1);
         var identity = await remote.AccountAsync(credential.Token, ct);
         if (identity.Id != credential.Account.Id) throw AccountChanged();
@@ -1179,6 +1180,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         if (summaries.Length != 0) await SummarizeAsync(credential, summaries, ct);
         if (due.Length != 0) await SweepAsync(credential, due, force, ct);
         if (unread.Length != 0) await ReadEditorsAsync(unread, ct);
+        if (credit is not null) await CreditAsync(credential.Account.Id, credit, ct);
         // A few Gmail threads per cycle, so Overleaf work and card placement continue alongside a long first import.
         bool mailLeft = mail && await importer!.StepAsync(credential, synced, ct);
         for (int step = 0; step < maxSteps; step++)
@@ -1204,6 +1206,56 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         project.IsOverleaf && project.ImportComplete && project.Pending is null && project.EditorsFor != CollaboratorPlan.EditorsVersion &&
         (!_editorsTriedAt.TryGetValue(project.ProjectId, out var tried) || now - tried >= TimeSpan.FromMinutes(10));
 
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTimeOffset> _creditTriedAt = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// A card whose existing Overleaf quotes were not yet credited by who wrote their lines (OVERLEAF.md §12a), once its
+    /// projects are read and their editors known; tried at most every ten minutes.
+    /// </summary>
+    private ResearchTheme? CreditDue(LocalResearchState state, Guid account, DateTimeOffset now) =>
+        ThemePlan.Active(state, account).FirstOrDefault(theme => theme.CreditedFor != CollaboratorPlan.CreditVersion &&
+            (theme.Details ?? []).Any(detail => detail.Citations.Any(citation => citation.Source.Kind == DetailSource.Overleaf)) &&
+            theme.Members.All(member => state.Projects.FirstOrDefault(project => project.AccountId == account && project.ProjectId == member) is not { } project ||
+                ThemePlan.Settled(project) && project.EditorsFor == CollaboratorPlan.EditorsVersion) &&
+            (!_creditTriedAt.TryGetValue(theme.Id, out var tried) || now - tried >= TimeSpan.FromMinutes(10)));
+
+    /// <summary>
+    /// Credits a card's existing Overleaf quotes by who wrote their lines now: one history read per cited file (no download, no
+    /// model call). A quote whose lines are not found keeps its credit. Nothing is recorded if the browser went away meanwhile.
+    /// </summary>
+    private async Task CreditAsync(Guid account, ResearchTheme card, CancellationToken ct)
+    {
+        _creditTriedAt[card.Id] = clock.GetUtcNow();
+        var files = (card.Details ?? []).SelectMany(detail => detail.Citations).Select(citation => citation.Source)
+            .Where(source => source.Kind == DetailSource.Overleaf).Select(source => (source.Container, source.Item)).Distinct().ToArray();
+        var authorship = new Dictionary<(string, string), FileAuthorship?>();
+        foreach (var file in files) authorship[file] = await source.FileAuthorsAsync(file.Container, file.Item, ct);
+        if (!source.Available || !source.ReadsFileAuthors) return;
+        int credited = 0;
+        await store.ChangeAsync(current =>
+        {
+            var theme = current.Themes?.FirstOrDefault(item => item.AccountId == account && item.Id == card.Id);
+            if (current.Credential?.Account.Id != account || theme is null) return current;
+            var self = CollaboratorPlan.Self(current, account);
+            DetailCitation Credit(DetailCitation citation)
+            {
+                var cited = citation.Source;
+                if (cited.Kind != DetailSource.Overleaf || authorship.GetValueOrDefault((cited.Container, cited.Item)) is not { } lines) return citation;
+                var project = current.Projects.FirstOrDefault(item => item.AccountId == account && item.ProjectId == cited.Container);
+                var keys = project is null ? null : CollaboratorPlan.LineCredit(citation.Quote, lines, CollaboratorPlan.Adder(project, null, cited.Item), self);
+                if (keys is null) return citation;
+                credited++;
+                return citation with { By = keys };
+            }
+            var details = (theme.Details ?? []).Select(detail => detail with { Citations = [.. detail.Citations.Select(Credit)] }).ToArray();
+            return current with
+            {
+                Themes = [.. current.Themes!.Select(item => item == theme ? theme with { Details = details, CreditedFor = CollaboratorPlan.CreditVersion } : item)]
+            };
+        }, ct);
+        logger.LogInformation("Credited {Count} quote(s) of a research project to who wrote their lines (no model call).", credited);
+    }
+
     /// <summary>Reads who edited each project and each of its files from Overleaf's history (no download, no model call).</summary>
     private async Task ReadEditorsAsync(IReadOnlyList<MonitoredProject> projects, CancellationToken ct)
     {
@@ -1211,12 +1263,12 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         {
             _editorsTriedAt[project.ProjectId] = clock.GetUtcNow();
             var read = await source.HistoryAsync(project.ProjectId, ct);
-            // An older connector does not say who edited each file: asked again later.
-            if (read.FileEditors is null) continue;
+            // An older connector does not say who edited and who added each file: asked again later.
+            if (read.FileAdders is null) continue;
             await ChangeProjectAsync(project, item => item with
             {
                 Editors = read.Editors ?? item.Editors, EditorsFor = CollaboratorPlan.EditorsVersion,
-                Baseline = item.Baseline is { } baseline ? baseline with { FileEditors = read.FileEditors } : item.Baseline
+                Baseline = item.Baseline is { } baseline ? baseline with { FileEditors = read.FileEditors, FileAdders = read.FileAdders } : item.Baseline
             }, ct);
             using var scope = logger.BeginScope(new Dictionary<string, object?> { ["ProjectId"] = project.ProjectId });
             logger.LogInformation("Read who edited the project's files (no download, no model call).");
@@ -1365,11 +1417,11 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 // Who edited a project is read once (no model call); an older connector or a failed read is asked again next check.
                 var read = project.ImportComplete && project.EditorsFor != CollaboratorPlan.EditorsVersion
                     ? await source.HistoryAsync(project.ProjectId, token) : null;
-                // Only a connector that reports who edited each file (0.6.12) counts as current; an older one is asked again.
-                var editors = read?.FileEditors is null ? null : read.Editors;
+                // Only a connector that reports who edited and who added each file (0.6.14) counts as current; an older one is asked again.
+                var editors = read?.FileAdders is null ? null : read.Editors;
                 // Who edited each file, for the shares of details read before this was kept.
                 ProjectManifest? Edited(ProjectManifest? baseline) =>
-                    editors is not null && read!.FileEditors is { } files && baseline is not null ? baseline with { FileEditors = files } : baseline;
+                    editors is not null && read!.FileEditors is { } files && baseline is not null ? baseline with { FileEditors = files, FileAdders = read.FileAdders } : baseline;
                 if (!force && project.ImportComplete && project.Pending is null && project.Error is null &&
                     project.Baseline?.SourceUpdatedAt is { } known && known == metadata.UpdatedAt)
                 {
@@ -1395,7 +1447,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                     // Nothing to process, so Overleaf's history is not read again: the files' known edit times are kept.
                     var paths = manifest.Files.Select(file => file.Path).ToHashSet(StringComparer.Ordinal);
                     var kept = baseline.EditTimes?.Where(entry => paths.Contains(entry.Key)).ToDictionary(StringComparer.Ordinal);
-                    manifest = Edited(manifest with { EditTimes = kept is { Count: > 0 } ? kept : null, FileEditors = baseline.FileEditors })!;
+                    manifest = Edited(manifest with { EditTimes = kept is { Count: > 0 } ? kept : null, FileEditors = baseline.FileEditors, FileAdders = baseline.FileAdders })!;
                     await CommitAsync(credential, project, item => Clean(item) with
                     {
                         Name = metadata.Name, Baseline = manifest, Pending = null, PendingTrees = null, PendingOrder = null, PendingSince = null,
@@ -1407,7 +1459,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                     return;
                 }
                 var history = await source.HistoryAsync(project.ProjectId, token);
-                manifest = manifest with { EditTimes = history.EditTimes, FileEditors = history.FileEditors };
+                manifest = manifest with { EditTimes = history.EditTimes, FileEditors = history.FileEditors, FileAdders = history.FileAdders };
                 var texts = await DetailPlan.TextsAsync(store, project, manifest, token);
                 var trees = DetailPlan.Trees(project, manifest, texts, now, SummaryWindow);
                 await CommitAsync(credential, project, item => Clean(item) with
@@ -1416,7 +1468,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                     LastSweepAt = now, UnprocessedFiles = unanalyzed,
                     Owner = metadata.Owner ?? item.Owner, Owned = metadata.Owner is null ? item.Owned : metadata.Owned,
                     Editors = history.Editors ?? editors ?? item.Editors,
-                    EditorsFor = history.FileEditors is not null || editors is not null ? CollaboratorPlan.EditorsVersion : item.EditorsFor
+                    EditorsFor = history.FileAdders is not null || editors is not null ? CollaboratorPlan.EditorsVersion : item.EditorsFor
                 }, token);
                 logger.LogInformation("Queued {Trees} document tree(s) with {Documents} document(s) to read.", trees.Count, trees.Sum(tree => tree.Send.Count));
             });
@@ -1492,6 +1544,13 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                     .Distinct(StringComparer.Ordinal)];
             }
             var everyone = sent.SelectMany(EditedBy).Distinct(StringComparer.Ordinal).ToArray();
+            // Each new quote is credited to who wrote its lines (OVERLEAF.md §12a), else to who edited its file since the last read.
+            var authorship = new Dictionary<string, FileAuthorship?>(StringComparer.Ordinal);
+            foreach (var path in response.Ops.SelectMany(op => op.Add).Select(quote => quote.Item).Distinct(StringComparer.Ordinal))
+                authorship[path] = await source.FileAuthorsAsync(project.ProjectId, path, token);
+            IReadOnlyList<string> Credit(DetailQuote quote) =>
+                authorship.GetValueOrDefault(quote.Item) is { } lines &&
+                CollaboratorPlan.LineCredit(quote.Quote, lines, CollaboratorPlan.Adder(project, pending, quote.Item), self) is { } keys ? keys : EditedBy(quote.Item);
             int count = 0;
             await store.ChangeAsync(current =>
             {
@@ -1502,9 +1561,11 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 if (ThemePlan.CardOf(current, account, project.ProjectId) is null) current = ThemePlan.Place(current, account, project.ProjectId, null, now);
                 var theme = ThemePlan.CardOf(current, account, project.ProjectId)!;
                 // Edits apply to the card as it is now (another project or email may have changed it meanwhile).
+                // A new card whose quotes are credited by line from the start needs no later re-crediting.
+                bool byLines = theme.CreditedFor is null && (theme.Details ?? []).Count == 0 && authorship.Values.All(lines => lines is not null);
                 var (details, changes) = DetailPlan.Apply(theme.Details ?? [], response,
                     quote => new DetailSource(DetailSource.Overleaf, project.ProjectId, quote.Item, hashes[quote.Item], quote.Item, Edited(quote.Item)),
-                    quote => EditedBy(quote.Item), everyone);
+                    Credit, everyone);
                 var processed = new Dictionary<string, string>(item.Processed ?? new Dictionary<string, string>(), StringComparer.Ordinal);
                 var partial = new Dictionary<string, string>(item.Partial ?? new Dictionary<string, string>(), StringComparer.Ordinal);
                 foreach (var path in sent)
@@ -1524,7 +1585,8 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 count = changes.Count;
                 return current with
                 {
-                    Themes = [.. current.Themes!.Select(entry => entry == theme ? theme with { Details = details } : entry)],
+                    Themes = [.. current.Themes!.Select(entry => entry == theme
+                        ? theme with { Details = details, CreditedFor = byLines ? CollaboratorPlan.CreditVersion : theme.CreditedFor } : entry)],
                     Projects = Replace(current.Projects, item with
                     {
                         Processed = processed, Partial = partial.Count == 0 ? null : partial, LastAttemptAt = now, Explanation = response.Explanation,

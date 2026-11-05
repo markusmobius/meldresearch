@@ -321,7 +321,7 @@ public sealed class DesktopUpdateTests : IDisposable
     {
         public BridgeStatusResponse Status => new(false, false, WireProtocol.Version);
         public Task ConnectAsync(System.Net.WebSockets.WebSocket socket, string localUrl, CancellationToken cancellationToken) => throw new NotSupportedException();
-        public Task<BrowserResponse> FetchAsync(string operation, string? projectId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<BrowserResponse> FetchAsync(string operation, string? projectId, CancellationToken cancellationToken, string? path = null) => throw new NotSupportedException();
     }
 
     private sealed class Lifetime : Microsoft.Extensions.Hosting.IHostApplicationLifetime

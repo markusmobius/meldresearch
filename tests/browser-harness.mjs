@@ -78,7 +78,7 @@ export function browserHarness({
       requests.push({ url, options });
       return fetchResponse(url, options);
     },
-    URL, AbortController, setTimeout, clearTimeout, btoa, DOMParser, TextDecoder, TextEncoder,
+    URL, AbortController, setTimeout, clearTimeout, btoa, DOMParser, TextDecoder, TextEncoder, crypto: globalThis.crypto,
     console: { warn: message => warnings.push(message) },
   });
   const chrome = {

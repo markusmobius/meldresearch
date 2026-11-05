@@ -57,7 +57,8 @@
       }
       const validId = /^[a-f0-9]{32}$/.test(message.id ?? '');
       const list = message.operation === 'listProjects';
-      const download = ['downloadProject', 'projectHistory'].includes(message.operation) && /^[a-f0-9]{24}$/.test(message.projectId ?? '');
+      const download = ['downloadProject', 'projectHistory', 'fileAuthors'].includes(message.operation) && /^[a-f0-9]{24}$/.test(message.projectId ?? '') &&
+        (message.operation !== 'fileAuthors' || typeof message.path === 'string');
       if (!validId || (!list && !download) || location.origin !== 'https://www.overleaf.com') {
         port.postMessage({ type: 'error', id: message.id, error: 'invalid_request' });
         return;
@@ -69,7 +70,7 @@
       let reader = null;
       try {
         reader = globalThis.__meldCreateOverleafReaderV1({
-          operation: message.operation, projectId: message.projectId, signal: controller.signal,
+          operation: message.operation, projectId: message.projectId, path: message.path, signal: controller.signal,
         });
         let sequence = 0;
         while (true) {

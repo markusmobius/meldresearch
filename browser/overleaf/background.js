@@ -275,14 +275,21 @@ async function readOnce(message) {
   });
 }
 
+/** A relative project path without parent steps or control characters. */
+function safePath(path) {
+  return typeof path === 'string' && path.length > 0 && path.length <= 1024 && !path.startsWith('/') &&
+    !path.split('/').some(part => part === '' || part === '.' || part === '..') && !/[\u0000-\u001f\\]/.test(path);
+}
+
 async function startRequest(message) {
   if (requestId !== null) {
     postNative({ type: 'error', id: message.id, error: 'browser_busy' });
     return;
   }
   if (!/^[a-f0-9]{32}$/.test(message.id ?? '') ||
-      !['listProjects', 'downloadProject', 'projectHistory'].includes(message.operation) ||
-      (message.operation !== 'listProjects' && !/^[a-f0-9]{24}$/.test(message.projectId ?? ''))) {
+      !['listProjects', 'downloadProject', 'projectHistory', 'fileAuthors'].includes(message.operation) ||
+      (message.operation !== 'listProjects' && !/^[a-f0-9]{24}$/.test(message.projectId ?? '')) ||
+      (message.operation === 'fileAuthors' && !safePath(message.path))) {
     failConnection('invalid_request');
     return;
   }

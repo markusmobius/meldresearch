@@ -378,7 +378,7 @@ public sealed class ResearchCoordinatorTests
         public bool Busy { get; set; }
         public BridgeStatusResponse Status => new(Connected, Busy, 2);
         public Task ConnectAsync(System.Net.WebSockets.WebSocket socket, string localUrl, CancellationToken cancellationToken) => throw new NotSupportedException();
-        public Task<MeldResearch.LocalBackend.Services.BrowserResponse> FetchAsync(string operation, string? projectId, CancellationToken cancellationToken) =>
+        public Task<MeldResearch.LocalBackend.Services.BrowserResponse> FetchAsync(string operation, string? projectId, CancellationToken cancellationToken, string? path = null) =>
             throw new NotSupportedException();
     }
 
@@ -404,6 +404,18 @@ public sealed class ResearchCoordinatorTests
         public IReadOnlyList<OverleafPerson>? Editors { get; set; }
         /// <summary>Who edited each file and when they last did (Overleaf's history); none by default.</summary>
         public IReadOnlyDictionary<string, IReadOnlyList<OverleafPerson>>? FileEditors { get; set; }
+        /// <summary>Who added each file; reported (empty) whenever FileEditors is, as the current connector does.</summary>
+        public IReadOnlyDictionary<string, OverleafPerson>? FileAdders { get; set; }
+        /// <summary>Who wrote each line of a file (fileAuthors), by path; the connector reads it only when ReadsFileAuthors.</summary>
+        public Dictionary<string, FileAuthorship> Authorship { get; } = new(StringComparer.Ordinal);
+        public bool ReadsFileAuthors { get; set; } = true;
+        public int AuthorReads { get; private set; }
+        public Task<FileAuthorship?> FileAuthorsAsync(string projectId, string path, CancellationToken ct)
+        {
+            if (!ReadsFileAuthors) return Task.FromResult<FileAuthorship?>(null);
+            AuthorReads++;
+            return Task.FromResult(Authorship.GetValueOrDefault(path));
+        }
         public OverleafPerson? Owner { get; set; }
         public bool Owned { get; set; }
         public int HistoryReads { get; private set; }
@@ -418,7 +430,11 @@ public sealed class ResearchCoordinatorTests
         { Reads++; return Task.FromResult(Snapshot with { ObservedAt = DateTimeOffset.UtcNow }); }
         public Task<IReadOnlyDictionary<string, DateTimeOffset>?> EditTimesAsync(string projectId, CancellationToken ct) => Task.FromResult(EditTimes);
         public Task<OverleafHistory> HistoryAsync(string projectId, CancellationToken ct)
-        { HistoryReads++; return Task.FromResult(new OverleafHistory(EditTimes, Editors, FileEditors)); }
+        {
+            HistoryReads++;
+            return Task.FromResult(new OverleafHistory(EditTimes, Editors, FileEditors,
+                FileEditors is null ? null : FileAdders ?? new Dictionary<string, OverleafPerson>()));
+        }
     }
 
     internal sealed class Remote : IResearchRemote

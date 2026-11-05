@@ -21,7 +21,7 @@
       <header class="page-header">
         <div class="page-heading">
           <h1 class="page-title"><span class="material-icons site-only" aria-hidden="true">shield</span>Privacy &amp; Controls</h1>
-          <p class="page-subtitle">Last updated: November 2026 &middot; Meld Research and its Overleaf connector, version 0.6.13</p>
+          <p class="page-subtitle">Last updated: November 2026 &middot; Meld Research and its Overleaf connector, version 0.6.14</p>
         </div>
       </header>
 
@@ -103,8 +103,10 @@
                 wrote that Meld already used, are sent with your own names and addresses once, and again only when someone new
                 appears, so the model can merge the same person under different names or addresses, leave you out, and judge
                 whether someone only on email works on the research (not, for example, an assistant receiving slides); it picks
-                each name as written and never adds an address. Each change in a project's changelog shows who it rests on
-                (you or collaborators), worked out on your computer from the cited messages' senders and the cited files' editors. Processing runs in the background without a separate
+                each name as written and never adds an address. Each detail and each change in a project's changelog shows who it
+                rests on (you or collaborators), worked out on your computer from the cited messages' senders and from who wrote
+                the quoted lines of the cited files (text with no author in the history, such as an upload, counts for who added
+                the file). Processing runs in the background without a separate
                 prompt for each model request.</li>
               <li><strong>The Meld website:</strong> keeps your account and approved installations in its own database. The remote
                 Meld application does not persist a project archive or log research payloads. To monitor cost and capacity, it records
@@ -140,8 +142,12 @@
               <li><strong>Overleaf project history:</strong> for an included project, the connector reads the project's Overleaf
                 edit history inside its Overleaf tab and passes on only each file's path and the time it was last edited, so files
                 can be processed in the order they were written, and the name, email address and latest edit time of each person
-                who edited the project, and when each of them last edited each file, for its collaborators and to show who each
-                update rests on. The edits themselves are discarded in the tab.</li>
+                who edited the project, when each of them last edited each file and who added each file, for its collaborators and
+                to show who each update rests on. The edits themselves are discarded in the tab.</li>
+              <li><strong>Who wrote each line:</strong> for a file that one of your research project's details quotes, the connector
+                reads the file's history diff in the Overleaf tab and passes on only, for each line, a short hash of the line and
+                how many of its characters each person wrote, so each detail can be credited to who wrote the lines it quotes. The
+                line text and deleted text are discarded in the tab; this is read about once per changed file.</li>
               <li><strong>Overleaf sign-in status:</strong> while the connector popup is open, it requests your Overleaf project page
                 to learn only whether Overleaf redirects to its sign-in page. The page content is discarded unread and nothing is sent
                 to Meld.</li>

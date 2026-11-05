@@ -16,7 +16,8 @@ public sealed record BridgeMessage(
     int? Sequence = null,
     string? Error = null,
     int? Version = null,
-    string? LocalUrl = null);
+    string? LocalUrl = null,
+    string? Path = null);
 
 public static class WireProtocol
 {

@@ -300,7 +300,8 @@ internal static class SyncBundles
     }
 
     private static ProjectManifest? KeepEditors(ProjectManifest? pulled, ProjectManifest? local) =>
-        pulled is { FileEditors: null } && local?.FileEditors is { } files && pulled.Revision == local.Revision ? pulled with { FileEditors = files } : pulled;
+        pulled is { FileEditors: null } && local?.FileEditors is { } files && pulled.Revision == local.Revision
+            ? pulled with { FileEditors = files, FileAdders = pulled.FileAdders ?? local.FileAdders } : pulled;
 
     private static string Hash<T>(T value) => ResearchEvidence.Hash(JsonSerializer.Serialize(value, ResearchJson.Options));
 }

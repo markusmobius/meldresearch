@@ -108,8 +108,10 @@ internal static class DetailPlan
     /// <summary>
     /// Applies a step's edits, removals first (so a full list makes room before additions); a detail left without citations
     /// is removed, and an addition beyond <see cref="DetailRules.MaxDetails"/> is not made. Returns the details and what changed.
-    /// With <paramref name="by"/>, each change records who it rests on: the people behind the quotes it adds, else (a removal,
-    /// or a rewording without new quotes) everyone behind the step (<paramref name="everyone"/>).
+    /// With <paramref name="by"/>, each quote records who it is credited to (who wrote it), and each change who it rests on:
+    /// the people behind the quotes it adds, else (a removal, or a rewording without new quotes) everyone behind the step
+    /// (<paramref name="everyone"/>). A revision that keeps the wording only quotes the source again (after someone rewrote
+    /// it): its new quotes keep the credit of the detail's earlier quotes, so rewording earns no credit (OVERLEAF.md §12a).
     /// </summary>
     public static (IReadOnlyList<DetailBullet> Details, IReadOnlyList<DetailChange> Changes) Apply(IReadOnlyList<DetailBullet> details,
         DetailStepResponse response, Func<DetailQuote, DetailSource> source, Func<DetailQuote, IEnumerable<string>>? by = null,
@@ -133,6 +135,8 @@ internal static class DetailPlan
                     int index = result.FindIndex(detail => detail.Id == op.Id);
                     if (index < 0) break;
                     var before = result[index];
+                    if (by is not null && (op.Text is null || op.Text == before.Text) && Inherited(before, citations) is { Count: > 0 } kept0)
+                        citations = [.. citations.Select(citation => citation with { By = kept0 })];
                     var removed = op.Remove.Select(item => int.TryParse(item.AsSpan(1), out var position) ? position : -1).ToHashSet();
                     var kept = before.Citations.Where((_, position) => !removed.Contains(position)).Concat(citations).ToArray();
                     if (kept.Length == 0)
@@ -153,11 +157,22 @@ internal static class DetailPlan
                     break;
             }
             if (by is null || changes.Count == before0) continue;
-            var people = op.Add.SelectMany(by).Distinct(StringComparer.Ordinal).ToArray();
+            var people = citations.SelectMany(citation => citation.By ?? []).Distinct(StringComparer.Ordinal).ToArray();
             var change = changes[^1];
             changes[^1] = change with { By = change.Op != DetailRules.Remove && people.Length != 0 ? people : everyone is { Count: > 0 } ? everyone : null };
         }
         return (result, changes);
+    }
+
+    /// <summary>
+    /// The credit a re-quote of a detail keeps: that of its earlier quotes from the same sources as the new ones, else of all
+    /// its earlier quotes; empty when none was recorded.
+    /// </summary>
+    private static IReadOnlyList<string> Inherited(DetailBullet before, IReadOnlyList<DetailCitation> added)
+    {
+        var sources = added.Select(citation => citation.Source.Key).ToHashSet(StringComparer.Ordinal);
+        var same = before.Citations.Where(citation => sources.Contains(citation.Source.Key) && citation.By is { Count: > 0 }).ToArray();
+        return [.. (same.Length != 0 ? same : before.Citations).SelectMany(citation => citation.By ?? []).Distinct(StringComparer.Ordinal)];
     }
 
     /// <summary>The changes, with those that do not record who they rest on credited to everyone behind the step.</summary>
