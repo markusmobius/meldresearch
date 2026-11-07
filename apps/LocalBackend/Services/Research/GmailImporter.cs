@@ -588,8 +588,9 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
                         FoldedMessageId = first >= usable.Count ? thread.LastMessageId : last.Id,
                         FoldedSentAt = last.SentAt, UpdatedAt = now
                     }],
+                    // Mail the user just placed on this project: shown in the feed from when they placed it.
                     Changelog = DetailPlan.Log(current.Changelog, new(Guid.NewGuid(), account, cardId, last.SentAt, ChangelogEntry.Gmail, subject, null,
-                        [subject], changes, null, now))
+                        [subject], changes, null, now, thread.PlacedAt is { } placed && placed > last.SentAt ? placed : null))
                 };
             }, ct);
             logger.LogInformation("A Gmail thread updated its project with {Count} change(s).", response.Ops.Count);
@@ -761,14 +762,14 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
                 case "project":
                     var card = ThemePlan.Themes(current, account).FirstOrDefault(theme => theme.Id == request.CardId)
                         ?? throw new ResearchFailure(404, "research_card_not_found", "That research project no longer exists.");
-                    item = item with { Status = GmailThreadRecord.Assigned, CardId = card.Id, StreamId = null };
+                    item = item with { Status = GmailThreadRecord.Assigned, CardId = card.Id, StreamId = null, PlacedAt = now };
                     break;
                 case "new":
                     string name = request.Name?.Trim() ?? "";
                     if (name.Length is 0 or > 120) throw new ResearchFailure(400, "invalid_project_name", "Give the new project a name of at most 120 characters.");
                     var created = ThemePlan.NewCard(account, [], now, name: name);
                     current = current with { Themes = [.. current.Themes ?? [], created] };
-                    item = item with { Status = GmailThreadRecord.Assigned, CardId = created.Id, StreamId = null };
+                    item = item with { Status = GmailThreadRecord.Assigned, CardId = created.Id, StreamId = null, PlacedAt = now };
                     break;
                 case "group":
                     // Housekeeping: the user moves a waiting thread to another group, or to a new group of its own. It is pinned there.
@@ -859,7 +860,7 @@ internal sealed class GmailImporter(IResearchStore store, IResearchRemote remote
                     ? item with
                     {
                         Status = GmailThreadRecord.Assigned, CardId = cardId, StreamId = null, GroupId = null, GroupPinned = null,
-                        FoldedMessageId = null, FoldedSentAt = null, UpdatedAt = now
+                        FoldedMessageId = null, FoldedSentAt = null, UpdatedAt = now, PlacedAt = request.Action == "dismiss" ? item.PlacedAt : now
                     } : item)]
             };
             return Housekeeping.Cleaned(next, account) ?? next;

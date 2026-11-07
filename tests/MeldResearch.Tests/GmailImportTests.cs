@@ -213,6 +213,69 @@ public sealed class GmailImportTests
         Assert.Equal("research_card_not_found", (await Assert.ThrowsAsync<ResearchFailure>(() =>
             mail.Importer.DecideAsync(new(Address, "t3", "project", CardId: new string('f', 32)), None))).Code);
     }
+    [Fact]
+    public async Task AThreadMovedFromTheWrongProjectShowsInTheFeedOnlyWhereItBelongsFromWhenItWasMoved()
+    {
+        var mail = Setup();
+        await Run(mail.Importer);
+        var right = ThemePlan.NewCard(Account.Id, [], mail.Clock.UtcNow, name: "Results paper");
+        // Newer updates arrived meanwhile (an Overleaf read dated after the thread's mail).
+        var overleaf = new ChangelogEntry(Guid.NewGuid(), Account.Id, Card, mail.Clock.UtcNow.AddHours(-1), ChangelogEntry.Overleaf, "main.tex", ProjectId,
+            ["main.tex"], [new(DetailRules.Add, "o1", null, "A new section.")], null, mail.Clock.UtcNow.AddHours(-1));
+        mail.Store.State = mail.Store.State with { Themes = [.. mail.Store.State.Themes!, right], Changelog = [.. mail.Store.State.Changelog!, overleaf] };
+        var cards = new HashSet<string>(StringComparer.Ordinal) { Card, right.Id };
+        const string subject = "Results for the social learning paper";
+        Assert.Contains(DetailPlan.Feed(mail.Store.State, Account.Id, cards), entry => entry.CardId == Card && entry.Title == subject);
+
+        // The user moves the thread to the right project: its sources leave the wrong one, and its mail updates the right one.
+        mail.Clock.UtcNow += TimeSpan.FromMinutes(5);
+        await mail.Importer.DecideAsync(new(Address, "t3", "project", CardId: right.Id), None);
+        Assert.Equal(mail.Clock.UtcNow, mail.Store.State.GmailThreads!.Single(thread => thread.Id == "t3").PlacedAt);
+        await Run(mail.Importer);
+        var placed = mail.Store.State.Changelog!.Single(entry => entry.CardId == right.Id);
+        Assert.Equal((subject, mail.Clock.UtcNow), (placed.Title, placed.PlacedAt));
+
+        // The feed shows it first; the wrong placement and its removal cancel out; other updates stay.
+        var feed = DetailPlan.Feed(mail.Store.State, Account.Id, cards);
+        Assert.Equal(right.Id, feed[0].CardId);
+        Assert.Equal(overleaf.Id, feed[1].Id);
+        Assert.DoesNotContain(feed, entry => entry.Kind == ChangelogEntry.User || entry.CardId == Card && entry.Title == subject);
+        Assert.Contains(feed, entry => entry.CardId == Card && entry.Title == "Revision of the social learning paper");
+        // The wrong project's changelog keeps both.
+        Assert.Contains(mail.Store.State.Changelog!, entry => entry.CardId == Card && entry.Kind == ChangelogEntry.User);
+        Assert.Contains(mail.Store.State.Changelog!, entry => entry.CardId == Card && entry.Title == subject);
+
+        // A whole Housekeeping group added to a project is dated by that choice too.
+        var group = Housekeeping.NewGroup(Account.Id, "Grant", mail.Clock.UtcNow, held: true);
+        mail.Store.State = mail.Store.State with
+        {
+            HousekeepingGroups = [group],
+            GmailThreads = [.. mail.Store.State.GmailThreads!.Select(thread => thread.Id == "g1" ? thread with { GroupId = group.Id, GroupPinned = true } : thread)]
+        };
+        mail.Clock.UtcNow += TimeSpan.FromMinutes(5);
+        await mail.Importer.DecideGroupAsync(group.Id, new("project", CardId: right.Id), None);
+        Assert.Equal(mail.Clock.UtcNow, mail.Store.State.GmailThreads!.Single(thread => thread.Id == "g1").PlacedAt);
+        await Run(mail.Importer);
+        Assert.Equal("Grant renewal budget", DetailPlan.Feed(mail.Store.State, Account.Id, cards)[0].Title);
+    }
+
+    [Fact]
+    public void UpdatesFromMailPlacedBeforePlacementsWereDatedShowFromWhenTheyWereRecorded()
+    {
+        var now = DateTimeOffset.UtcNow;
+        const string right = "1123456789abcdef0123456789abcdef";
+        GmailThreadRecord Thread(string id, string subject, string? title) => new(Account.Id, Address, id, subject, GmailThreadRecord.Assigned, "1", "m1",
+            now.AddDays(-3), now, [], CardId: right, FoldedMessageId: "m1", Title: title);
+        ChangelogEntry Entry(string title, string kind, DateTimeOffset at, DateTimeOffset recorded, string detail) =>
+            new(Guid.NewGuid(), Account.Id, right, at, kind, title, null, [title], [new(DetailRules.Add, detail, null, "A detail.")], null, recorded);
+        // The thread waited in Housekeeping (it has a title) before the user placed it; the other was placed by Foundry.
+        var state = new LocalResearchState(1, Credential, null, null, [], [],
+            GmailThreads: [Thread("w", "PCM model", "Theoretical PCM model shared"), Thread("a", "Pilot results", null)],
+            Changelog: [Entry("PCM model", ChangelogEntry.Gmail, now.AddDays(-3), now, "d1"), Entry("Pilot results", ChangelogEntry.Gmail, now.AddDays(-2), now, "d2"),
+                Entry("main.tex", ChangelogEntry.Overleaf, now.AddHours(-1), now.AddHours(-1), "d3")]);
+        Assert.Equal(["PCM model", "main.tex", "Pilot results"], DetailPlan.Feed(state, Account.Id, new HashSet<string> { right }).Select(entry => entry.Title));
+    }
+
     /// <summary>Four threads that fit no project: two about a grant, two about teaching.</summary>
     private static Mail Housekept()
     {

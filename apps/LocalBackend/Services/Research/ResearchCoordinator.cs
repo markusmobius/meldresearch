@@ -99,13 +99,12 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
         var skippedMembers = account is { } owner0 ? ThemePlan.SkippedMembers(state, owner0) : new HashSet<string>();
         var updates = projects.Where(project => !skippedMembers.Contains(project.ProjectId)).SelectMany(project => project.Updates)
             .OrderByDescending(update => update.ObservedAt).ToArray();
-        // The Updates feed: changelog entries that changed the details of projects in the profile (OVERLEAF.md §8).
+        // The Updates feed: changelog entries that changed the details of projects in the profile (OVERLEAF.md §8). A review
+        // only tidies the details (no new research), so it is in the changelog but not in the feed.
         var feedThemes = account is { } owner1 ? ThemePlan.Active(state, owner1) : [];
         var feedIds = feedThemes.Select(theme => theme.Id).ToHashSet(StringComparer.Ordinal);
-        // A review only tidies the details (no new research), so it is in the changelog but not in the feed.
-        var changes = (state.Changelog ?? []).Where(entry => entry.AccountId == account && entry.Changes.Count != 0 && feedIds.Contains(entry.CardId) &&
-                entry.Kind != ChangelogEntry.Review)
-            .OrderByDescending(entry => entry.At).ThenByDescending(entry => entry.RecordedAt).Select(entry => Change(entry, feedThemes, state)).ToArray();
+        var changes = account is { } owner2
+            ? DetailPlan.Feed(state, owner2, feedIds).Select(entry => Change(entry, feedThemes, state)).ToArray() : [];
         var signIn = _signIn is { } pending && pending.ExpiresAt > clock.GetUtcNow() && state.Credential is null ? pending : null;
         var researcher = state.Researchers?.FirstOrDefault(item => item.AccountId == account);
         HashSet<string> active;
@@ -455,7 +454,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                 };
             }
             current = ThemePlan.Place(current, account, projectId, themeId, now, pin: true);
-            var moved = item with { Processed = null, Partial = null, Pending = baseline, PendingSince = now };
+            var moved = item with { Processed = null, Partial = null, Pending = baseline, PendingSince = now, PlacedAt = now };
             moved = moved with { PendingTrees = DetailPlan.Trees(moved, baseline, texts, now, SummaryWindow) };
             return current with { Projects = Replace(current.Projects, moved), ThemesRegroupedFor = null };
         }, ct);
@@ -1645,8 +1644,10 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
                         Processed = processed, Partial = partial.Count == 0 ? null : partial, LastAttemptAt = now, Explanation = response.Explanation,
                         ErrorCode = null, Error = null, FailureCount = 0, NextAttemptAt = null
                     }),
+                    // A project the user moved here: its updates show in the feed from when they moved it.
                     Changelog = DetailPlan.Log(current.Changelog, new(Guid.NewGuid(), account, theme.Id, part.Tree.Date, ChangelogEntry.Overleaf,
-                        part.Tree.Root, project.ProjectId, [.. sent], changes, $"{project.ProjectId}|{part.Tree.Root}|{pending.Revision}", now))
+                        part.Tree.Root, project.ProjectId, [.. sent], changes, $"{project.ProjectId}|{part.Tree.Root}|{pending.Revision}", now,
+                        item.PlacedAt is { } placed && placed > part.Tree.Date ? placed : null))
                 };
             }, token);
             var (done, total) = DetailPlan.Progress(await ProjectAsync(project, token) ?? project);
@@ -1693,7 +1694,7 @@ internal sealed class ResearchCoordinator(IResearchStore store, IResearchRemote 
             {
                 Projects = Replace(current.Projects, item with
                 {
-                    Baseline = pending, Pending = null, PendingTrees = null, PendingOrder = null, PendingSince = null, Partial = null,
+                    Baseline = pending, Pending = null, PendingTrees = null, PendingOrder = null, PendingSince = null, Partial = null, PlacedAt = null,
                     Processed = (item.Processed ?? new Dictionary<string, string>()).Where(entry => !gone.Contains(entry.Key)).ToDictionary(StringComparer.Ordinal),
                     ImportComplete = true, LastSuccessAt = now, Paper = paper, PaperFor = Papers.ReadFor(pending.Revision),
                     Explanation = item.ImportComplete ? "Changes read." : "Initial import complete."

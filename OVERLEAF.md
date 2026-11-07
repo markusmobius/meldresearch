@@ -442,8 +442,14 @@ project, and the email import for every connected account.
    card. **Skip** leaves it out.
 5. A failed step is retried rather than skipped, so a model or server failure
    never loses a document's content (§7.6).
-6. The feed's Updates are the changelog entries that changed details, including
-   the user's own removals; the changelog is ordered by the sources' dates.
+6. The feed's Updates are the changelog entries that changed details
+   (`DetailPlan.Feed`). The changelog is ordered by the sources' dates; so is the
+   feed, except that an update the user caused (an email thread or Housekeeping
+   group placed on a project, a project started from email, a project moved to
+   another card: `PlacedAt`) counts from when they did it, so it appears at the
+   top. The user's own removals of sources are left out of the feed together with
+   the changes they undid (a wrong placement and its removal cancel out); each
+   project's changelog keeps both.
 7. The changelog pages by entry (`after` = the last entry shown), so entries that
    share a date are never skipped between pages.
 8. Details are capped at 30. Steps see each source's date, edits apply removals

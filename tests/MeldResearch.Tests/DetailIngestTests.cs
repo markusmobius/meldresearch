@@ -228,6 +228,13 @@ public sealed class DetailIngestTests
         Assert.Equal([SecondId], own.Pinned!);
         Assert.Equal(before + 1, remote.DetailRequests.Count);
         Assert.Single(own.Details!);
+        // Moved by the user: the feed shows its new card's update first and leaves out the old card's removal.
+        Assert.All(store.State.Changelog!.Where(entry => entry.CardId == own.Id && entry.Kind == ChangelogEntry.Overleaf), entry => Assert.NotNull(entry.PlacedAt));
+        Assert.Null(store.State.Projects.Single(project => project.ProjectId == SecondId).PlacedAt);
+        var feed = (await coordinator.StatusAsync(None)).Changes!;
+        Assert.Equal(own.Id, feed[0].CardId);
+        Assert.DoesNotContain(feed, change => change.Kind == ChangelogEntry.User);
+        Assert.Contains(store.State.Changelog!, entry => entry.CardId == card.Id && entry.Kind == ChangelogEntry.User);
     }
 
     [Fact]

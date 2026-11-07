@@ -253,7 +253,8 @@ internal static class DetailPlan
             entries[index] = entries[index] with
             {
                 Documents = [.. entries[index].Documents.Concat(entry.Documents).Distinct(StringComparer.Ordinal)],
-                Changes = [.. entries[index].Changes, .. entry.Changes], RecordedAt = entry.RecordedAt
+                Changes = [.. entries[index].Changes, .. entry.Changes], RecordedAt = entry.RecordedAt,
+                PlacedAt = entries[index].PlacedAt is { } placed && (entry.PlacedAt is null || placed > entry.PlacedAt) ? placed : entry.PlacedAt
             };
         else entries.Add(entry);
         // The oldest entries of an account go first beyond the limit.
@@ -264,6 +265,35 @@ internal static class DetailPlan
             entries.RemoveAll(dropped.Contains);
         }
         return entries;
+    }
+
+    /// <summary>
+    /// The Updates feed (OVERLEAF.md §8, §16): the changelog entries of the given projects that changed details, newest first.
+    /// An update the user caused (a source they placed on a project, a project they moved) counts from when they did it,
+    /// others from their source's date. The user's own removals of sources are left out, together with the changes they
+    /// undid (a wrong placement and its removal cancel out); each project's changelog keeps both.
+    /// </summary>
+    public static IReadOnlyList<ChangelogEntry> Feed(LocalResearchState state, Guid account, IReadOnlySet<string> cards)
+    {
+        var entries = (state.Changelog ?? []).Where(entry => entry.AccountId == account && cards.Contains(entry.CardId) && entry.Kind != ChangelogEntry.Review).ToArray();
+        // Details the user's removals took away: a detail id is never reused, so every change to it is undone.
+        var undone = entries.Where(entry => entry.Kind == ChangelogEntry.User)
+            .SelectMany(entry => entry.Changes.Where(change => change.Op == DetailRules.Remove).Select(change => (entry.CardId, change.DetailId)))
+            .ToHashSet();
+        // Earlier updates from email the user placed out of Housekeeping (recorded before placements were dated): only the
+        // user moves a waiting thread, which is when it got its title, onto a project.
+        var placed = (state.GmailThreads ?? []).Where(thread => thread.AccountId == account && thread.CardId is not null &&
+                thread.Status == GmailThreadRecord.Assigned && (thread.PlacedAt is not null || thread.Title is not null))
+            .Select(thread => (thread.CardId!, thread.Subject)).ToHashSet();
+        DateTimeOffset Shown(ChangelogEntry entry)
+        {
+            var at = entry.PlacedAt ?? (entry.Kind == ChangelogEntry.Gmail && placed.Contains((entry.CardId, entry.Title)) ? entry.RecordedAt : null);
+            return at is { } when && when > entry.At ? when : entry.At;
+        }
+        return [.. entries.Where(entry => entry.Kind != ChangelogEntry.User)
+            .Select(entry => entry with { Changes = [.. entry.Changes.Where(change => !undone.Contains((entry.CardId, change.DetailId)))] })
+            .Where(entry => entry.Changes.Count != 0)
+            .OrderByDescending(Shown).ThenByDescending(entry => entry.RecordedAt)];
     }
 
     private static IReadOnlyList<DetailCitation> Distinct(IEnumerable<DetailCitation> citations) =>

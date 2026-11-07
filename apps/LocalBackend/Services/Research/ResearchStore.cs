@@ -20,7 +20,8 @@ internal sealed record PendingDeviceLink(string DeviceCode, string Verifier, str
 /// Owner is who owns the project on Overleaf (Owned: the user does, so it names the user) and Editors who edited it, from
 /// Overleaf's history: with the paper's authors they are the project's collaborators. EditorsFor is the way of reading
 /// editors (CollaboratorPlan.EditorsVersion) they were read by; until it is current, each check reads the history again (an
-/// older connector or a failed read does not count).
+/// older connector or a failed read does not count). PlacedAt: the user moved the project to its card then; the cycle reading
+/// it there shows its updates in the feed from then (cleared when that cycle finishes).
 /// </summary>
 internal sealed record MonitoredProject(Guid AccountId, string ProjectId, string Name, bool Enabled, string ConsentVersion,
     ResearchSnapshot? Snapshot, string? Summary, IReadOnlyList<ResearchFact> Facts, IReadOnlyList<ResearchUpdate> Updates,
@@ -39,7 +40,8 @@ internal sealed record MonitoredProject(Guid AccountId, string ProjectId, string
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] OverleafPerson? Owner = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? Owned = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<OverleafPerson>? Editors = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? EditorsFor = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? EditorsFor = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateTimeOffset? PlacedAt = null)
 {
     /// <summary>An Overleaf project (Source null or "overleaf"): read from Overleaf file by file. Other sources are not swept.</summary>
     public bool IsOverleaf => Source is null or ResearchSources.Overleaf;
@@ -142,10 +144,12 @@ internal sealed record MailPerson(string? Name, string Email, int From, int To, 
 /// One entry of a research project's changelog (OVERLEAF.md §8): a source that updated it (an Overleaf root tree, an email
 /// thread's new messages), a removal, the user's change, a merge of cards, or a periodic review (Review: overlapping details
 /// merged and overtaken plans retired; not shown in the feed). Changes is what it did to the details; Key merges the parts
-/// of one root tree of one cycle into one entry.
+/// of one root tree of one cycle into one entry. PlacedAt: when the user placed the source on this project (an email thread
+/// from Housekeeping, a project moved here), so the Updates feed shows the update from then (DetailPlan.Feed).
 /// </summary>
 internal sealed record ChangelogEntry(Guid Id, Guid AccountId, string CardId, DateTimeOffset At, string Kind, string Title,
-    string? ProjectId, IReadOnlyList<string> Documents, IReadOnlyList<DetailChange> Changes, string? Key, DateTimeOffset RecordedAt)
+    string? ProjectId, IReadOnlyList<string> Documents, IReadOnlyList<DetailChange> Changes, string? Key, DateTimeOffset RecordedAt,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateTimeOffset? PlacedAt = null)
 {
     public const string Overleaf = "overleaf", Gmail = "gmail", Removed = "removed", User = "user", Merge = "merge", Review = "review";
 }
@@ -215,6 +219,8 @@ internal sealed record GmailThreadState(string Id, string HistoryId, string Last
 /// thread made newsworthy progress (it then appears in the Updates feed); Suggested names a project for a pending thread.
 /// Title is a short headline written for a waiting thread (TitledFor: the title style and last message it was written for).
 /// People are the thread's senders and recipients other than the user (null until read), for the collaborators of its project.
+/// PlacedAt: when the user put the thread on its project (or started a project with it); the updates its earlier mail makes
+/// there are shown in the feed from then.
 /// </summary>
 internal sealed record GmailThreadRecord(Guid AccountId, string Address, string Id, string Subject, string Status, string HistoryId,
     string LastMessageId, DateTimeOffset LastSentAt, DateTimeOffset UpdatedAt, IReadOnlyList<GmailBullet> Bullets,
@@ -226,7 +232,8 @@ internal sealed record GmailThreadRecord(Guid AccountId, string Address, string 
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? GroupPinned = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Title = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? TitledFor = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<MailPerson>? People = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<MailPerson>? People = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateTimeOffset? PlacedAt = null)
 {
     public const string Assigned = "assigned", Pending = "pending", Skipped = "skipped", Dismissed = "dismissed";
 }

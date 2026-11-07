@@ -97,7 +97,9 @@ instruction file. Start with the [README](README.md) for setup and release detai
   unchanged hash. Steps see each source's date; edits apply removals first so a full
   list takes new details; a review (OVERLEAF.md §8a, at most monthly per changed card, before
   the summary) merges overlaps and retires overtaken plans. The feed's Updates are
-  changelog entries that changed details, except reviews. Raising `ResetEpoch`
+  changelog entries that changed details, except reviews, by source date; updates the
+  user caused by placing or moving a source count from when they did it (`PlacedAt`),
+  and the user's removals drop out with what they undid (`DetailPlan.Feed`). Raising `ResetEpoch`
   that must also discard synced research needs a new sync blob format in
   [SyncCrypto](libraries/Research/SyncCrypto.cs) (old names become legacy).
   A source the user removes leaves every detail of the card and waits in Private
