@@ -329,8 +329,8 @@ node .\tests\research.e2e.mjs --public-pages-only
 
 ## Packaging and release status
 
-- Use [desktop packaging](tools/package-local.ps1) for `win-x64`, `osx-arm64` or
-  `osx-x64`, and [Windows package smoke tests](tests/desktop-package.e2e.ps1).
+- Use [desktop packaging](tools/package-local.ps1) for `win-x64`, `win-arm64`,
+  `osx-arm64` or `osx-x64`, and [Windows package smoke tests](tests/desktop-package.e2e.ps1).
   Rebuild packages after source changes; old ZIPs are not current builds.
 - [Remote deployment](deploy): `deploy.sh`/`deploy.ps1` run on the Ubuntu server as
   the owner (`markusmobius`), keep code in `~/meldresearch/deployed` and data in
@@ -357,9 +357,10 @@ node .\tests\research.e2e.mjs --public-pages-only
   release, install per user without administrator rights, and start Meld at sign-in
   (scheduled task `MeldResearch` / LaunchAgent `org.meldresearch.desktop`). Installers
   stop only their own installation's processes. Validate the Windows flow with
-  `tests\desktop-update.e2e.ps1`; the macOS flow is not yet execution-tested.
+  `tests\desktop-update.e2e.ps1` (x64); the Windows on Arm (`win-arm64`, chosen by
+  the one-liner on Arm PCs) and macOS flows are not yet execution-tested.
 - At this handoff, no public deployment or store submission has been performed
   from this work. Real Google login, a post-store-identity live Overleaf read,
-  macOS execution/Keychain/registration, signing/notarization, and remaining
+  macOS and Windows on Arm execution, macOS Keychain/registration, signing/notarization, and remaining
   privacy/store-policy gates still need verification. Do not describe Dummy
-  checks, a macOS cross-build, or draft assets as those completed release gates.
+  checks, a macOS or Arm64 cross-build, or draft assets as those completed release gates.

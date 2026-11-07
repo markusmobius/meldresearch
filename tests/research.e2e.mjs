@@ -341,33 +341,39 @@ async function verifyRemoteSession(base) {
 
 async function publishSyntheticUpdate(directory) {
   await mkdir(directory, { recursive: true });
-  const pkg = Buffer.from('synthetic desktop package bytes');
   const version = 'b'.repeat(64);
-  const manifest = Buffer.from(JSON.stringify({
-    product: 'MeldResearch.Desktop', runtime: 'win-x64', version, versionDate: '2026-10-28T00:00:00+00:00',
-    length: pkg.length, sha256: createHash('sha256').update(pkg).digest('hex'),
-  }));
   const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
-  const signature = sign('sha256', manifest, { key: privateKey, dsaEncoding: 'ieee-p1363' });
-  const envelope = JSON.stringify({ manifest: manifest.toString('base64'), signature: signature.toString('base64') });
-  await writeFile(path.join(directory, 'meldresearch-win-x64.zip'), pkg);
-  await writeFile(path.join(directory, 'meldresearch-win-x64.update.json'), envelope);
-  return { version, pkg, envelope };
+  const published = {};
+  for (const runtime of ['win-x64', 'win-arm64']) {
+    const pkg = Buffer.from(`synthetic ${runtime} desktop package bytes`);
+    const manifest = Buffer.from(JSON.stringify({
+      product: 'MeldResearch.Desktop', runtime, version, versionDate: '2026-10-28T00:00:00+00:00',
+      length: pkg.length, sha256: createHash('sha256').update(pkg).digest('hex'),
+    }));
+    const signature = sign('sha256', manifest, { key: privateKey, dsaEncoding: 'ieee-p1363' });
+    const envelope = JSON.stringify({ manifest: manifest.toString('base64'), signature: signature.toString('base64') });
+    await writeFile(path.join(directory, `meldresearch-${runtime}.zip`), pkg);
+    await writeFile(path.join(directory, `meldresearch-${runtime}.update.json`), envelope);
+    published[runtime] = { version, pkg, envelope };
+  }
+  return published;
 }
 async function verifyUpdateEndpoints(base, published) {
   const anonymous = client(base);
-  const manifest = await anonymous('/api/updates/win-x64');
-  assert.equal(manifest.status, 200, 'Installed clients read update manifests without an account session.');
-  assert.match(manifest.headers.get('content-type'), /application\/json/);
-  assert.equal(await manifest.text(), published.envelope, 'The signed envelope is served byte for byte.');
+  for (const [runtime, release] of Object.entries(published)) {
+    const manifest = await anonymous(`/api/updates/${runtime}`);
+    assert.equal(manifest.status, 200, 'Installed clients read update manifests without an account session.');
+    assert.match(manifest.headers.get('content-type'), /application\/json/);
+    assert.equal(await manifest.text(), release.envelope, 'The signed envelope is served byte for byte.');
+    const pkg = await anonymous(`/api/updates/${runtime}/package/${release.version}`);
+    assert.equal(pkg.status, 200);
+    assert.deepEqual(Buffer.from(await pkg.arrayBuffer()), release.pkg);
+    assert.equal((await anonymous(`/api/updates/${runtime}/package/${'c'.repeat(64)}`)).status, 404,
+      'Only the release named by the current manifest is served.');
+    assert.equal((await anonymous(`/downloads/${runtime}`)).status, 401, 'Website downloads still require an account.');
+  }
   assert.equal((await anonymous('/api/updates/osx-x64')).status, 404, 'Unpublished runtimes have no update.');
   assert.equal((await anonymous('/api/updates/linux-x64')).status, 404, 'Unknown runtimes are rejected.');
-  const pkg = await anonymous(`/api/updates/win-x64/package/${published.version}`);
-  assert.equal(pkg.status, 200);
-  assert.deepEqual(Buffer.from(await pkg.arrayBuffer()), published.pkg);
-  assert.equal((await anonymous(`/api/updates/win-x64/package/${'c'.repeat(64)}`)).status, 404,
-    'Only the release named by the current manifest is served.');
-  assert.equal((await anonymous('/downloads/win-x64')).status, 401, 'Website downloads still require an account.');
   for (const [platform, file, command] of [['windows', 'meldresearch-install.ps1', 'Install-Meld.ps1'], ['macos', 'meldresearch-install.sh', 'Install-Meld.command']]) {
     const installer = await anonymous(`/api/install/${platform}`);
     assert.equal(installer.status, 200, 'The one-line installer is fetched without a browser session.');

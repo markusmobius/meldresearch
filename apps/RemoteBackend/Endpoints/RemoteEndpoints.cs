@@ -409,7 +409,7 @@ internal static class RemoteEndpoints
         {
             if (await accounts.FindAsync(context.User, ct) is null)
                 throw new ResearchFailure(403, "meld_account_required", "Sign up for a Meld account before downloading the local application.");
-            if (runtime is not ("win-x64" or "osx-arm64" or "osx-x64"))
+            if (!DesktopUpdates.IsRuntime(runtime))
                 throw new ResearchFailure(404, "installer_not_found", "That platform package does not exist.");
             string filename = $"meldresearch-{runtime}.zip";
             string? path = options.DownloadDirectory is { } directory ? Path.Combine(directory, filename) : null;

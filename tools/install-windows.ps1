@@ -6,9 +6,12 @@
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $metadata = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'installation.json') -Raw | ConvertFrom-Json
-if ($metadata.Version -notmatch '^[0-9a-f]{64}$' -or $metadata.Runtime -ne 'win-x64' -or $metadata.ExtensionId -notmatch '^[a-p]{32}$') {
+if ($metadata.Version -notmatch '^[0-9a-f]{64}$' -or $metadata.Runtime -notin @('win-x64', 'win-arm64') -or $metadata.ExtensionId -notmatch '^[a-p]{32}$') {
     throw 'Invalid Meld Research package metadata.'
 }
+# The machine-wide value names the processor even when this PowerShell runs under x64 emulation.
+$arm = 'ARM64' -in @([Environment]::GetEnvironmentVariable('PROCESSOR_ARCHITECTURE', 'Machine'), $env:PROCESSOR_ARCHITECTURE, $env:PROCESSOR_ARCHITEW6432)
+if ($metadata.Runtime -eq 'win-arm64' -and -not $arm) { throw 'This package is for Windows on Arm. Install the x64 package on this computer.' }
 $root = Join-Path $env:LOCALAPPDATA 'MeldResearch\App'
 $folder = $metadata.Version.Substring(0, 12)
 $target = Join-Path $root $folder

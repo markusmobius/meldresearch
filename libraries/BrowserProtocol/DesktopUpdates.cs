@@ -18,7 +18,7 @@ public static class DesktopUpdates
     public const int UpdateExitCode = 75;
     public const long MaxPackageBytes = 512L * 1024 * 1024;
     public const int MaxEnvelopeBytes = 16 * 1024;
-    public static readonly IReadOnlyList<string> Runtimes = ["win-x64", "osx-arm64", "osx-x64"];
+    public static readonly IReadOnlyList<string> Runtimes = ["win-x64", "win-arm64", "osx-arm64", "osx-x64"];
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {

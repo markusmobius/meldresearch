@@ -51,6 +51,10 @@ public sealed class DesktopUpdateTests : IDisposable
         {
             product = DesktopUpdates.Product, runtime = "linux-x64", version = Newer, versionDate = CurrentDate, length = 1, sha256 = new string('0', 64)
         }), PublicKey));
+        Assert.Equal("win-arm64", DesktopUpdates.Verify(Sign(new
+        {
+            product = DesktopUpdates.Product, runtime = "win-arm64", version = Newer, versionDate = CurrentDate, length = 1, sha256 = new string('0', 64)
+        }), PublicKey).Runtime);
         Assert.Throws<InvalidDataException>(() => DesktopUpdates.ReadEnvelope(new byte[DesktopUpdates.MaxEnvelopeBytes + 1]));
     }
 

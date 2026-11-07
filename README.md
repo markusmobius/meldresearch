@@ -812,7 +812,7 @@ the Ubuntu server). If `./deploy/deploy.sh` reports "Permission denied", run
   the committed client inputs' git tree (`apps/LocalBackend`, `apps/BrowserHost`,
   `apps/frontend`, `libraries`, `browser/overleaf`, the packaging/install/launch
   scripts and build settings; see [release-common.ps1](tools/release-common.ps1)).
-  Packages for `win-x64`, `osx-arm64` and `osx-x64` are rebuilt (and the
+  Packages for `win-x64`, `win-arm64`, `osx-arm64` and `osx-x64` are rebuilt (and the
   passphrase requested) only when that identity changes, and republished only
   when they differ from the live release. Uncommitted client changes are refused,
   because a changed build with an old version would be skipped by every updater.
@@ -853,7 +853,9 @@ macOS (Terminal):      curl -fsSL https://www.meldresearch.org/api/install/macos
 
 The script is served by [RemoteEndpoints](apps/RemoteBackend/Endpoints/RemoteEndpoints.cs)
 from [apps/RemoteBackend/Install](apps/RemoteBackend/Install) with the server's
-address filled in. It downloads the published release from the update endpoints,
+address filled in. It picks the package for the computer (`win-arm64` on Windows on
+Arm, `osx-arm64` on Apple silicon, otherwise `win-x64` / `osx-x64`), downloads the
+published release from the update endpoints,
 checks its length and SHA-256 against the manifest, and runs the package's
 `Install-Meld.ps1` / `Install-Meld.command`. No administrator rights are needed.
 That installer:

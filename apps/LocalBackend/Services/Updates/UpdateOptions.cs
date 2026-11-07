@@ -40,7 +40,7 @@ internal sealed record UpdateOptions(bool Enabled, string? DisabledReason, strin
 
     private static bool RuntimeMatches(string runtime) => runtime switch
     {
-        "win-x64" => OperatingSystem.IsWindows(),
+        "win-x64" or "win-arm64" => OperatingSystem.IsWindows(),
         "osx-arm64" or "osx-x64" => OperatingSystem.IsMacOS(),
         _ => false
     };

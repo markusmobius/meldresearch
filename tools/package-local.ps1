@@ -1,7 +1,7 @@
 #requires -Version 7.0
 [CmdletBinding()]
 param(
-    [ValidateSet('win-x64', 'osx-arm64', 'osx-x64')]
+    [ValidateSet('win-x64', 'win-arm64', 'osx-arm64', 'osx-x64')]
     [string]$Runtime = 'win-x64',
     [switch]$StorePublished,
     # Release identity; computed from the committed client inputs when omitted (see release-common.ps1).
@@ -72,7 +72,7 @@ try {
     }
     [IO.File]::WriteAllText([IO.Path]::Combine($staging, 'local', 'appsettings.json'),
         ($settings | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
-    if ($Runtime -eq 'win-x64') {
+    if ($Runtime.StartsWith('win-')) {
         Copy-Item -LiteralPath ([IO.Path]::Combine($PSScriptRoot, 'install-windows.ps1')) -Destination ([IO.Path]::Combine($staging, 'Install-Meld.ps1'))
         Copy-Item -LiteralPath ([IO.Path]::Combine($PSScriptRoot, 'start-windows.ps1')) -Destination ([IO.Path]::Combine($staging, 'Start-Meld.ps1'))
     }

@@ -6,7 +6,7 @@ Builds and deploys Meld Research on the Ubuntu server, from the repository clone
 .DESCRIPTION
 Run as yourself (the user the service runs as, not root) in ~/meldresearch after `git pull`, normally via
 deploy/deploy.sh. One run:
-1. Rebuilds each desktop package (win-x64, osx-arm64, osx-x64; cross-built here) only when the committed desktop
+1. Rebuilds each desktop package (win-x64, win-arm64, osx-arm64, osx-x64; cross-built here) only when the committed desktop
    client inputs changed, and signs it with your passphrase-protected update key (prompted only then).
 2. Rebuilds the remote backend.
 3. On the first deploy, creates ~/meldresearch-data with remote.env (from deploy/remote.env.example) and the
@@ -24,8 +24,8 @@ pwsh deploy/deploy.ps1 -BuildOnly        # build only (also works on Windows)
 #>
 [CmdletBinding()]
 param(
-    # One or more of win-x64, osx-arm64, osx-x64 (comma-separated values work from bash too).
-    [string[]]$DesktopRuntimes = @('win-x64', 'osx-arm64', 'osx-x64'),
+    # One or more of win-x64, win-arm64, osx-arm64, osx-x64 (comma-separated values work from bash too).
+    [string[]]$DesktopRuntimes = @('win-x64', 'win-arm64', 'osx-arm64', 'osx-x64'),
     # Rebuild desktop packages even when their committed inputs did not change.
     [switch]$ForceDesktopBuild,
     # Build into artifacts/ without deploying.
@@ -44,7 +44,7 @@ if ($BuildOnly -and $SkipBuild) { throw 'Use either -BuildOnly or -SkipBuild.' }
 if ($ExpectFoundryEndpoint -notmatch '^https://[A-Za-z0-9.-]+/openai/v1/?$') { throw 'ExpectFoundryEndpoint must be an https://<host>/openai/v1/ URL.' }
 $DesktopRuntimes = @($DesktopRuntimes | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Select-Object -Unique)
 foreach ($desktopRuntime in $DesktopRuntimes) {
-    if ($desktopRuntime -notin @('win-x64', 'osx-arm64', 'osx-x64')) { throw "Unknown desktop runtime '$desktopRuntime'. Use win-x64, osx-arm64 or osx-x64." }
+    if ($desktopRuntime -notin @('win-x64', 'win-arm64', 'osx-arm64', 'osx-x64')) { throw "Unknown desktop runtime '$desktopRuntime'. Use win-x64, win-arm64, osx-arm64 or osx-x64." }
 }
 if (-not $BuildOnly) {
     if (-not $IsLinux) { throw 'Deploy on the Ubuntu server. Elsewhere, use -BuildOnly.' }

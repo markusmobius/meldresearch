@@ -8,7 +8,9 @@
     $ErrorActionPreference = 'Stop'
     $ProgressPreference = 'SilentlyContinue'
     $remote = '{{REMOTEURL}}'
-    $runtime = 'win-x64'
+    # The machine-wide value names the processor even when this PowerShell runs under x64 emulation.
+    $arm = 'ARM64' -in @([Environment]::GetEnvironmentVariable('PROCESSOR_ARCHITECTURE', 'Machine'), $env:PROCESSOR_ARCHITECTURE, $env:PROCESSOR_ARCHITEW6432)
+    $runtime = if ($arm) { 'win-arm64' } else { 'win-x64' }
     $totalSteps = 3
     function Step([int]$Number, [string]$Title) {
         Write-Host ''
@@ -21,7 +23,7 @@
         Step 1 'Check this computer'
         if (-not [Environment]::Is64BitOperatingSystem) { throw 'Meld Research requires 64-bit Windows.' }
         [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-        Write-Host '  64-bit Windows. The package is self-contained: no .NET installation is needed.' -ForegroundColor Green
+        Write-Host "  64-bit Windows ($(if ($arm) { 'Arm64' } else { 'x64' })). The package is self-contained: no .NET installation is needed." -ForegroundColor Green
 
         Step 2 'Download and verify the signed release'
         $null = New-Item -ItemType Directory -Path $work
